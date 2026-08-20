@@ -1,0 +1,85 @@
+# Master configuration for the SATA experimental codebase.
+# All hyperparameters, paths, and seeds live here — see src/utils/config.py
+# for the loader. Do not hardcode these values elsewhere.
+
+# Models
+base_llms:
+  - name: "Llama-3.1-8B-Instruct"
+    path: "meta-llama/Llama-3.1-8B-Instruct"  # or local path
+  - name: "Qwen2.5-7B-Instruct"               # second model for robustness
+    path: "Qwen/Qwen2.5-7B-Instruct"
+
+# Serving
+vllm:
+  tensor_parallel: 1
+  gpu_memory_utilisation: 0.90
+  max_model_len: 4096
+
+# Demo selection
+k_primary: 8
+k_sensitivity: 16       # one dataset only
+pool_size: 256           # real arm demo pool
+seed_accuracy: [42, 123, 456, 789, 1024]    # 5 seeds for accuracy runs
+seed_faithfulness: [42, 123, 456]            # 3 seeds for faithfulness
+
+# Evaluation
+test_rows_id: 500
+test_rows_ood: 500
+faithfulness_subset: 200
+
+# SATA
+sata:
+  d_model: 128
+  n_heads: 4
+  n_layers: 4
+  max_demos: 64
+  max_features: 16      # pad/truncate to this
+  lr: 1.0e-4  # PyYAML's safe_load parses bare "1e-4" as a string, not a float — needs the decimal point
+  epochs: 50
+  batch_size: 64
+
+# Generator
+generator:
+  n_features: 10
+  n_causal_range: [3, 5]
+  n_train_tasks: 2000
+  n_val_tasks: 200
+  n_test_tasks: 200
+  n_heldout_family_tasks: 50
+  rule_families: ["linear", "threshold", "tree", "sparse_interaction"]
+  heldout_family: "sparse_interaction"
+  # Recalibrated during the Notebook 04 XGBoost validation gate (see that
+  # notebook): the original [0.70, 0.95] / 0.05 values left the spurious
+  # feature too weak, and mechanism-shift too, for a depth-4/100-estimator
+  # XGBoost to be meaningfully misled by either — see generator.py's
+  # generate_environment for the accompanying "mechanism" sign-flip fix.
+  spurious_strength_range: [0.92, 0.99]
+  label_noise: 0.08
+  demos_per_task: 64
+  queries_per_env: 32
+  environments: ["id", "covariate", "spurious_reversal", "extrapolation", "missing_feature", "mechanism"]
+
+# Paths
+paths:
+  data_real: "data/real"
+  data_synthetic: "data/synthetic"
+  results: "results"
+  figures: "figures"
+  tables: "tables"
+  models: "models"
+
+# Results schema
+results_columns:
+  - arm           # "real" or "synthetic"
+  - dataset       # e.g. "acs_income" or "task_0042"
+  - environment   # e.g. "id", "ood", "spurious_reversal"
+  - model         # e.g. "llama-3.1-8b"
+  - method        # e.g. "random", "sata+counter_spurious"
+  - seed          # demo sampling seed
+  - query_id      # unique per query
+  - prediction    # model's predicted label
+  - label         # ground truth
+  - logprob_0     # normalised logprob of label token 0
+  - logprob_1     # normalised logprob of label token 1
+  - demo_ids      # list of selected demo indices
+  - k             # number of demos used

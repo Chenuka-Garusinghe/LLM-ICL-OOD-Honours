@@ -1,0 +1,15 @@
+torch>=2.0
+transformers
+vllm
+datasets
+scikit-learn
+xgboost
+numpy
+pandas<3  # tableshift's xport dependency breaks on pandas 3.x (Series.__init__ dropped `fastpath`)
+scipy
+matplotlib
+seaborn
+sentence-transformers  # for similarity-k embedding
+pyarrow                # for parquet I/O
+pyyaml
+jupyter

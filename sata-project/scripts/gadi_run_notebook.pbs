@@ -1,0 +1,47 @@
+#!/bin/bash
+# Generic PBS job: runs one notebook headlessly via nbconvert on a gpuvolta GPU node.
+#
+# Submit with:
+#   qsub -v NB=02_real_arm_baselines scripts/gadi_run_notebook.pbs
+# (NB = the notebook filename without .ipynb, e.g. 02_real_arm_baselines,
+#  03_faithfulness_real, 05_sata_train, 06_synthetic_evaluation)
+#
+# Adjust walltime/ncpus/mem per notebook -- NB02's real-arm baselines is the
+# ~12-24h, 210,000-call run per the spec's own compute budget; NB05's full-scale
+# SATA training or a single faithfulness pass will need far less.
+
+#PBS -N sata_notebook
+#PBS -P pp49
+#PBS -q gpuvolta
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=64GB
+#PBS -l jobfs=100GB
+#PBS -l walltime=24:00:00
+#PBS -l storage=scratch/pp49
+#PBS -l wd
+
+set -euo pipefail
+
+PROJECT_DIR="/scratch/pp49/cg3543/sata-project"
+cd "${PROJECT_DIR}"
+
+module load python3/3.11.7   # must match whatever deploy_to_gadi.sh built the venv with
+source .venv/bin/activate
+
+# gpuvolta = V100 -- no native bf16 tensor cores, force fp16 for vLLM.
+export VLLM_DTYPE=float16
+
+if [ -z "${NB:-}" ]; then
+  echo "Usage: qsub -v NB=<notebook_name_without_ipynb> gadi_run_notebook.pbs" >&2
+  exit 1
+fi
+
+echo "Running notebooks/${NB}.ipynb on $(hostname), GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+
+jupyter nbconvert --to notebook --execute --inplace \
+  --ExecutePreprocessor.timeout=86400 \
+  --ExecutePreprocessor.kernel_name=python3 \
+  "notebooks/${NB}.ipynb"
+
+echo "Done: notebooks/${NB}.ipynb"

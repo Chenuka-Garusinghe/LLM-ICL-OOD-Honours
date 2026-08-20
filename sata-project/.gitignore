@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data / results / model artifacts (large, regenerable — not version controlled)
+data/real/*
+!data/real/.gitkeep
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/tableshift_cache/
+data/tableshift_raw_cache/
+data/anes_timeseries_cdf_csv_*/
+results/*
+!results/.gitkeep
+figures/*
+!figures/.gitkeep
+tables/*
+!tables/.gitkeep
+models/*
+!models/.gitkeep
+
+# OS
+.DS_Store
