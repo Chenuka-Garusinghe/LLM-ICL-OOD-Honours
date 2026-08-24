@@ -1,6 +1,6 @@
 torch>=2.0
 transformers
-vllm
+vllm==0.21.0
 datasets
 scikit-learn
 xgboost
@@ -13,3 +13,4 @@ sentence-transformers  # for similarity-k embedding
 pyarrow                # for parquet I/O
 pyyaml
 jupyter
+tqdm

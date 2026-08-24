@@ -9,6 +9,13 @@
 # Adjust walltime/ncpus/mem per notebook -- NB02's real-arm baselines is the
 # ~12-24h, 210,000-call run per the spec's own compute budget; NB05's full-scale
 # SATA training or a single faithfulness pass will need far less.
+#
+# Runs inside the shared Apptainer container (torch/vllm/transformers base
+# image + a project-extras overlay for pandas/scikit-learn/xgboost/etc that
+# aren't in the base vllm image) instead of a per-student venv -- see
+# scripts/deploy_to_gadi.sh's header comment and containers/README.md for why
+# (a raw pip install of this stack costs ~99,000 inodes against our shared
+# 202,000-inode scratch quota; the container is a single near-zero-inode file).
 
 #PBS -N sata_notebook
 #PBS -P pp49
@@ -18,7 +25,7 @@
 #PBS -l mem=64GB
 #PBS -l jobfs=100GB
 #PBS -l walltime=24:00:00
-#PBS -l storage=scratch/pp49
+#PBS -l storage=scratch/pp49+scratch/aa36
 #PBS -l wd
 
 set -euo pipefail
@@ -26,8 +33,14 @@ set -euo pipefail
 PROJECT_DIR="/scratch/pp49/cg3543/sata-project"
 cd "${PROJECT_DIR}"
 
-module load python3/3.11.7   # must match whatever deploy_to_gadi.sh built the venv with
-source .venv/bin/activate
+module load apptainer
+
+# Shared container files (built once, reused by the whole lab -- see
+# containers/README.md next to them). Override if you've copied these
+# somewhere else: qsub -v NB=...,CONTAINER_DIR=/other/path ...
+CONTAINER_DIR="${CONTAINER_DIR:-/scratch/aa36/cg3543/containers}"
+SIF="${CONTAINER_DIR}/sata-vllm.sif"
+EXTRAS_SQFS="${CONTAINER_DIR}/sata-extras.sqfs"
 
 # gpuvolta = V100 -- no native bf16 tensor cores, force fp16 for vLLM.
 export VLLM_DTYPE=float16
@@ -39,7 +52,20 @@ fi
 
 echo "Running notebooks/${NB}.ipynb on $(hostname), GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 
-jupyter nbconvert --to notebook --execute --inplace \
+# NOTE: kernel_name=python3 resolves via JUPYTER_PATH to the kernelspec baked
+# into sata-extras.sqfs at /opt/sata-extra/share/jupyter/kernels/python3/. That
+# kernelspec's argv is a bare `python3 -m ipykernel_launcher` (NOT another
+# nested apptainer exec) because we're already inside the container by the
+# time nbconvert spawns it -- apptainer itself isn't installed inside the vllm
+# image, so a nested `apptainer exec` here would fail. This is deliberately
+# different from the kernelspec deploy_to_gadi.sh registers for interactive
+# JupyterLab use (which DOES need the nested apptainer exec, since JupyterLab
+# runs outside any container). Don't unify the two.
+apptainer exec --nv \
+  --overlay "${EXTRAS_SQFS}" \
+  --env "PYTHONPATH=/opt/sata-extra/site-packages,JUPYTER_PATH=/opt/sata-extra/share/jupyter,VLLM_DTYPE=${VLLM_DTYPE}" \
+  "${SIF}" \
+  python3 -m nbconvert --to notebook --execute --inplace \
   --ExecutePreprocessor.timeout=86400 \
   --ExecutePreprocessor.kernel_name=python3 \
   "notebooks/${NB}.ipynb"

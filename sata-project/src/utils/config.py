@@ -7,13 +7,28 @@ hardcoding values, so a single edit to configs/default.yaml propagates everywher
 from __future__ import annotations
 
 import os
+import platform
 
-# torch and xgboost each link/bundle their own libomp.dylib on macOS; loading
-# both in one process reliably segfaults unless OpenMP is forced single-threaded
-# before either is imported. This module is always the first src import in
-# every notebook's setup cell, so it's the one place that's guaranteed to run
-# before torch/xgboost do.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
+if platform.system() == "Darwin":
+    # torch and xgboost each link/bundle their own libomp.dylib on macOS; loading
+    # both in one process reliably segfaults unless OpenMP is forced single-threaded
+    # before either is imported. This module is always the first src import in
+    # every notebook's setup cell, so it's the one place that's guaranteed to run
+    # before torch/xgboost do.
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+else:
+    # The libomp segfault above is macOS-specific (conflicting bundled libomp.dylib
+    # copies) -- it doesn't occur on Linux (e.g. Gadi HPC nodes). Forcing 1 thread
+    # there instead silently pins every numpy/sklearn/XGBoost/torch-CPU call in the
+    # whole codebase to a single core regardless of how many were allocated to the
+    # job. Use the job's actual (cgroup/affinity-restricted) CPU count instead of
+    # os.cpu_count(), which reports the physical node's full core count even when
+    # a PBS job was only granted a subset of them.
+    try:
+        _n_cpus = len(os.sched_getaffinity(0))
+    except AttributeError:
+        _n_cpus = os.cpu_count() or 4
+    os.environ.setdefault("OMP_NUM_THREADS", str(_n_cpus))
 
 import random
 from dataclasses import dataclass

@@ -78,14 +78,26 @@ def load_tableshift_splits(dataset_name: str, cache_dir: str | None = None) -> d
     return splits
 
 
-def select_top_features(train_df: pd.DataFrame, n_features: int = 12) -> list[str]:
+def select_top_features(train_df: pd.DataFrame, n_features: int = 12, mi_sample_size: int = 5000) -> list[str]:
     """Select top-N feature columns by mutual information with the label
     on the training split. Document which features were kept in the caller
     (feature_list.json) so the choice is auditable.
+
+    `mutual_info_classif` is single-threaded with no `n_jobs`, and its
+    continuous-feature k-NN estimator is expensive per row — on TableShift's
+    ACS-derived datasets (hundreds of thousands of rows) it dominates this
+    notebook's wall time. The MI ranking is only used to pick which features
+    survive, not the eventual (256-row) demo pool, so it's computed on a
+    fixed-seed subsample rather than the full training split.
     """
     feature_cols = [c for c in train_df.columns if c != "label"]
-    X = train_df[feature_cols].apply(lambda col: col.astype("category").cat.codes if col.dtype == "object" else col)
-    mi = mutual_info_classif(X.fillna(X.median()), train_df["label"], random_state=0)
+    mi_df = (
+        train_df.sample(n=mi_sample_size, random_state=0)
+        if len(train_df) > mi_sample_size
+        else train_df
+    )
+    X = mi_df[feature_cols].apply(lambda col: col.astype("category").cat.codes if col.dtype == "object" else col)
+    mi = mutual_info_classif(X.fillna(X.median()), mi_df["label"], random_state=0)
     ranked = sorted(zip(feature_cols, mi), key=lambda t: -t[1])
     return [name for name, _ in ranked[:n_features]]
 
