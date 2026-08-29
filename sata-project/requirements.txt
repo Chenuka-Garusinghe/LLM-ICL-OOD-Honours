@@ -1,11 +1,11 @@
-torch>=2.0
+torch
 transformers
-vllm==0.21.0
+vllm
 datasets
 scikit-learn
 xgboost
 numpy
-pandas<3  # tableshift's xport dependency breaks on pandas 3.x (Series.__init__ dropped `fastpath`)
+pandas  # tableshift's xport dependency breaks on pandas 3.x (Series.__init__ dropped `fastpath`)
 scipy
 matplotlib
 seaborn
