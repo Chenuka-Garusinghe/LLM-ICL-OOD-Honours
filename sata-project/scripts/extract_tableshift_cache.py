@@ -41,12 +41,23 @@ def _patch_xport_underscore_fields() -> None:
     """xport.v56 builds a namedtuple from raw SAS column names without
     rename=True; BRFSS/ANES have underscore-prefixed names (e.g. "_STATE")
     that namedtuple rejects outright without this patch.
+
+    Only applies to older xport releases (verified against the version
+    pinned by tableshift's original, ~2023 requirements.txt) that build
+    records via a bare `namedtuple` call in this module. xport 3.6.1
+    rewrote v56's internals around proper classes (Namestr, MemberHeader,
+    Observations, ...) and no longer references `namedtuple` there at all --
+    on that version there's nothing to patch, and the underscore-field
+    problem may not even apply, so just skip rather than crash.
     """
     import collections
 
     try:
         import xport.v56 as _xport_v56
     except ImportError:
+        return
+
+    if not hasattr(_xport_v56, "namedtuple"):
         return
 
     if getattr(_xport_v56.namedtuple, "_extract_script_patch", False):
