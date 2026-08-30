@@ -27,6 +27,7 @@ Notebook 01's Step 2 markdown for the manual-download instructions.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -73,8 +74,80 @@ def _patch_xport_underscore_fields() -> None:
     _xport_v56.namedtuple = _namedtuple_with_rename
 
 
+def _patch_domain_label_passthrough() -> None:
+    """Preprocessor.fit_transform (tableshift/core/features.py, as of
+    upstream commit fca9429) calls self.get_passthrough_columns(...)
+    without forwarding its own domain_label_colname argument, so
+    get_passthrough_columns never adds the domain label (e.g. "DIVISION"
+    for ACS's geographic shift) to the passthrough list -- it gets dropped
+    by the ColumnTransformer, and fit_transform's later unconditional
+    `transformed.loc[:, domain_label_colname]` raises KeyError. This is a
+    real upstream bug affecting every domain-split dataset, not just ACS.
+
+    Reimplements fit_transform with that one argument forwarded, rather
+    than patching the installed source file -- keeps the fix inside this
+    script so it applies to any fresh `git clone` of upstream tableshift.
+    """
+    try:
+        from tableshift.core.features import Preprocessor
+    except ImportError:
+        return
+
+    if getattr(Preprocessor.fit_transform, "_extract_script_patch", False):
+        return
+
+    def fit_transform(self, data, train_idxs, domain_label_colname=None,
+                      target_colname=None, passthrough_columns=None):
+        """Fit a feature_transformer and apply it to the input features."""
+        logging.info("transforming columns")
+        if self.config.passthrough_columns == "all":
+            logging.info("passthrough is 'all'; data will not be preprocessed "
+                         "by tableshift.")
+            if self.config.use_extended_names:
+                logging.warning(
+                    "passthrough is 'all' but "
+                    "config.use_extended_names is True; extended "
+                    "names are not applied when passthrough is 'all'. Try "
+                    "setting numeric_columns='passthough', "
+                    "categorical_columns='passthrough' instead.")
+            return data
+
+        passthrough_columns = self.get_passthrough_columns(
+            data,
+            passthrough_columns,
+            domain_label_colname=domain_label_colname,
+            target_colname=target_colname)
+
+        dtypes_in = data.dtypes.to_dict()
+
+        post_transform_cast_dtypes = (
+            {c: dtypes_in[c] for c in passthrough_columns if
+             c != domain_label_colname}
+            if passthrough_columns else None)
+
+        self._check_inputs(data)
+
+        self.fit_feature_transformer(data, train_idxs, passthrough_columns)
+        transformed = self.transform_features(data)
+
+        transformed = self._post_transform(
+            transformed, cast_dtypes=post_transform_cast_dtypes)
+
+        if domain_label_colname:
+            transformed.loc[:, domain_label_colname] = \
+                self.fit_transform_domain_labels(
+                    transformed.loc[:, domain_label_colname])
+        self._post_transform_summary(transformed)
+        logging.info("transforming columns complete.")
+        return transformed
+
+    fit_transform._extract_script_patch = True
+    Preprocessor.fit_transform = fit_transform
+
+
 def extract_dataset(dataset_name: str) -> None:
     _patch_xport_underscore_fields()
+    _patch_domain_label_passthrough()
     from tableshift import get_dataset
 
     dset = get_dataset(dataset_name, cache_dir=str(TABLESHIFT_DOWNLOAD_CACHE))
