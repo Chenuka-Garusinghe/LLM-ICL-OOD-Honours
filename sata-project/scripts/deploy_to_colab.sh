@@ -81,11 +81,16 @@ else
 fi
 
 echo "== Step 3/5: install Python dependencies into the kernel env =="
-# Colab's base image already ships a CUDA-matched torch build; letting pip
-# resolve vllm's own torch/transformers pins on top of it is expected to
+# Colab's base image already ships a CUDA-matched torch build; letting the
+# resolver pull vllm's own torch/transformers pins on top of it is expected to
 # adjust versions -- that's normal here (unlike Gadi, there's no shared
 # container to keep byte-for-byte stable across a whole lab).
-pip install -q -r "${PROJECT_DIR}/requirements.txt"
+# uv resolves and installs this stack much faster than pip -- bootstrap it via
+# pip (small, no extra deps) if it's not already on PATH, then use it for the
+# real install. --system targets the kernel's own interpreter directly, same
+# as the pip call this replaces -- there's no venv here to install into.
+command -v uv >/dev/null 2>&1 || pip install -q uv
+uv pip install -q --system -r "${PROJECT_DIR}/requirements.txt"
 
 export HF_HOME="${CACHE_DIR}/huggingface"
 echo "HF_HOME set to ${HF_HOME} for this shell -- see note below about the kernel process."
