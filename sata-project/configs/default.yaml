@@ -9,11 +9,11 @@ base_llms:
   - name: "Qwen2.5-7B-Instruct"               # second model for robustness
     path: "Qwen/Qwen2.5-7B-Instruct"
 
-# Serving
-vllm:
-  tensor_parallel: 1
-  gpu_memory_utilisation: 0.90
-  max_model_len: 4096
+# Inference (src/inference/llm_runner.py::HFRunner)
+inference:
+  max_model_len: 4096      # prompts longer than this are truncated from the LEFT,
+                           # so the query line at the end is never cut off
+  batch_size: 16           # prompts per forward pass; lower it if you hit OOM
 
 # Demo selection
 k_primary: 8
