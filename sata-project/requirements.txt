@@ -1,14 +1,11 @@
 torch
 transformers
-# vllm removed: the pipeline scores a single next token (one forward
-# pass, no generation loop), so vLLM's continuous batching bought
-# little while its torch/CUDA pinning broke environments repeatedly.
-# See src/inference/llm_runner.py::HFRunner.
+vllm
 datasets
 scikit-learn
 xgboost
 numpy
-pandas<3  # tableshift's xport dependency breaks on pandas 3.x (Series.__init__ dropped `fastpath`)
+pandas  # tableshift's xport dependency breaks on pandas 3.x (Series.__init__ dropped `fastpath`)
 scipy
 matplotlib
 seaborn
