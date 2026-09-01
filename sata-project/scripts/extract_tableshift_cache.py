@@ -145,9 +145,81 @@ def _patch_domain_label_passthrough() -> None:
     Preprocessor.fit_transform = fit_transform
 
 
+def _patch_acs_incremental_year_loading() -> None:
+    """ACSDataSource._get_acs_data() (tableshift/core/data_source.py) loads
+    every year in self.years fully into memory -- all 51 states x
+    person+household joined, full raw PUMS schema (hundreds of columns) --
+    appending each year's complete frame to a list before concatenating,
+    and only AFTER that does _load_data() reduce down to the task's actual
+    ~15-20 predictor/target columns via ACSProblem.df_to_numpy(). For a
+    single-year task (acsincome) that's fine; for a multi-year task like
+    acspubcov (ACS_YEARS = 5 years), peak memory holds 5 full-schema years
+    simultaneously and reliably OOM-kills even on machines with tens of
+    GB of RAM (confirmed: reliably kills processes on a 36GB machine).
+
+    Reimplements ACSDataSource._load_data() to reduce each year down to
+    just its predictor/target columns immediately after loading it, before
+    fetching the next year. Safe to do per-year rather than after
+    concatenating: the task's preprocess filters (folktables.acs.adult_filter,
+    public_coverage_filter, etc.) are simple row-wise filters with no
+    cross-year/global statistics, so this is functionally identical to the
+    original -- just with peak memory bounded by ~1 year's raw data instead
+    of len(self.years) years' worth.
+
+    Must still set year_data["ACS_YEAR"] = year per-year before reducing --
+    it's a real predictor column (part of the feature set some tasks use),
+    not vestigial; dropping it raises KeyError inside df_to_numpy().
+    """
+    try:
+        from tableshift.core.data_source import (
+            ACSDataSource, ACS_TASK_CONFIGS, acs_data_to_df,
+            get_acs_data_source,
+        )
+        import folktables
+        import pandas as pd
+        from functools import partial
+    except ImportError:
+        return
+
+    if getattr(ACSDataSource._load_data, "_extract_script_patch", False):
+        return
+
+    def _load_data(self):
+        task_config = ACS_TASK_CONFIGS[self.acs_task]
+        target_transform = partial(task_config.target_transform,
+                                   threshold=task_config.threshold)
+        acs_problem = folktables.BasicProblem(
+            features=task_config.features_to_use.predictors,
+            target=task_config.target,
+            target_transform=target_transform,
+            preprocess=task_config.preprocess,
+            postprocess=task_config.postprocess,
+        )
+
+        year_dfs = []
+        for year in self.years:
+            logging.info(f"fetching ACS data for year {year}...")
+            data_source = get_acs_data_source(year, self.cache_dir)
+            year_data = data_source.get_data(states=self.states,
+                                             join_household=True,
+                                             download=True)
+            year_data["ACS_YEAR"] = year
+            X, y, _ = acs_problem.df_to_numpy(year_data)
+            year_dfs.append(acs_data_to_df(
+                X, y, task_config.features_to_use,
+                feature_mapping=self.feature_mapping))
+            del year_data
+        logging.info("fetching ACS data complete.")
+        return pd.concat(year_dfs, axis=0)
+
+    _load_data._extract_script_patch = True
+    ACSDataSource._load_data = _load_data
+
+
 def extract_dataset(dataset_name: str) -> None:
     _patch_xport_underscore_fields()
     _patch_domain_label_passthrough()
+    _patch_acs_incremental_year_loading()
     from tableshift import get_dataset
 
     dset = get_dataset(dataset_name, cache_dir=str(TABLESHIFT_DOWNLOAD_CACHE))
