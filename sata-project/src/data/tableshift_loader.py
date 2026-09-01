@@ -26,7 +26,7 @@ the VCF* columns tableshift.datasets.anes.ANES_FEATURES expects are present).
 IMPORTANT: this module never imports `tableshift` at runtime. TableShift
 hard-pins numpy==1.23.5 / ray==2.2 and its `xport` dependency breaks on
 pandas>=3 — all incompatible with this project's modern stack (torch 2.x,
-transformers, current pandas/numpy/sklearn). Raw datasets are extracted ONCE, in a
+vllm, current pandas/numpy/sklearn). Raw datasets are extracted ONCE, in a
 separate isolated environment, via scripts/extract_tableshift_cache.py, and
 cached here as plain parquet files; this module only ever reads those. See
 that script's docstring for the extraction instructions.

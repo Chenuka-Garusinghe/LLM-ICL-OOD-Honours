@@ -6,7 +6,7 @@ then install its runtime deps manually) -- NOT this project's main .venv.
 
 Why isolated: TableShift hard-pins numpy==1.23.5 / ray==2.2 and its `xport`
 dependency breaks on pandas>=3, all of which conflict with this project's
-modern stack (torch 2.x, transformers, current pandas/numpy/sklearn). Fighting that
+modern stack (torch 2.x, vllm, current pandas/numpy/sklearn). Fighting that
 version conflict once, in a throwaway environment, is far cheaper than
 carrying tableshift's constraints into the main project's environment
 permanently.

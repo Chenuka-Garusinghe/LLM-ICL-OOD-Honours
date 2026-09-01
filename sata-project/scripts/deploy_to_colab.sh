@@ -23,7 +23,7 @@
 #   5. Symlink data/tableshift_raw_cache (and data/tableshift_cache, for the
 #      manual anes CSV) from Drive, and check the expected parquet files are
 #      there -- same check as deploy_to_gadi.sh, and the same reason: `tableshift`
-#      still can't be pip-installed alongside torch/transformers here either (its
+#      still can't be pip-installed alongside torch/vllm here either (its
 #      numpy==1.23.5/ray==2.2 pins conflict). Extraction has to happen in a
 #      SEPARATE environment (your Mac, or Gadi) and the resulting parquet
 #      files copied into the Drive folder this script points at.
@@ -81,11 +81,10 @@ else
 fi
 
 echo "== Step 3/5: install Python dependencies into the kernel env =="
-# Colab's base image already ships a CUDA-matched torch build, which is what
-# HFRunner uses -- so in the common case this step should adjust little. (An
-# earlier version of this project installed vllm here, whose hard torch/CUDA
-# pins fought Colab's preinstalled stack badly enough to be unusable; see
-# src/inference/llm_runner.py for why it was dropped.)
+# Colab's base image already ships a CUDA-matched torch build; letting the
+# resolver pull vllm's own torch/transformers pins on top of it is expected to
+# adjust versions -- that's normal here (unlike Gadi, there's no shared
+# container to keep byte-for-byte stable across a whole lab).
 # uv resolves and installs this stack much faster than pip -- bootstrap it via
 # pip (small, no extra deps) if it's not already on PATH, then use it for the
 # real install. --system targets the kernel's own interpreter directly, same
