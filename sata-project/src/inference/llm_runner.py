@@ -8,9 +8,40 @@ vocabulary distribution.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
+
+# vLLM's V1 engine normally runs its worker in a *subprocess*
+# (VLLM_ENABLE_V1_MULTIPROCESSING=1, the default), forked by default. That's
+# broken when the parent process already has an initialized CUDA context --
+# which is exactly the case here, since VLLMRunner is constructed from
+# inside a live Jupyter kernel: "Cannot re-initialize CUDA in forked
+# subprocess. To use CUDA with multiprocessing, you must use the 'spawn'
+# start method."
+#
+# Switching just the start method to "spawn" does NOT fix this in a Jupyter
+# kernel (verified) -- it trades that crash for a second one, because
+# multiprocessing's spawn re-imports `__main__` in the child to reconstruct
+# state, and `__main__` here is ipykernel's own launcher, which has side
+# effects on import (RuntimeError: "An attempt has been made to start a new
+# process before the current process has finished its bootstrapping phase").
+#
+# The fix that actually works: disable the V1 engine's subprocess entirely
+# so it runs in-process (InprocClient) -- no fork, no spawn, no re-import.
+# Confirmed working end-to-end (model load + real generation) on a gpuvolta
+# V100 node.
+os.environ.setdefault("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
+
+# Separately: V100 (compute capability 7.0) hits an unrelated bug in
+# flashinfer's CUDA-arch JIT check (`minor.isdigit()` called on an int,
+# flashinfer's own bug) when vLLM tries to use its optimized sampling
+# kernel, which it does by default whenever flashinfer is importable.
+# Disabling it falls back to vLLM's plain PyTorch top-k/top-p sampler --
+# functionally identical, just without the JIT-compiled kernel. Confirmed
+# needed on V100; harmless to force off on other GPUs too.
+os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
 
 INVALID = "INVALID"
 

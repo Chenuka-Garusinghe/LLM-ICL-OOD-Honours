@@ -30,7 +30,13 @@
 
 set -euo pipefail
 
-PROJECT_DIR="/scratch/pp49/cg3543/sata-project"
+# Defaults to wherever `qsub` was invoked from ($PBS_O_WORKDIR, always set by
+# PBS regardless of the -l wd directive above) -- so submitting from your
+# home checkout or a scratch checkout both just work, with no hardcoded path
+# tying this script to one particular clone. Override explicitly if you want
+# to run a checkout other than the one you submitted from:
+#   qsub -v NB=...,PROJECT_DIR=/other/path scripts/gadi_run_notebook.pbs
+PROJECT_DIR="${PROJECT_DIR:-$PBS_O_WORKDIR}"
 cd "${PROJECT_DIR}"
 
 module load apptainer
@@ -44,6 +50,28 @@ EXTRAS_SQFS="${CONTAINER_DIR}/sata-extras.sqfs"
 
 # gpuvolta = V100 -- no native bf16 tensor cores, force fp16 for vLLM.
 export VLLM_DTYPE=float16
+
+# HF weights cache. Llama-3.1-8B-Instruct was pre-downloaded here on a login
+# node; compute nodes have no outbound network, so force offline resolution
+# (otherwise huggingface_hub blocks trying to reach the Hub for metadata).
+# Override with: qsub -v NB=...,HF_HOME=/other/hf_cache ...
+export HF_HOME="${HF_HOME:-/scratch/pp49/cg3543/hf_cache}"
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+# Keep nbconvert / tqdm output flowing into the PBS .o/.e log instead of
+# sitting in a buffer for hours.
+export PYTHONUNBUFFERED=1
+
+# Opt-in: ALLOW_ERRORS=1 makes nbconvert run every cell and write the notebook
+# back even if a cell raises (traceback captured in that cell's output),
+# instead of the default fail-fast that aborts on the first error and saves
+# nothing. Use for a re-run where you want whatever executed to be persisted:
+#   qsub -v NB=...,ALLOW_ERRORS=1 scripts/gadi_run_notebook.pbs
+NBCONVERT_EXTRA=()
+if [ "${ALLOW_ERRORS:-0}" = "1" ]; then
+  NBCONVERT_EXTRA+=(--allow-errors)
+fi
 
 if [ -z "${NB:-}" ]; then
   echo "Usage: qsub -v NB=<notebook_name_without_ipynb> gadi_run_notebook.pbs" >&2
@@ -62,10 +90,12 @@ echo "Running notebooks/${NB}.ipynb on $(hostname), GPU: $(nvidia-smi --query-gp
 # JupyterLab use (which DOES need the nested apptainer exec, since JupyterLab
 # runs outside any container). Don't unify the two.
 apptainer exec --nv \
+  --bind "${HF_HOME}" \
   --overlay "${EXTRAS_SQFS}" \
-  --env "PYTHONPATH=/opt/sata-extra/site-packages,JUPYTER_PATH=/opt/sata-extra/share/jupyter,VLLM_DTYPE=${VLLM_DTYPE}" \
+  --env "PYTHONPATH=/opt/sata-extra/site-packages,JUPYTER_PATH=/opt/sata-extra/share/jupyter,VLLM_DTYPE=${VLLM_DTYPE},HF_HOME=${HF_HOME},HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1,PYTHONUNBUFFERED=1" \
   "${SIF}" \
   python3 -m nbconvert --to notebook --execute --inplace \
+  ${NBCONVERT_EXTRA[@]+"${NBCONVERT_EXTRA[@]}"} \
   --ExecutePreprocessor.timeout=86400 \
   --ExecutePreprocessor.kernel_name=python3 \
   "notebooks/${NB}.ipynb"
