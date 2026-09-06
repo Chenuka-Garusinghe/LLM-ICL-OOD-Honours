@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -71,7 +72,14 @@ def _fit_predict_one(demo_X_topk: np.ndarray, demo_y_topk: np.ndarray, query_row
     return int(pred == query_label)
 
 
-def train_sata(model, train_tasks: list, val_tasks: list, config: Any, checkpoint_path=None) -> list[dict]:
+def train_sata(
+    model,
+    train_tasks: list,
+    val_tasks: list,
+    config: Any,
+    checkpoint_path=None,
+    resume_checkpoint_path=None,
+) -> list[dict]:
     """Train SATA via KL-divergence against ground-truth target scores.
 
     `config` exposes the `sata` block of default.yaml (lr, epochs, max_demos,
@@ -85,17 +93,64 @@ def train_sata(model, train_tasks: list, val_tasks: list, config: Any, checkpoin
     If `checkpoint_path` is given, the state dict with the best (highest)
     val_proxy seen so far is written there after every epoch -- this is what
     makes models/sata_best.pt actually "best checkpoint by validation loss"
-    rather than just whatever epoch training happened to stop on, and gives
-    crash/interrupt resilience for a run that can take hours at full scale.
+    rather than just whatever epoch training happened to stop on.
+
+    Early stopping: training stops once `config.patience` epochs pass with no
+    improvement in val_proxy over the best seen so far (`getattr(config,
+    "patience", 10)` -- 10 is a deliberately mild default: val_proxy is a
+    noisy proxy metric that can move a point or two between consecutive
+    epochs on its own, so a short patience risks stopping on noise rather
+    than a genuine plateau, but it still bounds the wasted-epoch cost of a
+    real plateau to a fraction of the full `config.epochs` budget). This
+    was previously unconditional -- the loop always ran all `config.epochs`
+    regardless of whether val_proxy had stopped improving many epochs
+    earlier, which is exactly what happened during Notebook 05's first full
+    run (val_proxy peaked at epoch 0 and never recovered through epoch 35+).
+
+    Resume support: if `resume_checkpoint_path` is given, full training
+    state (model + optimizer state, current epoch, best-so-far bookkeeping,
+    and the log accumulated up to that point) is written there after every
+    epoch, and automatically loaded from if the file already exists when
+    this function is called -- so an interrupted multi-hour run (kernel
+    killed, walltime hit, connection dropped) picks back up at the next
+    epoch instead of restarting from epoch 0. This is a separate file from
+    `checkpoint_path`, which stays a bare model state_dict (what Notebook 06
+    and downstream code load directly via `SATA().load_state_dict(...)`) --
+    resume state is a different, larger payload most callers don't want.
+    Delete `resume_checkpoint_path`'s file to force a fresh run instead of
+    resuming. Task/environment sampling itself uses `seed=None` throughout
+    this loop already (see `_task_batch`), so training data is regenerated
+    stochastically every epoch regardless of resume -- there is no RNG state
+    to restore for exact reproducibility across a resume, only genuinely
+    fresh (if statistically equivalent) synthetic batches.
     """
     device = _resolve_device()
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    patience = getattr(config, "patience", 10)
+
+    start_epoch = 0
     log: list[dict] = []
     best_val_score = float("-inf")
+    best_epoch = -1
+    epochs_without_improvement = 0
 
-    for epoch in range(config.epochs):
+    if resume_checkpoint_path is not None and Path(resume_checkpoint_path).exists():
+        resume_state = torch.load(resume_checkpoint_path, map_location=device, weights_only=True)
+        model.load_state_dict(resume_state["model_state"])
+        optimizer.load_state_dict(resume_state["optimizer_state"])
+        start_epoch = resume_state["epoch"] + 1
+        best_val_score = resume_state["best_val_score"]
+        best_epoch = resume_state["best_epoch"]
+        epochs_without_improvement = resume_state["epochs_without_improvement"]
+        log = resume_state["log"]
+        print(
+            f"Resumed from {resume_checkpoint_path}: starting at epoch {start_epoch}, "
+            f"best_val_score={best_val_score:.4f} (epoch {best_epoch})"
+        )
+
+    for epoch in range(start_epoch, config.epochs):
         model.train()
         epoch_loss = 0.0
         n_batches = 0
@@ -138,9 +193,44 @@ def train_sata(model, train_tasks: list, val_tasks: list, config: Any, checkpoin
         log.append({"epoch": epoch, "loss": mean_loss, "val_proxy": val_score})
         print(f"Epoch {epoch}: loss={mean_loss:.4f}, val_proxy={val_score:.4f}")
 
-        if checkpoint_path is not None and val_score > best_val_score:
+        if val_score > best_val_score:
             best_val_score = val_score
-            torch.save(model.state_dict(), checkpoint_path)
+            best_epoch = epoch
+            epochs_without_improvement = 0
+            if checkpoint_path is not None:
+                torch.save(model.state_dict(), checkpoint_path)
+        else:
+            epochs_without_improvement += 1
+
+        if resume_checkpoint_path is not None:
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state": model.state_dict(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "best_val_score": best_val_score,
+                    "best_epoch": best_epoch,
+                    "epochs_without_improvement": epochs_without_improvement,
+                    "log": log,
+                },
+                resume_checkpoint_path,
+            )
+
+        if epochs_without_improvement >= patience:
+            print(
+                f"Early stopping at epoch {epoch} (no val_proxy improvement in {patience} epochs) "
+                f"-- best val_proxy={best_val_score:.4f} at epoch {best_epoch}."
+            )
+            break
+
+    # A resume file left on disk after a *normal* finish (ran out the epoch
+    # budget, or stopped early) would otherwise silently hijack the next
+    # intentional fresh run -- e.g. after changing lr/epochs -- since
+    # train_sata auto-resumes whenever the file exists. Only an interrupted
+    # run (killed/disconnected mid-loop, before reaching this line) should
+    # leave one behind for next time.
+    if resume_checkpoint_path is not None and Path(resume_checkpoint_path).exists():
+        Path(resume_checkpoint_path).unlink()
 
     return log
 

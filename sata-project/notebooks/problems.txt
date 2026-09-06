@@ -1,0 +1,5 @@
+is the use of XGBoost here to check the generator ideal ? what lit is backing it up, why did we choose it, considering inductive bias is important...
+
+
+---- IDEAD ---
+is it worth looking at the residual stream of the transformer SATA to see if the residual stream pattern look like the attention pattern or something similar that possibly could reveal something about how Sayesha has learnt to pick the ideal demonstration set for a given prompt, essentially I'm trying to think if comparing the residual streams patterns to the attention matrix is somehow realvent
