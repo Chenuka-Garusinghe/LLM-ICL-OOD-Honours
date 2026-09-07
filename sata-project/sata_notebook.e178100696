@@ -1,0 +1,4 @@
+WARNING: Overlay image /scratch/aa36/cg3543/containers/sata-extras.sqfs is not writable, proceeding with read-only
+[NbConvertApp] Converting notebook notebooks/02_real_arm_baselines.ipynb to notebook
+[IPKernelApp] WARNING | Kernel is running over TCP without encryption. All communication (including code and outputs) is sent in plain text and is susceptible to eavesdropping. Use IPC transport or launch with kernel manager-provisioned CurveZMQ keys to enable transport encryption.
+[IPKernelApp] WARNING | Parent appears to have exited, shutting down.

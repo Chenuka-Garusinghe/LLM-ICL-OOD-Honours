@@ -1,0 +1,21 @@
+Running notebooks/02_real_arm_baselines.ipynb on gadi-gpu-v100-0004.gadi.nci.org.au, GPU: Tesla V100-SXM2-32GB
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+
+======================================================================================
+                  Resource Usage on 2026-09-03 12:45:06:
+   Job Id:             178100696.gadi-pbs
+   Project:            pp49
+   Exit Status:        271 (Linux Signal 15 SIGTERM Termination)
+   Service Units:      38.12
+   NCPUs Requested:    12                  CPU Time Used: 01:03:47        
+   Memory Requested:   64.0GB                Memory Used: 19.51GB         
+   NGPUs Requested:    1                 GPU Utilisation: 83%             
+                                         GPU Memory Used: 31.55GB         
+   Walltime Requested: 24:00:00            Walltime Used: 01:03:32        
+   JobFS Requested:    100.0GB                JobFS Used: 5.12KB          
+======================================================================================

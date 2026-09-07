@@ -37,6 +37,12 @@ sata:
   lr: 1.0e-4  # PyYAML's safe_load parses bare "1e-4" as a string, not a float — needs the decimal point
   epochs: 50
   batch_size: 64
+  # Early stopping (src/models/sata_train.py::train_sata): stop once this many
+  # epochs pass with no val_proxy improvement. 10 is deliberately mild -- the
+  # metric is noisy enough to move a point or two epoch-to-epoch on its own
+  # (observed in practice), so a shorter patience risks stopping on noise
+  # rather than a real plateau.
+  patience: 10
 
 # Generator
 generator:
@@ -48,13 +54,26 @@ generator:
   n_heldout_family_tasks: 50
   rule_families: ["linear", "threshold", "tree", "sparse_interaction"]
   heldout_family: "sparse_interaction"
-  # Recalibrated during the Notebook 04 XGBoost validation gate (see that
-  # notebook): the original [0.70, 0.95] / 0.05 values left the spurious
-  # feature too weak, and mechanism-shift too, for a depth-4/100-estimator
-  # XGBoost to be meaningfully misled by either — see generator.py's
-  # generate_environment for the accompanying "mechanism" sign-flip fix.
-  spurious_strength_range: [0.92, 0.99]
-  label_noise: 0.08
+  # Recalibrated twice during Notebook 04's validation gate (see that
+  # notebook's gate markdown cell, both "----"-separated update sections).
+  # The original [0.70, 0.95] / 0.05 values left the spurious feature too
+  # weak for any proxy learner to be meaningfully misled by it. The current
+  # values make the shortcut *more reliable than the causal signal in
+  # training* (the Colored-MNIST construction Arjovsky et al. 2019 use for
+  # IRM's validation) -- which is what lets an ERM LogisticRegression on all
+  # 10 features actually latch onto it instead of just learning the (also
+  # exploitable) causal rule directly.
+  spurious_strength_range: [0.96, 0.995]
+  label_noise: 0.02
+  # Used by 'linear' only (generator.py's other three rule families don't
+  # read coefficient magnitude at all -- see SyntheticTask._apply_rule). At
+  # 1.5, linear's Bayes accuracy from the causal features alone is ~0.74,
+  # deliberately below spurious_strength_range so the ERM gate classifier
+  # has a real reason to prefer the spurious feature. Only became a live
+  # knob once 'linear' labels were changed to Bernoulli(sigmoid(logit))
+  # instead of a deterministic sign(logit) threshold, which is scale-
+  # invariant and made this setting inert regardless of its value.
+  coefficient_scale: 1.5
   demos_per_task: 64
   queries_per_env: 32
   environments: ["id", "covariate", "spurious_reversal", "extrapolation", "missing_feature", "mechanism"]

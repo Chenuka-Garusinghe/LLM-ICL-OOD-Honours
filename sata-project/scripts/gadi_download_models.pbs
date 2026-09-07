@@ -1,0 +1,97 @@
+#!/bin/bash
+# One-off PBS job: pre-download HF model weights into the shared HF_HOME
+# cache from a node with reliable internet, so later GPU compute jobs (which
+# have no outbound network -- see gadi_run_notebook.pbs's HF_HUB_OFFLINE=1)
+# can load them without touching the Hub at all.
+#
+# Needed because Gadi's gpuvolta/h200 compute nodes have no outbound internet,
+# and even a compute node's *interactive* internet (e.g. a Jupyter kernel
+# launched under OnDemand) is slow and unreliable for multi-GB downloads --
+# confirmed in practice: a Qwen2.5-7B-Instruct download from inside a live
+# Jupyter kernel measured ~1.6 MB/s and then stalled completely partway
+# through, with no error raised (the connection just went dead). copyq is
+# the one Gadi queue with a dedicated high-speed outbound link (single-core
+# jobs, <=10h walltime) -- see NCI's docs. The retry-with-timeout loop below
+# exists specifically because of that observed silent-stall failure mode:
+# huggingface_hub's own retries don't help against a connection that hangs
+# rather than erroring, so an external `timeout` forces a restart instead.
+#
+# Submit with:
+#   qsub scripts/gadi_download_models.pbs
+# (downloads every model in DEFAULT_MODELS below; anything already fully
+# downloaded is a no-op, anything partially downloaded resumes rather than
+# re-fetching from scratch)
+# or for just one model:
+#   qsub -v MODEL=Qwen/Qwen2.5-7B-Instruct scripts/gadi_download_models.pbs
+
+#PBS -N download_models
+#PBS -P pp49
+#PBS -q copyq
+#PBS -l ncpus=1
+#PBS -l mem=4GB
+#PBS -l walltime=06:00:00
+#PBS -l storage=scratch/pp49+scratch/aa36
+#PBS -l wd
+
+set -uo pipefail
+
+module load apptainer
+
+# Shared container (see containers/README.md) -- huggingface_hub ships as a
+# dependency of the vllm image, so this reuses it rather than needing its
+# own environment.
+CONTAINER_DIR="${CONTAINER_DIR:-/scratch/aa36/cg3543/containers}"
+SIF="${CONTAINER_DIR}/sata-vllm.sif"
+
+# Same cache path gadi_run_notebook.pbs points HF_HOME at for the actual GPU
+# runs -- downloading here is exactly what makes that job's HF_HUB_OFFLINE=1
+# work instead of blocking trying to reach the Hub.
+export HF_HOME="${HF_HOME:-/scratch/pp49/cg3543/hf_cache}"
+
+# Keep in sync with configs/default.yaml's base_llms -- this list exists so
+# a bare `qsub` with no -v pre-downloads everything the pipeline currently
+# needs in one job. Override with -v MODEL=... to fetch just one model.
+DEFAULT_MODELS=(
+  "meta-llama/Llama-3.1-8B-Instruct"
+  "Qwen/Qwen2.5-7B-Instruct"
+)
+if [ -n "${MODEL:-}" ]; then
+  MODELS=("${MODEL}")
+else
+  MODELS=("${DEFAULT_MODELS[@]}")
+fi
+
+ATTEMPT_TIMEOUT=2400   # 40 min/attempt -- generous for a single model's weights
+MAX_RETRIES=3
+
+echo "HF_HOME=${HF_HOME} on $(hostname)"
+
+for m in "${MODELS[@]}"; do
+  echo "=== Downloading ${m} ==="
+  attempt=1
+  ok=0
+  while [ "$attempt" -le "$MAX_RETRIES" ]; do
+    echo "--- attempt ${attempt}/${MAX_RETRIES} (timeout ${ATTEMPT_TIMEOUT}s) ---"
+    if timeout "${ATTEMPT_TIMEOUT}" apptainer exec \
+        --bind "${HF_HOME}" \
+        --env "HF_HOME=${HF_HOME}" \
+        "${SIF}" \
+        python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('${m}')
+print('snapshot_download OK: ${m}')
+"; then
+      ok=1
+      break
+    fi
+    echo "attempt ${attempt} for ${m} failed or timed out -- retrying"
+    attempt=$((attempt + 1))
+  done
+  if [ "$ok" -ne 1 ]; then
+    echo "FAILED after ${MAX_RETRIES} attempts: ${m}" >&2
+    exit 1
+  fi
+  echo "=== Done: ${m} ==="
+done
+
+echo "All models downloaded into ${HF_HOME}"

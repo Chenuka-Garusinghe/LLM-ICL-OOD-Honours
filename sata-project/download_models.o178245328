@@ -1,0 +1,22 @@
+HF_HOME=/scratch/pp49/cg3543/hf_cache on gadi-dm-01.gadi.nci.org.au
+=== Downloading meta-llama/Llama-3.1-8B-Instruct ===
+--- attempt 1/3 (timeout 2400s) ---
+snapshot_download OK: meta-llama/Llama-3.1-8B-Instruct
+=== Done: meta-llama/Llama-3.1-8B-Instruct ===
+=== Downloading Qwen/Qwen2.5-7B-Instruct ===
+--- attempt 1/3 (timeout 2400s) ---
+snapshot_download OK: Qwen/Qwen2.5-7B-Instruct
+=== Done: Qwen/Qwen2.5-7B-Instruct ===
+All models downloaded into /scratch/pp49/cg3543/hf_cache
+
+======================================================================================
+                  Resource Usage on 2026-09-05 14:14:10:
+   Job Id:             178245328.gadi-pbs
+   Project:            pp49
+   Exit Status:        0
+   Service Units:      0.05
+   NCPUs Requested:    1                   CPU Time Used: 00:01:16        
+   Memory Requested:   4.0GB                 Memory Used: 4.0GB           
+   Walltime Requested: 06:00:00            Walltime Used: 00:01:38        
+   JobFS Requested:    100.0MB                JobFS Used: 0B              
+======================================================================================
