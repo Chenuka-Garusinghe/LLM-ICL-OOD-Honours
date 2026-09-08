@@ -17,7 +17,7 @@ vllm:
 
 # Demo selection
 k_primary: 8
-k_sensitivity: 16       # one dataset only
+k_sensitivity: 16       # swept across all datasets in Notebooks 02 and 06
 pool_size: 256           # real arm demo pool
 seed_accuracy: [42, 123, 456, 789, 1024]    # 5 seeds for accuracy runs
 seed_faithfulness: [42, 123, 456]            # 3 seeds for faithfulness
