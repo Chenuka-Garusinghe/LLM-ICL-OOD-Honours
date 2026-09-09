@@ -45,6 +45,41 @@ from sklearn.feature_selection import mutual_info_classif
 CANDIDATE_DATASETS = ["acsincome", "acspubcov", "brfss_diabetes", "anes"]
 SELECTED_DATASETS = ["brfss_diabetes", "acsincome", "acspubcov", "anes"]
 
+# Per dataset: (classification sentence, short noun phrase, meaning of label
+# 0, meaning of label 1). The sentence goes in the classifier prompt ("predict
+# {sentence}"); the noun phrase goes in the feature-ranking prompt (Notebook
+# 03, "analyzing a {noun} prediction task"). Wording is from the target
+# Feature's description in tableshift/datasets/{brfss,acs,anes}.py; label
+# polarity was cross-checked against the observed P(label==1) base rate on
+# the extracted data. Used by src/inference/prompts.py so the model is
+# actually told what it is predicting instead of "the 'brfss_diabetes' outcome".
+TASK_DESCRIPTIONS: dict[str, tuple[str, str, str, str]] = {
+    "brfss_diabetes": (
+        "whether this person has ever been told by a doctor that they have diabetes",
+        "a diabetes diagnosis",
+        "has not been told they have diabetes",
+        "has been told they have diabetes",
+    ),
+    "acsincome": (
+        "whether this person's total annual income is above $50,000",
+        "annual income above $50,000",
+        "income is at or below $50,000",
+        "income is above $50,000",
+    ),
+    "acspubcov": (
+        "whether this person is covered by public health insurance",
+        "public health insurance coverage",
+        "not covered by public health insurance",
+        "covered by public health insurance",
+    ),
+    "anes": (
+        "whether this person voted in the national election",
+        "turnout in the national election",
+        "did not vote",
+        "voted",
+    ),
+}
+
 
 def default_raw_cache_dir() -> str:
     """Parquet cache produced by scripts/extract_tableshift_cache.py."""
@@ -58,6 +93,14 @@ def load_tableshift_splits(dataset_name: str, cache_dir: str | None = None) -> d
 
     Returns a dict with keys "train", "test_id", "test_ood", each holding a
     DataFrame with a "label" column plus raw feature columns.
+
+    Feature columns are all numeric (continuous features in natural units,
+    categorical features as small integer codes); pair with load_codebook()
+    to render them as text. The "label" column is coerced to plain `int`
+    here regardless of how the parquet stored it — a float label stringifies
+    to the 3-token "0.0", which the single-token classifier in
+    src/inference/llm_runner.py can never match against the model's one-token
+    "0"/"1" output (100% INVALID / NaN accuracy in Notebook 02).
 
     Does NOT import `tableshift` — the cache must already exist (run
     `python scripts/extract_tableshift_cache.py` from a separate environment
@@ -74,8 +117,36 @@ def load_tableshift_splits(dataset_name: str, cache_dir: str | None = None) -> d
                 "from a separate, isolated environment with `tableshift` installed first — this "
                 "project's own environment never installs tableshift. See that script's docstring."
             )
-        splits[split_name] = pd.read_parquet(path)
+        df = pd.read_parquet(path)
+        label = pd.to_numeric(df["label"], errors="coerce")
+        if label.isna().any():
+            raise ValueError(
+                f"{path}: {int(label.isna().sum())} of {len(label)} rows have a "
+                "missing or non-numeric 'label' after parsing."
+            )
+        df["label"] = label.round().astype(int)
+        splits[split_name] = df
     return splits
+
+
+def load_codebook(artifacts_dir: str | Path) -> dict:
+    """Read a codebook.json produced by scripts/extract_tableshift_cache.py
+    (or the per-dataset subset written by save_dataset_artifacts).
+
+    Shape: {column: {"name_extended": str, "description": str,
+                     "kind": "numeric" | "categorical",
+                     "values": {int_code: text} | None}}.
+
+    JSON object keys are always strings, so the `values` maps arrive as
+    {"0": ...}; this restores integer keys so src/data/serialisation.py can
+    look them up by the integer actually stored in the parquet.
+    """
+    with open(Path(artifacts_dir) / "codebook.json") as f:
+        codebook = json.load(f)
+    for entry in codebook.values():
+        if entry.get("values"):
+            entry["values"] = {int(k): v for k, v in entry["values"].items()}
+    return codebook
 
 
 def select_top_features(train_df: pd.DataFrame, n_features: int = 12, mi_sample_size: int = 5000) -> list[str]:
@@ -138,8 +209,15 @@ def save_dataset_artifacts(
     feature_list: list[str],
     label_tokens: list[str],
     out_root: str | Path,
+    codebook: dict | None = None,
 ) -> None:
-    """Write train_pool/test_id/test_ood parquets + feature_list/label_tokens JSON."""
+    """Write train_pool/test_id/test_ood parquets + feature_list/label_tokens JSON.
+
+    If `codebook` (the full raw-cache codebook from load_codebook()) is given,
+    the subset covering `feature_list` is written next to the parquets as
+    codebook.json, so Notebooks 02/03 never need to touch the raw cache at
+    prompt time.
+    """
     out_dir = Path(out_root) / dataset_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -151,3 +229,7 @@ def save_dataset_artifacts(
         json.dump(sorted(feature_list), f, indent=2)
     with open(out_dir / "label_tokens.json", "w") as f:
         json.dump(label_tokens, f, indent=2)
+    if codebook is not None:
+        subset = {c: codebook[c] for c in feature_list if c in codebook}
+        with open(out_dir / "codebook.json", "w") as f:
+            json.dump(subset, f, indent=2, default=str)

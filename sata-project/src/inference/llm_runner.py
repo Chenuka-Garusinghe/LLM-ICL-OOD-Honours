@@ -67,6 +67,34 @@ def get_confidence(logprobs_dict: dict[str, float], label_tokens: tuple[str, str
     return PredictionResult(prediction=pred, confidence=confidence, p0=p0, p1=p1, logprob_0=lp0, logprob_1=lp1)
 
 
+def resolve_label_token_ids(tokenizer, label_tokens: tuple[str, str]) -> list[int] | None:
+    """Map each label-token string to its single vocab id, for constrained
+    decoding via SamplingParams.allowed_token_ids.
+
+    Returns None if any label token doesn't encode to exactly one token --
+    the caller then falls back to unconstrained generation. For this project
+    the label tokens are always "0"/"1", which are a single BPE piece in both
+    the Llama-3.1 and Qwen2.5 tokenizers (id 15 / 16).
+
+    Without this, the model routinely makes its first generated token a
+    newline, a leading space, or an explanatory word instead of a bare label
+    digit -- scored as INVALID and dropped from accuracy. On some
+    (model, dataset) cells that was 100% of predictions, leaving NaN
+    accuracy. Masking the logits to the label ids forces a valid answer;
+    the two returned logprobs still give a real confidence.
+    """
+    ids: list[int] = []
+    for tok in label_tokens:
+        try:
+            enc = tokenizer.encode(tok, add_special_tokens=False)
+        except TypeError:  # some tokenizers don't take add_special_tokens
+            enc = tokenizer.encode(tok)
+        if len(enc) != 1:
+            return None
+        ids.append(int(enc[0]))
+    return ids
+
+
 class VLLMRunner:
     """Thin wrapper around vllm.LLM for constrained single-token classification."""
 
@@ -130,13 +158,18 @@ class VLLMRunner:
     def batch_predict(self, prompts: list[str], label_tokens: tuple[str, str]) -> list[PredictionResult]:
         """Run a batch of prompts through vLLM and return per-prompt predictions.
 
-        Top token not in the label set (rare with constrained decoding) is
-        logged as INVALID: excluded from accuracy but included in the count
-        by the caller.
+        Decoding is constrained to the label-token ids (allowed_token_ids) so
+        the single generated token is always one of the labels. INVALID stays
+        as a safety net for the rare case a label token isn't single-piece
+        (resolve_label_token_ids returns None -> unconstrained fallback).
         """
         from vllm import SamplingParams
 
-        sampling_params = SamplingParams(logprobs=20, max_tokens=1, temperature=0)
+        allowed_ids = resolve_label_token_ids(self.llm.get_tokenizer(), label_tokens)
+        sp_kwargs = dict(logprobs=20, max_tokens=1, temperature=0)
+        if allowed_ids is not None:
+            sp_kwargs["allowed_token_ids"] = allowed_ids
+        sampling_params = SamplingParams(**sp_kwargs)
         outputs = self.llm.generate(prompts, sampling_params)
 
         results = []

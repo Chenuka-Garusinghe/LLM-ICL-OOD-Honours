@@ -37,7 +37,12 @@ def main() -> None:
     from multiprocessing.connection import Listener
     from vllm import LLM, SamplingParams
 
-    from src.inference.llm_runner import INVALID, PredictionResult, get_confidence
+    from src.inference.llm_runner import (
+        INVALID,
+        PredictionResult,
+        get_confidence,
+        resolve_label_token_ids,
+    )
 
     llm = LLM(
         model=model_path,
@@ -69,7 +74,15 @@ def main() -> None:
 
             elif op == "batch_predict":
                 label_tokens = tuple(request["label_tokens"])
-                sampling_params = SamplingParams(logprobs=20, max_tokens=1, temperature=0)
+                # Constrain decoding to the label-token ids so the one
+                # generated token is always a label (see
+                # resolve_label_token_ids). Falls back to unconstrained if a
+                # label token isn't single-piece.
+                allowed_ids = resolve_label_token_ids(llm.get_tokenizer(), label_tokens)
+                sp_kwargs = dict(logprobs=20, max_tokens=1, temperature=0)
+                if allowed_ids is not None:
+                    sp_kwargs["allowed_token_ids"] = allowed_ids
+                sampling_params = SamplingParams(**sp_kwargs)
                 outputs = llm.generate(request["prompts"], sampling_params)
 
                 results = []
