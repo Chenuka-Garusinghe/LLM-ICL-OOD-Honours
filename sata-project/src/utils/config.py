@@ -59,14 +59,45 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
         config = load_config()
         config.sata.d_model
         config.seed_accuracy
+
+    If SATA_MODEL_FILTER is set (to a base_llms[].name), base_llms is filtered
+    down to just that entry -- lets two processes each run one model
+    concurrently (one per GPU) without editing the notebooks, which already
+    just `for model_cfg in config.base_llms: ...`.
     """
     with open(path) as f:
         raw = yaml.safe_load(f)
+    model_filter = os.environ.get("SATA_MODEL_FILTER")
+    if model_filter:
+        raw["base_llms"] = [m for m in raw["base_llms"] if m["name"] == model_filter]
     return _to_namespace(raw)
 
 
+# Per-model outputs only -- never a filename another process/notebook reads as
+# a shared input (e.g. real_arm_baselines_summary.parquet, sata_gate2_summary.parquet,
+# the models/*.pt checkpoints), or a concurrent SATA_RUN_SHARD run would read
+# its own empty shard instead of the real thing.
+_SHARDABLE_RESULT_FILES = {
+    "faithfulness_real.parquet",
+    "faithfulness_real_rho_per_seed.parquet",
+    "faithfulness_real_rho_summary.parquet",
+    "synthetic_evaluation.parquet",
+}
+
+
 def resolve_path(relative: str, config: SimpleNamespace | None = None) -> Path:
-    """Resolve a path relative to the project root (not the notebook's cwd)."""
+    """Resolve a path relative to the project root (not the notebook's cwd).
+
+    If SATA_RUN_SHARD is set and `relative`'s basename is one of the known
+    per-model output files, redirects into results/<shard>/ so two concurrent
+    SATA_MODEL_FILTER runs (see load_config) don't clobber each other's
+    output -- merge back with scripts/merge_sharded_results.py once both finish.
+    """
+    shard = os.environ.get("SATA_RUN_SHARD")
+    if shard:
+        path = Path(relative)
+        if path.name in _SHARDABLE_RESULT_FILES:
+            return PROJECT_ROOT / path.parent / shard / path.name
     return PROJECT_ROOT / relative
 
 
