@@ -82,6 +82,10 @@ _SHARDABLE_RESULT_FILES = {
     "faithfulness_real_rho_per_seed.parquet",
     "faithfulness_real_rho_summary.parquet",
     "synthetic_evaluation.parquet",
+    "rq2_grid.parquet",
+    "rq2_grid_k_sensitivity.parquet",
+    "rq4_comparison.parquet",
+    "faithfulness_synthetic.parquet",
 }
 
 
