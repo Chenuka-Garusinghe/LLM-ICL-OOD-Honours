@@ -13,7 +13,7 @@ base_llms:
 vllm:
   tensor_parallel: 1
   gpu_memory_utilisation: 0.90
-  max_model_len: 4096
+  max_model_len: 8192
 
 # Demo selection
 k_primary: 8
