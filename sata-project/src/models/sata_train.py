@@ -10,6 +10,7 @@ and random selection on validation tasks?
 from __future__ import annotations
 
 import os
+import random
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from xgboost import XGBClassifier
 
 from src.models.sata_targets import compute_target_scores
+from src.models.standardise import standardise
+from src.models.xgb_proxy import fit_predict_one
+from src.selection.balanced_topk import balanced_top_k
 
 
 def _resolve_device() -> torch.device:
@@ -44,32 +47,37 @@ def _default_n_jobs() -> int:
         return os.cpu_count() or 4
 
 
-def _task_batch(task, env_type: str, n_demos: int, n_queries: int, seed: int | None = None):
-    """Generate one (demos, queries) batch for a task/environment pair."""
-    X, y, metadata = task.generate_environment(env_type, n_samples=n_demos + n_queries, seed=seed)
-    demo_X, demo_y, demo_meta = X[:n_demos], y[:n_demos], metadata[:n_demos]
-    query_X, query_y, query_meta = X[n_demos:], y[n_demos:], metadata[n_demos:]
-    return (demo_X, demo_y, demo_meta), (query_X, query_y, query_meta)
+def _task_batch(
+    task,
+    env_type: str,
+    n_demos: int,
+    n_queries: int,
+    seed: int | None = None,
+    pool_env: str | None = None,
+):
+    """Generate one (demos, queries) batch for a task/environment pair.
 
-
-def _fit_predict_one(demo_X_topk: np.ndarray, demo_y_topk: np.ndarray, query_row: np.ndarray, query_label) -> int:
-    """Fit XGBoost on one query's top-k demos and check the prediction.
-
-    `n_jobs=1` is deliberate: this is called from inside a ThreadPoolExecutor
-    (see evaluate_sata_proxy / Notebook 05's evaluate_protocol_proxy), so each
-    individual fit must stay single-threaded -- letting XGBoost also spawn its
-    own OMP thread pool per call would oversubscribe the allocated cores
-    (n_outer_threads x n_inner_threads) and run slower than either alone.
+    `pool_env` (default: same as `env_type`, i.e. v1's matched-pool
+    behaviour -- one `generate_environment` call, split contiguously) lets
+    demos be drawn from a *different* environment than the queries. Training
+    with `pool_env="id"` means the demo pool is never oracle access to the
+    query environment's shift -- the deployment-realistic setting that v1
+    never trained or evaluated (REDESIGN_RATIONALE.md §4.4(d)/§5.3).
+    Standardisation (src/models/standardise.py) is applied here so training
+    sees the same z-scored features inference does (§4.5) -- v1 trained on
+    raw features and only standardised at inference time.
     """
-    if len(np.unique(demo_y_topk)) < 2:
-        # XGBoost needs >=2 classes to fit; an early/untrained model's top-k
-        # can easily be single-class by chance. Fall back to that class.
-        pred = demo_y_topk[0]
+    if pool_env is None or pool_env == env_type:
+        X, y, metadata = task.generate_environment(env_type, n_samples=n_demos + n_queries, seed=seed)
+        demo_X, demo_y, demo_meta = X[:n_demos], y[:n_demos], metadata[:n_demos]
+        query_X, query_y, query_meta = X[n_demos:], y[n_demos:], metadata[n_demos:]
     else:
-        clf = XGBClassifier(max_depth=4, n_estimators=100, verbosity=0, n_jobs=1)
-        clf.fit(demo_X_topk, demo_y_topk)
-        pred = clf.predict(query_row[None, :])[0]
-    return int(pred == query_label)
+        query_seed = None if seed is None else seed + 1
+        demo_X, demo_y, demo_meta = task.generate_environment(pool_env, n_samples=n_demos, seed=seed)
+        query_X, query_y, query_meta = task.generate_environment(env_type, n_samples=n_queries, seed=query_seed)
+
+    demo_X, query_X = standardise(demo_X, query_X)
+    return (demo_X, demo_y, demo_meta), (query_X, query_y, query_meta)
 
 
 def train_sata(
@@ -157,8 +165,25 @@ def train_sata(
 
         for task in tqdm(train_tasks, desc=f"Epoch {epoch}", leave=False):
             for env_type in config.environments:
+                # 75% id-pool (deployment-realistic: demos never have oracle
+                # access to the query environment's shift) / 25% matched-pool
+                # (v1 behaviour, kept so that secondary condition stays
+                # in-training-distribution for SATA) -- REDESIGN_RATIONALE.md
+                # §5.3. `mechanism` is always matched-pool: it changes the
+                # causal->label MAPPING itself (a concept shift), not just
+                # the input distribution or the spurious channel -- an
+                # id-pool demo sharing the query's raw regime was generated
+                # under id's mapping, which for 'tree' assigns that exact
+                # regime the OPPOSITE label to mechanism's (leaf_labels are
+                # deliberately complement-paired, and mechanism's full
+                # causal-sign-flip maps every regime to its complement --
+                # see generate_environment's 'mechanism' branch). Verified
+                # empirically: mean same-regime id-demo/mechanism-query label
+                # agreement was ~0.02 for 'tree', i.e. the same_regime target
+                # bonus becomes actively adversarial there under an id pool.
+                pool_env = env_type if env_type == "mechanism" else ("id" if random.random() < 0.75 else env_type)
                 (demo_X, demo_y, demo_meta), (query_X, query_y, query_meta) = _task_batch(
-                    task, env_type, n_demos=config.max_demos, n_queries=32
+                    task, env_type, n_demos=config.max_demos, n_queries=32, pool_env=pool_env
                 )
                 demo_X_t = torch.tensor(demo_X, dtype=torch.float32, device=device)
                 demo_y_t = torch.tensor(demo_y, dtype=torch.long, device=device)
@@ -239,41 +264,56 @@ def evaluate_sata_proxy(model, val_tasks: list, config: Any, k: int = 8, n_jobs:
     """Proxy validation metric (no LLM calls): fit XGBoost on SATA's top-k
     selected demos per query, evaluate accuracy on that query.
 
-    Used for Gate 2 — compare against random/protocol selection baselines
+    Validates across **all** `config.environments` (v1 validated on `id`
+    only, where the label-copy shortcut policy looked excellent -- Gate 2's
+    proxy accuracy of 0.961 sat almost exactly at the spurious strength,
+    REDESIGN_RATIONALE.md §4.2 Fact C) with `pool_env="id"` (matching
+    training's deployment-realistic majority mode), and returns the
+    **worst-environment** accuracy rather than a flat mean -- worst-case
+    validation is the operational meaning of "shift-aware" (§5.3). Used for
+    Gate 2/Gate S3a — compare against random/protocol selection baselines
     computed the same way in Notebook 05/06.
     """
     device = _resolve_device()
     model.to(device)
     model.eval()
-    accs: list[int] = []
 
     if n_jobs is None:
         n_jobs = _default_n_jobs()
 
+    env_accs: dict[str, list[int]] = {env: [] for env in config.environments}
+
     with torch.no_grad(), ThreadPoolExecutor(max_workers=n_jobs) as pool:
         for task in val_tasks:
-            (demo_X, demo_y, demo_meta), (query_X, query_y, query_meta) = _task_batch(
-                task, "id", n_demos=config.max_demos, n_queries=32
-            )
-            n_queries = query_X.shape[0]
-            demo_X_t = torch.tensor(demo_X, dtype=torch.float32, device=device).unsqueeze(0).expand(n_queries, -1, -1)
-            demo_y_t = torch.tensor(demo_y, dtype=torch.long, device=device).unsqueeze(0).expand(n_queries, -1)
-            query_t = torch.tensor(query_X, dtype=torch.float32, device=device)
+            for env_type in config.environments:
+                # id-pool for every environment except 'mechanism' (always
+                # matched-pool there) -- see train_sata's loop for why.
+                pool_env = "mechanism" if env_type == "mechanism" else "id"
+                (demo_X, demo_y, demo_meta), (query_X, query_y, query_meta) = _task_batch(
+                    task, env_type, n_demos=config.max_demos, n_queries=32, pool_env=pool_env
+                )
+                n_queries = query_X.shape[0]
+                demo_X_t = (
+                    torch.tensor(demo_X, dtype=torch.float32, device=device).unsqueeze(0).expand(n_queries, -1, -1)
+                )
+                demo_y_t = torch.tensor(demo_y, dtype=torch.long, device=device).unsqueeze(0).expand(n_queries, -1)
+                query_t = torch.tensor(query_X, dtype=torch.float32, device=device)
 
-            # One batched forward pass for every query in this task, instead of
-            # n_queries separate single-row calls -- the demo pool is identical
-            # across all of them, so this is the same computation, just batched
-            # (mirrors train_sata's batching above).
-            scores = model(demo_X_t, demo_y_t, query_t).cpu().numpy()  # (n_queries, n_demos)
-            top_k_idx = np.argsort(-scores, axis=1)[:, :k]
+                # One batched forward pass for every query in this task, instead
+                # of n_queries separate single-row calls -- the demo pool is
+                # identical across all of them, so this is the same computation,
+                # just batched (mirrors train_sata's batching above).
+                scores = model(demo_X_t, demo_y_t, query_t).cpu().numpy()  # (n_queries, n_demos)
+                top_k_idx = np.stack([balanced_top_k(scores[i], demo_y, k) for i in range(n_queries)])
 
-            # XGBoost's C++ fit releases the GIL, so a thread pool gives real
-            # parallelism across the allocated CPU cores for these otherwise-tiny,
-            # otherwise-sequential per-query fits.
-            futures = [
-                pool.submit(_fit_predict_one, demo_X[top_k_idx[i]], demo_y[top_k_idx[i]], query_X[i], query_y[i])
-                for i in range(n_queries)
-            ]
-            accs.extend(f.result() for f in futures)
+                # XGBoost's C++ fit releases the GIL, so a thread pool gives real
+                # parallelism across the allocated CPU cores for these otherwise-
+                # tiny, otherwise-sequential per-query fits.
+                futures = [
+                    pool.submit(fit_predict_one, demo_X[top_k_idx[i]], demo_y[top_k_idx[i]], query_X[i], query_y[i])
+                    for i in range(n_queries)
+                ]
+                env_accs[env_type].extend(f.result() for f in futures)
 
-    return float(np.mean(accs)) if accs else 0.0
+    per_env_acc = {env: (float(np.mean(accs)) if accs else 0.0) for env, accs in env_accs.items()}
+    return min(per_env_acc.values()) if per_env_acc else 0.0

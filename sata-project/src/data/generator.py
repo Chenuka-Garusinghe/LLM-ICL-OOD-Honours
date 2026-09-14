@@ -37,10 +37,12 @@ everything downstream uses frozen tasks.
 from __future__ import annotations
 
 import random
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import scipy.stats
 
 RULE_FAMILIES = ["linear", "threshold", "tree", "sparse_interaction"]
 ENVIRONMENTS = [
@@ -136,6 +138,16 @@ class SyntheticTask:
 
         raise ValueError(f"Unknown rule_family: {self.rule_family}")
 
+    def _probe_base_rate(self, perturb, n_probe: int, rng: np.random.Generator) -> float:
+        """Approximate P(y_clean=1) for a candidate perturbation of fresh base
+        features, via an `n_probe`-sample dry run of `_apply_rule` (MAP labels,
+        `u=None` -- exact stochastic agreement isn't needed for a calibration
+        probe, just the base rate). `perturb(X)` returns the perturbed copy.
+        """
+        X_probe = self._base_features(n_probe, rng)
+        X_probe = perturb(X_probe)
+        return float(self._apply_rule(X_probe).mean())
+
     def _regime(self, X: np.ndarray) -> np.ndarray:
         """Which decision-rule leaf/region each row falls in (used as demo metadata)."""
         causal = X[:, self.causal_features]
@@ -159,15 +171,61 @@ class SyntheticTask:
         if env_type == "id":
             pass
         elif env_type == "covariate":
-            shift_feats = rng.choice(self.n_features, size=min(3, self.n_features), replace=False)
-            X[:, shift_feats] += rng.uniform(1.0, 2.0, size=len(shift_feats)) * rng.choice([-1, 1], size=len(shift_feats))
+            # Restrict the shift to features 0-7 -- 8/9 are the spurious/noise
+            # features, overwritten unconditionally below regardless of any
+            # shift applied here, so shifting them was a silent no-op (Fact
+            # 4.4(b)). Rejection-sample the shift vector so the resulting
+            # label-1 rate stays within 0.03 of the id rate -- a "covariate"
+            # shift must move P(x) while preserving P(y|x)-induced P(y), per
+            # the shift taxonomy (lit review §2.1); v1's shift moved the base
+            # rate to 0.388 vs ~0.49 elsewhere, confounding the shift axis.
+            n_shift = min(3, 8)
+            id_rate = self._probe_base_rate(lambda Xp: Xp, 2048, rng)
+            cand_feats, cand_delta, shifted_rate = None, None, None
+            for _ in range(50):
+                cand_feats = rng.choice(8, size=n_shift, replace=False)
+                cand_delta = rng.uniform(1.0, 2.0, size=n_shift) * rng.choice([-1, 1], size=n_shift)
+
+                def _apply_shift(Xp, feats=cand_feats, delta=cand_delta):
+                    Xp = Xp.copy()
+                    Xp[:, feats] += delta
+                    return Xp
+
+                shifted_rate = self._probe_base_rate(_apply_shift, 2048, rng)
+                if abs(shifted_rate - id_rate) <= 0.03:
+                    break
+            else:
+                warnings.warn(
+                    f"covariate shift rejection sampling for task {self.task_id} did not find a "
+                    f"base-rate-preserving shift in 50 tries (best delta={shifted_rate - id_rate:.3f}); "
+                    "using the last draw anyway."
+                )
+            X[:, cand_feats] += cand_delta
         elif env_type == "spurious_reversal":
             spurious_strength = 1.0 - spurious_strength
         elif env_type == "extrapolation":
-            X *= rng.uniform(2.0, 3.0)
+            # Per-feature range extension: push 2-3 causal features genuinely
+            # outside a 64-row standard-normal pool's support (|x| in [2,4]),
+            # rather than one global scale factor -- label-inert for
+            # tree/sparse_interaction and erased by inference-time
+            # standardisation (Fact 4.4(c)).
+            # Drawn per-row (not just per-feature): a single fixed extreme
+            # point for every row in the batch would collapse most rule
+            # families' rows to one near-constant label instead of a genuine
+            # out-of-support *distribution* -- each row keeps its own random
+            # sign per extrapolated feature, only the magnitude is pushed
+            # beyond the ~[-3,3] typical range of a 64-row standard-normal pool.
+            n_extrap = min(int(rng.integers(2, 4)), len(self.causal_features))
+            extrap_feats = rng.choice(self.causal_features, size=n_extrap, replace=False)
+            magnitude = rng.uniform(2.0, 4.0, size=(n_samples, n_extrap))
+            sign = rng.choice([-1.0, 1.0], size=(n_samples, n_extrap))
+            X[:, extrap_feats] = sign * magnitude
         elif env_type == "missing_feature":
+            # Independent marginal redraw -- an uninformative missing
+            # measurement, not a constant that zeroes sparse_interaction's
+            # product and forces y_clean == 0 for every row (Fact 4.4(a)).
             drop_idx = self.causal_features[0]
-            X[:, drop_idx] = 0.0
+            X[:, drop_idx] = rng.normal(size=n_samples)
         elif env_type == "mechanism":
             # Magnitude-only reweighting (+-50%, as in the spec pseudocode) barely
             # moves accuracy on its own -- a classifier's learned decision boundary
@@ -210,11 +268,16 @@ class SyntheticTask:
         y_clean = self._apply_rule(rule_X, concept_u)
         self.coefficients = original_coeffs
 
-        # Spurious feature: agrees with label w.p. spurious_strength.
-        agree = rng.random(n_samples) < spurious_strength
-        X[:, self.spurious_idx] = np.where(agree, y_clean, 1 - y_clean).astype(float) + rng.normal(
-            scale=0.1, size=n_samples
-        )
+        # Spurious feature: continuous correlate of the label, reparameterised
+        # so sign-agreement equals spurious_strength exactly (Fact 4.2's
+        # enabling condition -- v1's discrete {0,1}+-0.1 construction was a
+        # near-photocopy of the label at strength >=0.96). If y=1,
+        # X8 ~ N(d, 1) with d = Phi^-1(strength), so P(X8>0) = Phi(d) =
+        # strength. spurious_reversal's `spurious_strength = 1 - spurious_strength`
+        # above flips d's sign, which is exactly the intended "reversed" correlate.
+        d = scipy.stats.norm.ppf(spurious_strength)
+        X[:, self.spurious_idx] = (2 * y_clean - 1) * d + rng.normal(size=n_samples)
+        agree = np.sign(X[:, self.spurious_idx]) == np.sign(2 * y_clean - 1)
         # Pure noise feature.
         X[:, self.noise_idx] = rng.normal(size=n_samples)
 
@@ -337,6 +400,21 @@ def _sample_tasks(config: Any, n_tasks: int, id_prefix: str, family_choices: lis
         if family == "tree":
             k = min(3, n_causal)
             task.leaf_labels = _sample_tree_leaf_labels(k)
+
+        if family == "sparse_interaction":
+            # v1 left `threshold` at its dataclass default of 0.0 for every
+            # task (never assigned here) -- combined with `missing_feature`
+            # zeroing the product's first factor, that made the held-out
+            # family's missing_feature cell ~98% constant-label (Fact 4.4(a)).
+            # Calibrate threshold from a 10k-sample probe of the product of
+            # two iid standard-normal features (X's columns are all N(0,1)
+            # before any environment perturbation -- see _base_features) so
+            # the id-environment base rate lands at a sampled target in
+            # U(0.35, 0.65) instead of accidentally on the product's own
+            # median-adjacent value.
+            probe = np.random.randn(10000, 2)
+            target_rate = random.uniform(0.35, 0.65)
+            task.threshold = float(np.quantile(probe[:, 0] * probe[:, 1], 1 - target_rate))
 
         tasks.append(task)
     return tasks

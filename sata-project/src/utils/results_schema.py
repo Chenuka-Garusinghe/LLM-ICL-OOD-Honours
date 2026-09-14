@@ -31,10 +31,28 @@ RESULTS_SCHEMA = pa.schema(
     ]
 )
 
+# v2 adds: pool_provenance (id_pool/matched_pool), order_seed (Stage 1d demo
+# shuffle), logprob_0_cf/logprob_1_cf (Stage 1e content-free calibration
+# logprobs), prediction_raw (pre-calibration prediction), prompt_version
+# (v1 raw-string vs v2 chat-template builder) -- see REDESIGN_RATIONALE.md
+# §5.1. RESULTS_SCHEMA (v1) is kept as-is and importable for side-by-side
+# loading of v1 and v2 results.
+RESULTS_SCHEMA_V2 = pa.schema(
+    list(RESULTS_SCHEMA)
+    + [
+        pa.field("pool_provenance", pa.string()),
+        pa.field("order_seed", pa.int64()),
+        pa.field("logprob_0_cf", pa.float64()),
+        pa.field("logprob_1_cf", pa.float64()),
+        pa.field("prediction_raw", pa.string()),
+        pa.field("prompt_version", pa.string()),
+    ]
+)
 
-def new_results_frame() -> pd.DataFrame:
+
+def new_results_frame(schema: pa.Schema = RESULTS_SCHEMA) -> pd.DataFrame:
     """Return an empty DataFrame with the correct columns/dtypes for results rows."""
-    return pd.DataFrame({field.name: pd.Series(dtype="object") for field in RESULTS_SCHEMA})
+    return pd.DataFrame({field.name: pd.Series(dtype="object") for field in schema})
 
 
 def append_results(rows: pd.DataFrame, path: str | Path) -> None:

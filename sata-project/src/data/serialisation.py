@@ -23,13 +23,17 @@ def _is_nan(v: Any) -> bool:
 
 
 def _format_number(v: Any, ndigits: int) -> str:
+    """Fixed-width formatting (Stage 1c): `round(f, ndigits)` drops trailing
+    zeros (0.5 and 0.50 rendered differently) and the old int-shortcut
+    branch rendered whole numbers with zero decimals -- both are a
+    tokenisation nuisance between demo and query rows that a genuinely
+    unconditional `f"{f:.{ndigits}f}"` removes (REDESIGN_RATIONALE.md §4.5).
+    """
     try:
         f = float(v)
     except (TypeError, ValueError):
         return str(v)
-    if f.is_integer():
-        return str(int(f))
-    return f"{round(f, ndigits)}"
+    return f"{f:.{ndigits}f}"
 
 
 def _render_value(name: str, value: Any, codebook: dict | None, ndigits: int) -> str:

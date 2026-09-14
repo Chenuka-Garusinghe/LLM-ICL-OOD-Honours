@@ -1,9 +1,20 @@
-"""Target score computation from synthetic ground truth (Notebook 05).
+"""Ground-truth target scores for training SATA (Notebook 05).
 
-These targets are the supervision signal for SATA's KL-divergence training
-loss (see sata_train.py) — they encode which demos *should* be relevant for
-a given query, based on generator ground truth that is unavailable at
-real-data evaluation time.
+v1's target function included a +0.5 bonus when a demo's label matched the
+*query's own true label* (query_metadata["label"]) -- information SATA
+cannot have at inference time. Because the spurious feature (index 8) was a
+near-photocopy of the label at v1's spurious_strength_range ([0.96, 0.995]),
+that term made "read the query's label off feature 8, then select
+label-matching demos" the cheapest path to reducing the KL loss -- SATA
+learned exactly the shortcut it was meant to fight (Gate 2 proxy 0.961 ~=
+the spurious strength). See REDESIGN_RATIONALE.md §4.2 for the full causal
+chain to the 0.045-0.099 spurious-reversal accuracy this produced.
+
+The v2 target function below is purely structural: every term is computable
+from information SATA legitimately has access to (the query's features, and
+each demo's own label/regime/spurious-consistency), and the counter-spurious
+signal now has a real negative term rather than the +0.1 "penalty" that was
+actually a small positive bonus.
 """
 
 from __future__ import annotations
@@ -18,41 +29,29 @@ def compute_target_scores(
     demo_metadata: list[dict[str, Any]],
     temperature: float = 1.0,
 ) -> np.ndarray:
-    """Assign target relevance weights based on generator ground truth.
-
-    High weight:
-        - Demos in the same decision regime as the query
-        - Counter-spurious demos (break the shortcut)
-    Low weight:
-        - Demos only predictive via spurious feature
-        - Demos from irrelevant regimes
-
-    Returns: (n_demos,) array, normalised to sum to 1.
-    """
     scores = np.zeros(len(demo_metadata))
 
     for i, demo in enumerate(demo_metadata):
         score = 0.0
 
-        # Same regime bonus
+        # Same regime bonus -- structural alignment with the query's own
+        # decision-rule region, computable from features alone.
         if demo["regime"] == query_metadata["regime"]:
             score += 2.0
 
-        # Counter-spurious bonus
+        # Counter-spurious bonus -- a demo whose spurious feature does NOT
+        # track its own label is informative about the causal rule rather
+        # than the shortcut.
         if demo["is_counter_spurious"]:
             score += 1.5
 
-        # Correct label bonus (mild)
-        # Not too strong — we want structural alignment, not just label matching
-        if demo["label"] == query_metadata["label"]:
-            score += 0.5
-
-        # Penalty for spurious-only demos
+        # Real penalty (not the +0.1 bonus v1 had) for a demo that is both
+        # spurious-consistent AND outside the query's regime -- pure
+        # shortcut bait with no structural payoff.
         if demo["spurious_consistent"] and demo["regime"] != query_metadata["regime"]:
-            score += 0.1  # near-zero but not exactly zero for numerical stability
+            score -= 1.5
 
         scores[i] = score
 
-    # Normalise to distribution via softmax with temperature
     scores = np.exp(scores / temperature) / np.sum(np.exp(scores / temperature))
     return scores

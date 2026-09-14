@@ -64,7 +64,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
     down to just that entry -- lets two processes each run one model
     concurrently (one per GPU) without editing the notebooks, which already
     just `for model_cfg in config.base_llms: ...`.
+
+    If SATA_CONFIG is set (to a config file path, e.g. configs/v2.yaml), it
+    overrides `path` -- lets a script/notebook switch to the v2 redesign
+    config (or back) without editing call sites. DEFAULT_CONFIG_PATH itself
+    stays configs/default.yaml, so any caller that doesn't set the env var
+    keeps loading the frozen v1 config unchanged.
     """
+    path = os.environ.get("SATA_CONFIG", path)
     with open(path) as f:
         raw = yaml.safe_load(f)
     model_filter = os.environ.get("SATA_MODEL_FILTER")
