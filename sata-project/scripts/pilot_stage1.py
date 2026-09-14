@@ -46,7 +46,7 @@ from src.inference.prompts import SYNTHETIC_TASK_DESCRIPTION, build_chat_message
 from src.selection.ordering import shuffle_order  # noqa: E402
 from src.utils.config import load_config  # noqa: E402
 
-LABEL_TOKENS = ("0", "1")
+LABEL_TOKENS = ("No", "Yes")
 FEATURE_COLS_N = 10
 
 
@@ -57,7 +57,7 @@ def _row_features(X_row: np.ndarray) -> dict:
 def _build_prompt(formatter, demo_rows, demo_labels, query_features, order_seed) -> str:
     demo_ids = list(range(len(demo_rows)))
     ordered = shuffle_order(demo_ids, seed=order_seed)
-    demo_lines = [serialise_row(_row_features(demo_rows[i]), label=str(int(demo_labels[i]))) for i in ordered]
+    demo_lines = [serialise_row(_row_features(demo_rows[i]), label=LABEL_TOKENS[int(demo_labels[i])]) for i in ordered]
     query_line = serialise_row(query_features)
     messages = build_chat_messages(SYNTHETIC_TASK_DESCRIPTION, LABEL_TOKENS, demo_lines, query_line)
     return formatter.render(system=messages[0]["content"], user=messages[1]["content"])
@@ -89,10 +89,10 @@ def run_pilot(model_name: str, model_path: str, tasks: list, n_queries: int, poo
             demo_ids = list(np.random.default_rng(q_idx).choice(pool_size, size=k, replace=False))
             prompt = _build_prompt(formatter, pool_X[demo_ids], pool_y[demo_ids], query_features, order_seed=q_idx)
             [pred] = runner.batch_predict([prompt], LABEL_TOKENS)
-            random8_correct.append(int(pred.prediction == str(int(query_y[q_idx]))))
+            random8_correct.append(int(pred.prediction == LABEL_TOKENS[int(query_y[q_idx])]))
 
     random8_accuracy = float(np.mean(random8_correct))
-    raw_class1_rate = float(np.mean([p == "1" for p in zero_shot_raw_predictions]))
+    raw_class1_rate = float(np.mean([p == "Yes" for p in zero_shot_raw_predictions]))
 
     print(f"  zero-shot class-1 rate (raw): {raw_class1_rate:.3f}")
     print(f"  random-8 ID accuracy: {random8_accuracy:.3f}")

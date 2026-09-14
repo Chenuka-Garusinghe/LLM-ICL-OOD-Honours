@@ -72,9 +72,9 @@ def resolve_label_token_ids(tokenizer, label_tokens: tuple[str, str]) -> list[in
     decoding via SamplingParams.allowed_token_ids.
 
     Returns None if any label token doesn't encode to exactly one token --
-    the caller then falls back to unconstrained generation. For this project
-    the label tokens are always "0"/"1", which are a single BPE piece in both
-    the Llama-3.1 and Qwen2.5 tokenizers (id 15 / 16).
+    the caller then falls back to unconstrained generation. Label tokens
+    must each be a single BPE piece in the model's tokenizer (e.g. "No"/"Yes"
+    or "0"/"1" — common words and single digits satisfy this for Llama/Qwen).
 
     Without this, the model routinely makes its first generated token a
     newline, a leading space, or an explanatory word instead of a bare label

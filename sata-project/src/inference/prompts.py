@@ -12,9 +12,10 @@ from __future__ import annotations
 # deliberately keeping abstract `feature_N` names (no real-world priors
 # injected into the synthetic arm). See REDESIGN_RATIONALE.md §4.1/§5.1.
 SYNTHETIC_TASK_DESCRIPTION = (
-    "each example lists 10 numeric measurements and its category; the category "
-    "is determined by an unknown rule over some of the measurements; infer the "
-    "rule from the labelled examples and classify the final one"
+    "each example lists 10 numeric measurements and whether it satisfies an "
+    "unknown condition; the condition is determined by a rule over some of the "
+    "measurements; infer the rule from the labelled examples and classify the "
+    "final one"
 )
 
 SYSTEM_TEMPLATE = (
