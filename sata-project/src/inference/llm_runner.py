@@ -108,6 +108,14 @@ class VLLMRunner:
             max_model_len=max_model_len,
         )
 
+    def chat_formatter(self):
+        """Mirrors MLXRunner.chat_formatter() (src/inference/mlx_runner.py) --
+        wraps the engine's own tokenizer so callers can swap backends via
+        this identical method name, no per-call-site branching needed."""
+        from src.inference.chat import ChatFormatter
+
+        return ChatFormatter(self.llm.get_tokenizer())
+
     def shutdown(self) -> None:
         """Best-effort GPU memory release -- NOT reliable, do not depend on it.
 
@@ -207,6 +215,7 @@ class VLLMWorkerRunner:
         from pathlib import Path
 
         project_root = Path(__file__).resolve().parents[2]
+        self._model_path = model_path
         self._socket_path = f"/tmp/vllm_worker_{uuid.uuid4().hex}.sock"
         self._proc = subprocess.Popen(
             [
@@ -235,6 +244,18 @@ class VLLMWorkerRunner:
             except (FileNotFoundError, ConnectionRefusedError):
                 time.sleep(1)
         raise TimeoutError(f"vLLM worker did not become ready within {timeout}s")
+
+    def chat_formatter(self):
+        """Same interface as VLLMRunner.chat_formatter(), but the engine (and
+        its tokenizer) lives in the worker subprocess, not here -- loads an
+        independent AutoTokenizer from the model repo instead of round-
+        tripping over the socket. Cheap: only tokenizer config/vocab files
+        are read, not the model weights the worker already loaded."""
+        from transformers import AutoTokenizer
+
+        from src.inference.chat import ChatFormatter
+
+        return ChatFormatter(AutoTokenizer.from_pretrained(self._model_path))
 
     def generate_text(self, prompts: list[str], max_tokens: int = 128) -> list[str]:
         self._conn.send({"op": "generate_text", "prompts": prompts, "max_tokens": max_tokens})
