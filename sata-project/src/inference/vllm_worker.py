@@ -32,7 +32,8 @@ os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
 
 
 def main() -> None:
-    socket_path, model_path, tensor_parallel, gpu_memory_utilisation, max_model_len = sys.argv[1:6]
+    socket_path, model_path, tensor_parallel, gpu_memory_utilisation, max_model_len, quantization = sys.argv[1:7]
+    quantization = None if quantization == "none" else quantization
 
     from multiprocessing.connection import Listener
     from vllm import LLM, SamplingParams
@@ -49,6 +50,7 @@ def main() -> None:
         tensor_parallel_size=int(tensor_parallel),
         gpu_memory_utilization=float(gpu_memory_utilisation),
         max_model_len=int(max_model_len),
+        quantization=quantization,
     )
 
     listener = Listener(socket_path, family="AF_UNIX")

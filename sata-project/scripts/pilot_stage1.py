@@ -80,6 +80,7 @@ def _make_runner(backend: str, model_path: str, vllm_config):
         tensor_parallel=vllm_config.tensor_parallel,
         gpu_memory_utilisation=vllm_config.gpu_memory_utilisation,
         max_model_len=vllm_config.max_model_len,
+        quantization=getattr(vllm_config, "quantization", None),
     )
 
 
@@ -153,6 +154,12 @@ def main() -> None:
     parser.add_argument("--k", type=int, default=8)
     parser.add_argument("--config", default="configs/v2.yaml")
     parser.add_argument("--backend", choices=["auto", "mlx", "vllm"], default="auto")
+    parser.add_argument(
+        "--size", choices=["8b", "70b"], default="8b",
+        help="8b: config.base_llms/config.mlx.models (bf16). "
+             "70b: config.base_llms_70b via vLLM with FP8 (single-GPU H200 memory budget "
+             "-- see configs/v2.yaml's vllm_70b block). MLX backend has no 70b path.",
+    )
     args = parser.parse_args()
 
     import os
@@ -161,18 +168,23 @@ def main() -> None:
     config = load_config()
 
     backend = _detect_backend() if args.backend == "auto" else args.backend
-    print(f"Backend: {backend}")
-    # mlx models list is MLX-community's bf16 mirror of the same checkpoints
-    # base_llms points to (config.mlx.models vs. config.base_llms in
-    # configs/v2.yaml) -- vLLM loads the real HF repo directly.
-    model_list = config.mlx.models if backend == "mlx" else config.base_llms
+    print(f"Backend: {backend}, size: {args.size}")
+
+    if args.size == "70b":
+        if backend != "vllm":
+            raise SystemExit("--size 70b requires --backend vllm (or auto on a CUDA machine) -- no MLX 70b path")
+        model_list = config.base_llms_70b
+        vllm_config = config.vllm_70b
+    else:
+        model_list = config.mlx.models if backend == "mlx" else config.base_llms
+        vllm_config = config.vllm
 
     _, test_tasks = generate_val_test_tasks(config.generator)
     tasks = test_tasks[: args.n_tasks]
 
     results = []
     for model_cfg in model_list:
-        result = run_pilot(model_cfg.name, model_cfg.path, tasks, args.n_queries, args.pool_size, args.k, backend, config.vllm)
+        result = run_pilot(model_cfg.name, model_cfg.path, tasks, args.n_queries, args.pool_size, args.k, backend, vllm_config)
         results.append(result)
 
     print("\n=== Gate S1 summary ===")

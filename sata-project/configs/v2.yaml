@@ -15,6 +15,25 @@ vllm:
   tensor_parallel: 1
   gpu_memory_utilisation: 0.90
   max_model_len: 8192
+  quantization: null   # 8B/7B bf16 weights (~16GB) fit a single GPU with room to spare
+
+# Larger models (branch: appollo-cluster-v, single H200, 141GB HBM). bf16
+# weights alone for a 70B model are ~140GB -- that's the entire card with
+# nothing left for KV cache/activations, so this must run quantised. FP8
+# (dynamic, computed from the bf16 checkpoint at load time -- no separate
+# quantised checkpoint needed) halves weights to ~70GB and is what H200's
+# Hopper tensor cores execute natively, unlike AWQ/GPTQ's int4 dequant path.
+base_llms_70b:
+  - name: "Llama-3.1-70B-Instruct"
+    path: "meta-llama/Llama-3.1-70B-Instruct"
+  - name: "Qwen2.5-72B-Instruct"
+    path: "Qwen/Qwen2.5-72B-Instruct"
+
+vllm_70b:
+  tensor_parallel: 1     # single GPU -- no TP to split weights across
+  gpu_memory_utilisation: 0.90
+  max_model_len: 8192
+  quantization: "fp8"
 
 # Local MLX dev-loop backend (branch: local-testing-w-mlx-models). Mirrors
 # the exact v1 base_llms above, in true bf16 (not quantised).

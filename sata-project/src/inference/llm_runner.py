@@ -98,7 +98,7 @@ def resolve_label_token_ids(tokenizer, label_tokens: tuple[str, str]) -> list[in
 class VLLMRunner:
     """Thin wrapper around vllm.LLM for constrained single-token classification."""
 
-    def __init__(self, model_path: str, tensor_parallel: int = 1, gpu_memory_utilisation: float = 0.9, max_model_len: int = 4096):
+    def __init__(self, model_path: str, tensor_parallel: int = 1, gpu_memory_utilisation: float = 0.9, max_model_len: int = 4096, quantization: str | None = None):
         from vllm import LLM
 
         self.llm = LLM(
@@ -106,6 +106,7 @@ class VLLMRunner:
             tensor_parallel_size=tensor_parallel,
             gpu_memory_utilization=gpu_memory_utilisation,
             max_model_len=max_model_len,
+            quantization=quantization,
         )
 
     def chat_formatter(self):
@@ -208,7 +209,7 @@ class VLLMWorkerRunner:
     subprocess on shutdown() forces the CUDA driver to reclaim it.
     """
 
-    def __init__(self, model_path: str, tensor_parallel: int = 1, gpu_memory_utilisation: float = 0.9, max_model_len: int = 4096, ready_timeout: float = 1800):
+    def __init__(self, model_path: str, tensor_parallel: int = 1, gpu_memory_utilisation: float = 0.9, max_model_len: int = 4096, quantization: str | None = None, ready_timeout: float = 1800):
         import subprocess
         import sys
         import uuid
@@ -222,6 +223,7 @@ class VLLMWorkerRunner:
                 sys.executable, "-m", "src.inference.vllm_worker",
                 self._socket_path, model_path,
                 str(tensor_parallel), str(gpu_memory_utilisation), str(max_model_len),
+                quantization or "none",  # argv is strings-only; vllm_worker.py maps "none" back to None
             ],
             cwd=str(project_root),
         )

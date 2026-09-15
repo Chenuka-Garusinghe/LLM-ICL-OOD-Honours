@@ -60,10 +60,11 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
         config.sata.d_model
         config.seed_accuracy
 
-    If SATA_MODEL_FILTER is set (to a base_llms[].name), base_llms is filtered
-    down to just that entry -- lets two processes each run one model
-    concurrently (one per GPU) without editing the notebooks, which already
-    just `for model_cfg in config.base_llms: ...`.
+    If SATA_MODEL_FILTER is set (to a base_llms[].name), base_llms (and
+    base_llms_70b, when present) is filtered down to just that entry -- lets
+    two processes each run one model concurrently (one per GPU) without
+    editing the notebooks, which already just `for model_cfg in
+    config.base_llms: ...`.
 
     If SATA_CONFIG is set (to a config file path, e.g. configs/v2.yaml), it
     overrides `path` -- lets a script/notebook switch to the v2 redesign
@@ -76,7 +77,9 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
         raw = yaml.safe_load(f)
     model_filter = os.environ.get("SATA_MODEL_FILTER")
     if model_filter:
-        raw["base_llms"] = [m for m in raw["base_llms"] if m["name"] == model_filter]
+        for key in ("base_llms", "base_llms_70b"):
+            if key in raw:
+                raw[key] = [m for m in raw[key] if m["name"] == model_filter]
     return _to_namespace(raw)
 
 
