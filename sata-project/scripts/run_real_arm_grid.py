@@ -212,7 +212,9 @@ def build_unit_prompts(
 # units
 # --------------------------------------------------------------------------- #
 def enumerate_units(mode: str, seeds: list[int], datasets: list[str],
-                     corruptions: tuple[float, ...] = (0.0, 0.5, 1.0)) -> list[dict]:
+                     corruptions: tuple[float, ...] = (0.0, 0.5, 1.0),
+                     cells: list[tuple[str, str]] | None = None) -> list[dict]:
+    cells = GRID_CELLS if cells is None else cells
     units = []
     if mode == "corruption-gate":
         for ds in datasets:
@@ -224,11 +226,19 @@ def enumerate_units(mode: str, seeds: list[int], datasets: list[str],
                 units.append(dict(dataset=ds, mechanism="zero_shot", composition="none",
                                   corruption=0.0, seed=s, k=0))
     else:
+        # Grid mode sweeps `corruptions` exactly as corruption-gate mode does.
+        # It previously pinned corruption=0.0, which made the feature-channel
+        # test (GATE_S0C_FINDINGS.md §10.7) impossible to express: that test is
+        # the 0% vs 100% contrast run *within* each mechanism. A mechanism whose
+        # advantage over random-k survives 100% label corruption is operating on
+        # feature content; one whose advantage vanishes was operating on label
+        # content, which §10.4 shows is inert at both 8B and 70B.
         for ds in datasets:
-            for mech, comp in GRID_CELLS:
-                for s in seeds:
-                    units.append(dict(dataset=ds, mechanism=mech, composition=comp,
-                                      corruption=0.0, seed=s, k=8))
+            for mech, comp in cells:
+                for c in corruptions:
+                    for s in seeds:
+                        units.append(dict(dataset=ds, mechanism=mech, composition=comp,
+                                          corruption=c, seed=s, k=8))
             for s in seeds[:1]:
                 units.append(dict(dataset=ds, mechanism="zero_shot", composition="none",
                                   corruption=0.0, seed=s, k=0))
@@ -270,6 +280,17 @@ def main() -> None:
                      help="verbaliser diagnostic: drop the '{label_0} = <meaning>' gloss from the "
                           "system prompt (Wei et al. 2023 symbol-tuning setting). Pair with neutral "
                           "--label-tokens (A/B, 0/1) to remove semantic priors entirely.")
+    ap.add_argument("--mechanisms", nargs="+", default=None,
+                     help="grid mode: restrict to these selection mechanisms (default: the full "
+                          "GRID_CELLS list). The feature-channel test uses a fixed composition "
+                          "(--composition) and varies mechanism x corruption instead, because "
+                          "GATE_S0C_FINDINGS.md §10.4/§10.5 show the label-count channel that "
+                          "`composition` controls is inert -- sweeping it 3 ways triples cost for "
+                          "a factor already measured as having no effect.")
+    ap.add_argument("--composition", default=None,
+                     help="grid mode: hold composition fixed at this value for every mechanism "
+                          "named in --mechanisms (e.g. 'balanced', matching every prior run so the "
+                          "numbers stay comparable). Ignored unless --mechanisms is given.")
     ap.add_argument("--corruptions", type=float, nargs="+", default=None,
                      help="restrict corruption-gate mode to these levels (default: 0.0 0.5 1.0). "
                           "Pass '0.0' alone for a verbaliser-only diagnostic with no corruption sweep.")
@@ -309,7 +330,12 @@ def main() -> None:
         blob["codebook"] = apply_label_rewrites(load_codebook(Path(args.raw_cache) / ds), ds)
         ctxs[ds] = blob
 
-    units = enumerate_units(args.mode, args.seeds, args.datasets, corruptions=corruptions)
+    cells = None
+    if args.mechanisms:
+        comp = args.composition or "balanced"
+        cells = [(m, comp) for m in args.mechanisms]
+    units = enumerate_units(args.mode, args.seeds, args.datasets,
+                             corruptions=corruptions, cells=cells)
     units = [u for i, u in enumerate(units) if i % args.n_shards == args.shard]
     pending = [u for u in units if not unit_path(out, args.model, u).exists()]
     print(f"[grid] mode={args.mode} model={args.model} units={len(units)} "
