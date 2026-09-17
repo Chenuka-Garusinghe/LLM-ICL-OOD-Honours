@@ -26,9 +26,14 @@ cd sata-project
 jupyter lab notebooks/
 ```
 
-The result parquets are already in `results/v2/` (gitignored, so they are local
-only). If that directory is empty, the collection commands are in the markdown at
-the top of notebooks 11, 13 and 14 — each needs a GPU and takes 1–3 hours.
+The result parquets are committed under `results/v2/`, so a fresh clone runs
+notebooks 11–14 with no GPU. (`results/*` is otherwise gitignored; `results/v2/`
+is an explicit exception, because roughly 4 H200-hours of inference sits behind
+those files.) The collection commands are in the markdown at the top of notebooks
+11, 13 and 14 if you ever need to regenerate them.
+
+Figures and summary tables land in `figures/v2/` and `tables/v2/`, also tracked
+by exception.
 
 Notebooks 09 and 10 depend on `_screen_cache/*.pkl`, regenerable on CPU:
 
