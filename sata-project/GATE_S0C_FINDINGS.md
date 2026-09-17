@@ -327,6 +327,186 @@ Renumbering:
    contrast, every mechanism run at 0% and 100% corruption. Unchanged from §7.
 5. **SATA/RQ4 decision.** Unchanged from §7.
 
+---
+
+## 10. Steps 2–3 results: the ID→OOD gap does not exist, and scale does not revive the label channel
+
+Runs: `Llama-3.1-8B-Instruct` and `Llama-3.1-70B-Instruct` (fp8), `random ×
+balanced` at corruption 0/50/100 % plus zero-shot, **both ID and OOD query
+splits**, k=8, 5 seeds × 250 queries. 128 units / 32 000 rows per scale. Data:
+`gate_s0c_8b_merged.parquet`, `gate_s0c_70b_merged.parquet`. Figure:
+`scale_comparison.png`. Table: `scale_evaluation_summary.csv`. No invalid
+label-token lookups and no logprob sentinels in either run.
+
+### 10.1 Contextual calibration is only valid at 8B — at 70B it is sign-inverted
+
+This has to come first because it determines which decision rule every other
+number in this section uses.
+
+| scale | observed margin | content-free margin | raw balanced acc | calibrated balanced acc |
+|---|---|---|---|---|
+| 8B | +1.26 … +2.48 | **+1.69 … +2.27** | 0.500 … 0.519 | **0.503 … 0.664** |
+| 70B | +0.25 … +2.08 | **−1.38 … −5.81** | **0.516 … 0.703** | 0.514 … 0.532 |
+
+At 8B the content-free margin closely matches the observed margin, so dividing
+it out centres the decision and calibration is load-bearing (§3). At 70B the
+content-free margin is *strongly negative* — so "calibrating" **adds** up to
+5.8 to every margin, pushes the calibrated positive rate to 0.95–0.98, and
+collapses balanced accuracy to ~0.52 while AUROC is as high as 0.84. This is
+the same pathology already documented for 8B's *zero-shot* arm in §3, now
+hitting 70B's *few-shot* arm.
+
+So: **use calibrated predictions at 8B and raw predictions at 70B.** The
+implemented content-free baseline (no demos, placeholder query values) is not a
+valid label-prior probe for a 70B model, and the corrected baseline proposed in
+§7 step 2 — keep demonstrations, blank only the query — is now required for the
+70B arm too, not just zero-shot. AUROC is used as the primary statistic
+throughout this section precisely because it is threshold-free and therefore
+immune to this.
+
+### 10.2 Scale lifts discriminability substantially
+
+OOD AUROC, corruption 0 % (panel a): ACS Income 0.682 → **0.841**, BRFSS
+0.592 → **0.780**, ANES 0.682 → **0.730**, ACS Public Coverage 0.517 → 0.527.
+Three of four improve markedly; ACS Public Coverage stays at chance at both
+scales, which is now a *two-scale* confirmation of the §4 negative-control
+verdict rather than a single-model result.
+
+Using each scale's valid decision rule, 70B also beats 8B on balanced accuracy
+on every dataset (e.g. BRFSS 0.562 → 0.697, ACS Income 0.664 → 0.703).
+
+### 10.3 There is no ID→OOD generalisation gap — at either scale
+
+This is the most consequential result in the document, and it bears directly
+on RQ1.
+
+| scale | dataset | AUROC (ID) | AUROC (OOD) | gap | Wilcoxon *p* |
+|---|---|---|---|---|---|
+| 8B | ACS Income | 0.676 | 0.682 | −0.006 | 1.000 |
+| 8B | ANES | 0.710 | 0.682 | +0.028 | 0.438 |
+| 8B | BRFSS | 0.596 | 0.592 | +0.004 | 0.812 |
+| 8B | ACS Public Coverage | 0.476 | 0.517 | −0.042 | 0.312 |
+| 70B | ACS Income | 0.823 | 0.841 | −0.018 | 0.188 |
+| 70B | ANES | 0.731 | 0.730 | +0.001 | 1.000 |
+| 70B | BRFSS | 0.758 | 0.780 | −0.023 | 0.812 |
+| 70B | ACS Public Coverage | 0.582 | 0.527 | +0.055 | 0.062 |
+
+Mean |gap| = **0.022** AUROC; max |gap| = 0.055; the sign splits 4/4 between
+ID-higher and OOD-higher; **no cell is significant at 0.05** (5 seeds, so
+*p* = 0.062 is again the attainable floor). The same holds on balanced
+accuracy (|gap| ≤ 0.043).
+
+The mechanistic reading is straightforward and, in hindsight, should have been
+predicted: an ICL model is never *fitted* to the source distribution, so it has
+no source-specific decision boundary to be wrong about in the target domain.
+The TableShift shifts move p(x) and p(y) substantially — the §2/§4 shift
+taxonomy measured domain-discriminator AUCs up to 0.92 — and an ID-trained
+gradient-boosted baseline *does* degrade on them (`shift_context_summary.csv`:
+ACS Public Coverage accuracy 0.795 → 0.627). The LLM does not. It is uniformly
+mediocre rather than "good in-domain and worse out-of-domain."
+
+**Consequence for RQ1.** "How much does ICL degrade under distribution shift"
+does not have a measurable answer on this benchmark, because the degradation is
+≈ 0. The interesting quantity is not the gap but the *level*: the LLM starts
+below where a supervised in-domain model starts and ends up near where that
+model ends up after degrading. That is a defensible and publishable framing —
+*ICL is shift-robust in the trivial sense that it never fit the source
+distribution, and the cost is a uniformly lower operating point* — but it is a
+different claim from the one the project set out to make, and it should be
+restated in the thesis rather than patched.
+
+### 10.4 Scale does **not** revive the demonstration-label channel
+
+The §7/§9 step-3 hypothesis — that the label channel is inert at 8B and might
+become live at 70B — is **not supported**. ΔAUROC from flipping every
+demonstration label (0 % vs 100 % corruption), OOD split:
+
+| dataset | 8B | 70B | 70B seeds same dir | 70B *p* |
+|---|---|---|---|---|
+| ANES | +0.175 | +0.128 | 5/5 | 0.062 |
+| BRFSS | −0.025 | +0.049 | 3/5 | 0.312 |
+| ACS Income | +0.012 | +0.014 | 4/5 | 0.125 |
+| ACS Public Coverage | −0.001 | −0.020 | 2/5 | 0.438 |
+
+ANES remains the only dataset with a consistent effect, and it is *weaker* at
+70B (0.175 → 0.128), not stronger. BRFSS moves from −0.025 to +0.049 but with
+3/5 seeds and *p* = 0.312 that is not a result. Mean ΔAUROC across datasets is
+**0.040 at 8B and 0.043 at 70B** — unchanged.
+
+**And this now definitively kills the §6 saturation confound.** The worry was
+that label-insensitivity might be an artefact of a decision variable with no
+room left to move. At 70B the dynamic range of P(positive) is **6.5× wider**
+than at 8B (mean IQR 0.576 vs 0.088; BRFSS specifically 0.035 → 0.799) and the
+raw positive rate falls from 0.98 to 0.72 — the output is substantially
+de-saturated. The label-corruption sensitivity is nonetheless identical
+(panel c). Room to move was not the binding constraint; **the label channel is
+genuinely inert**, on 3 of 4 datasets, at both scales tested.
+
+This is a stronger claim than §8 could support, and it is the one to build the
+thesis on. It is also a *direct* empirical extension of arXiv 2511.21038, which
+reports zero semantic override across 1–12B: the present result carries the
+same finding to 70B on tabular tasks, where that paper's range stops.
+
+### 10.5 Demonstrations act as a calibrator at 8B and are redundant at 70B
+
+Few-shot minus zero-shot, OOD, each scale's valid rule:
+
+- **AUROC**: 8B −0.029 / −0.038 / −0.127 / +0.030 (3 of 4 negative);
+  70B −0.002 / −0.018 / +0.081 / −0.073 (3 of 4 negative). Demonstrations do
+  **not** improve discriminability at either scale — reproducing LLMTabBench
+  (arXiv 2605.24417) on its own terms.
+- **Balanced accuracy**: 8B **+0.216 / +0.138** / +0.044 / +0.003 — large
+  gains on ACS Income and ANES; 70B −0.028 / +0.041 / +0.036 / −0.035 — no
+  systematic gain.
+
+So at 8B the demonstrations' entire measurable contribution is *fixing the
+decision threshold* — zero-shot 8B balanced accuracy is 0.448–0.517 (chance)
+and eight demonstrations lift it to 0.637–0.664 without improving the ranking
+at all. At 70B zero-shot is already well-calibrated (balanced accuracy
+0.551–0.731) and the demonstrations add nothing. In neither case are the
+demonstrations conveying the input→label mapping; at 8B they are an implicit
+calibration device, which is consistent with Min et al. 2022's "label space,
+not input-label mapping" reading and with §10.4's inert label channel.
+
+### 10.6 Gate S1 verdict: fails on the competence criterion at both scales
+
+Criterion (a), ID accuracy ≥ 0.60 for random-8, was untestable until now.
+Result: 8B passes on ACS Income (0.672) only; 70B passes on ANES (0.710) only.
+**But no cell at either scale beats its own majority-class baseline** (ACS
+Income 0.685, ANES 0.718, ACS Public Coverage 0.778, BRFSS 0.877), so the two
+nominal passes are passes of a threshold that is itself below chance-by-
+prevalence. The honest reading is that **Gate S1's competence floor is not
+cleared by any (dataset × scale) cell**, and a majority-class comparison should
+replace the fixed 0.60 threshold in the gate definition — 0.60 is not a
+meaningful floor on datasets with 0.88 prevalence.
+
+### 10.7 What this means for Steps 4–5
+
+The protocol grid (step 4) was predicated on the demonstration set carrying
+exploitable information. Three of the four datasets now have two-scale evidence
+that it does not, and ACS Public Coverage is at chance regardless. That leaves:
+
+- **ANES** as the only dataset where a demonstration-selection protocol has a
+  demonstrated channel to work through, at both scales.
+- **The feature channel** as the remaining untested route on the other three.
+  §10.4 only rules out the *label* channel; query-conditional selection
+  (`similarity`) works by putting relevant feature values in the prompt and is
+  not excluded by any result here. The §7 step-4 design — run every mechanism
+  at 0 % *and* 100 % corruption — is precisely the test that separates these,
+  and it is now the highest-value experiment remaining.
+
+Recommended scope change: run step 4 as a **feature-channel test on ANES plus
+one high-AUROC dataset (ACS Income or BRFSS at 70B)**, rather than the full
+4-dataset × 20-cell grid. A protocol that improves OOD AUROC at 100 %
+corruption is working through features and is a real finding; one that improves
+only at 0 % corruption is working through labels and, per §10.4, should not
+replicate.
+
+For **RQ4/SATA** (step 5): the case for a learned demonstration *selector* is
+now weak on 3 of 4 datasets, and `REDESIGN_RATIONALE.md`'s anticipated Gate S3b
+negative write-up is the likely destination. The `+1.5` counter-spurious term
+in `src/models/sata_targets.py:46` remains undecided and is probably moot.
+
 ### Not in the plan, deliberately
 
 - The synthetic arm: `data/synthetic/` is empty locally and needs Stage 2
