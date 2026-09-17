@@ -27,3 +27,6 @@ models/*
 
 # OS
 .DS_Store
+
+# Fitted shift-estimation context cache (regenerable via scripts/prep_shift_context.py)
+_screen_cache/

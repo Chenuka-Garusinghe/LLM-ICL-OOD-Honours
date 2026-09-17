@@ -29,8 +29,27 @@ base_llms_70b:
   - name: "Qwen2.5-72B-Instruct"
     path: "Qwen/Qwen2.5-72B-Instruct"
 
+# Single H200 SXM (vast.ai, Hopper, 141GB HBM3e). TP=1, not 2: 70B FP8 weights
+# are ~70GB, so they fit one card -- at gpu_memory_utilisation 0.90 that is
+# ~127GB usable, leaving ~57GB for KV cache, ample at max_model_len 8192. TP=2
+# would fail outright on a single-GPU instance; the original TP=2 / "35GB each
+# via NVLink" setting assumed the 2xH200 appollo-cluster layout, so keep that
+# only when renting a 2-GPU box.
+#
+# H200 is Hopper (sm_90), not Blackwell (sm_100) -- this is the LOW-risk
+# toolchain case. Hopper is supported by every current vllm/torch wheel and
+# executes FP8 natively on its tensor cores, which is what makes fp8 the right
+# quantisation here rather than an int4 AWQ/GPTQ dequant path. No special CUDA
+# version hunting is needed; a standard recent CUDA 12.x image is fine.
+#
+# Still worth doing before launching any grid, because the instance is rented
+# and ephemeral:
+#   python -c "import torch; print(torch.cuda.get_device_capability())"   # (9, 0)
+# then load one model and run a single batch. Freeze afterwards
+# (pip freeze > requirements.lock.txt): requirements.txt is unpinned, and
+# unpinned deps on a box that disappears means the run cannot be reproduced.
 vllm_70b:
-  tensor_parallel: 1     # single GPU -- no TP to split weights across
+  tensor_parallel: 1
   gpu_memory_utilisation: 0.90
   max_model_len: 8192
   quantization: "fp8"
