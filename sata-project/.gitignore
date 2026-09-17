@@ -18,6 +18,13 @@ data/tableshift_raw_cache/
 data/anes_timeseries_cdf_csv_*/
 results/*
 !results/.gitkeep
+# Exception: the v2 collected results (~14 MB of per-row predictions) ARE
+# version controlled. Notebooks 11-14 read them directly, and unlike the v1
+# results they are not cheaply regenerable -- roughly 4 H200-hours of
+# inference sits behind them.
+!results/v2/
+!results/v2/*.parquet
+!results/v2/*.csv
 figures/*
 !figures/.gitkeep
 tables/*

@@ -1,0 +1,17 @@
+dataset,mechanism,corruption,n,accuracy
+acsincome,random,0.0,1250,0.6728
+acsincome,random,0.5,1250,0.6976
+acsincome,random,1.0,1250,0.6872
+acsincome,zero_shot,0.0,250,0.372
+acspubcov,random,0.0,1250,0.5776
+acspubcov,random,0.5,1250,0.604
+acspubcov,random,1.0,1250,0.5816
+acspubcov,zero_shot,0.0,250,0.612
+anes,random,0.0,1250,0.6096
+anes,random,0.5,1250,0.536
+anes,random,1.0,1250,0.5064
+anes,zero_shot,0.0,250,0.636
+brfss_diabetes,random,0.0,1250,0.3504
+brfss_diabetes,random,0.5,1250,0.3616
+brfss_diabetes,random,1.0,1250,0.3688
+brfss_diabetes,zero_shot,0.0,250,0.176
