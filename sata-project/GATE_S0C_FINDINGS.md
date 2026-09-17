@@ -507,6 +507,156 @@ now weak on 3 of 4 datasets, and `REDESIGN_RATIONALE.md`'s anticipated Gate S3b
 negative write-up is the likely destination. The `+1.5` counter-spurious term
 in `src/models/sata_targets.py:46` remains undecided and is probably moot.
 
+---
+
+## 11. Step 4 (feature channel): the channel is real, it is scale-inverted, and it does not beat zero-shot
+
+Design: 3 datasets (ANES, ACS Income, BRFSS; ACS Public Coverage excluded as the
+§4/§10.2 at-chance negative control) × 4 mechanisms (`random` baseline,
+`similarity` = query-conditional, `feature_coverage`, `importance_weighted`) ×
+corruption {0 %, 100 %} × **8 seeds**, composition fixed at `balanced`, OOD
+queries, k=8, 250 queries/unit. 195 units / 48 750 rows per scale, at 8B (with
+contextual calibration) and 70B fp8 (without — §10.1). Data:
+`feature_channel_{8b,70b}_merged.parquet`. Figure: `feature_channel.png`. Table:
+`feature_channel_summary.csv`. Zero invalid predictions, zero logprob sentinels.
+
+The logic of the test: with **every** demonstration label flipped, any remaining
+advantage over random-*k* cannot be coming from the label mapping. It must come
+from the feature values in the prompt. §10.4 ruled out the label channel; this
+isolates the feature channel.
+
+### 11.1 The pre-registered test passes — in both directions
+
+`similarity` vs `random` at 100 % corruption, paired over 8 seeds, Holm-corrected
+within this 6-test family:
+
+| scale | dataset | ΔAUROC | seeds favouring | *p* | *p*(Holm) |
+|---|---|---|---|---|---|
+| 8B | BRFSS Diabetes | **+0.119** | 8/8 | 0.0078 | 0.047 |
+| 8B | ANES Turnout | **+0.093** | 7/8 | 0.0156 | 0.047 |
+| 8B | ACS Income | **+0.033** | 7/8 | 0.0234 | 0.047 |
+| 70B | ANES Turnout | **−0.135** | 0/8 | 0.0078 | 0.047 |
+| 70B | BRFSS Diabetes | **−0.049** | 1/8 | 0.0156 | 0.047 |
+| 70B | ACS Income | **−0.041** | 0/8 | 0.0078 | 0.047 |
+
+All six significant. **The feature channel is real at 8B** — query-conditional
+selection beats random-*k* on all three datasets with every demonstration label
+wrong, so the gain is carried by feature content. This is the first positive
+protocol result in the project.
+
+**And it inverts at 70B**, significantly, on all three datasets. The same
+mechanism that helps a 8B model hurts a 70B one.
+
+### 11.2 Label-robustness confirms the mechanism
+
+AUROC lost when all demonstration labels are flipped:
+
+| scale | dataset | random-*k* | similarity |
+|---|---|---|---|
+| 8B | ANES | 0.192 | **0.028** |
+| 8B | BRFSS | −0.004 | **−0.015** |
+| 8B | ACS Income | 0.010 | 0.018 |
+| 70B | ANES | 0.124 | **0.191** |
+| 70B | BRFSS | 0.056 | **0.083** |
+| 70B | ACS Income | 0.013 | **0.035** |
+
+At 8B, `similarity` on ANES is almost indifferent to the labels (0.028) where
+random-*k* loses 0.192 — it substitutes feature information for the label
+information it no longer has. At 70B the ordering reverses: `similarity` loses
+*more* than random-*k* on all three. The ANES 8B sign flip in §11.1 (`similarity`
+is worse at 0 % corruption, −0.071, but better at 100 %, +0.093) is the same
+fact seen from the other side: ANES is the one dataset where the label channel
+is live (§10.4), so at 0 % correct labels dominate and `similarity`'s
+neighbour-constrained label balance costs more than its feature gain; at 100 %
+the label channel is destroyed and only the feature channel remains.
+
+A plausible reading of the 70B inversion — **not tested here** — is that the k=8
+nearest neighbours are a low-diversity, locally biased sample, and a model with
+strong enough priors does better from a diverse random draw than from a narrow
+local one. Testing it needs a diversity-controlled variant (e.g. k-medoids
+within the neighbourhood), which is not in this run.
+
+### 11.3 The other two mechanisms do nothing
+
+No `feature_coverage` or `importance_weighted` cell reaches significance at
+either corruption level or either scale (smallest *p* = 0.055, BRFSS 8B
+`feature_coverage` at 0 %). `importance_weighted` is **bit-identical** to
+`random` on ANES at both scales — the correct degraded fallback firing, since
+ANES's domain-discriminator AUC is 0.557, below the 0.60 detectability threshold
+in `shift_estimation.py`. That is the design behaving as specified, not a bug,
+and those 3 cells are excluded from testing rather than counted as null results.
+
+So the feature channel is specifically a **query-conditional retrieval** effect.
+Pool-level coverage and density-ratio reweighting — both of which choose one
+fixed demonstration set per unit — do not access it.
+
+### 11.4 Multiple comparisons: the full grid is unsatisfiable at 8 seeds
+
+Across all 33 testable comparisons, **zero survive Holm correction**. This is
+arithmetic, not weak effects: the Wilcoxon floor at 8 seeds is 0.0078, and Holm
+at 33 tests requires the smallest *p* < 0.05/33 = 0.0015. **11 seeds** would be
+needed for a full-grid correction to be satisfiable at all.
+
+This is why §11.1 is reported as a pre-registered 6-test family (the §10.7 plan
+named `similarity`-vs-random-at-100 %-corruption as *the* test) and everything
+else as exploratory. That distinction is load-bearing, not presentational — the
+§11.1 result stands; the §11.3 nulls are "not detected at this power", not
+"absent".
+
+### 11.5 The reality check: almost nothing beats using no demonstrations
+
+Against the zero-shot reference contrast that §7/§10.5 established as the right
+baseline, only **2 of 24** (mechanism × dataset × scale) cells beat it:
+`feature_coverage` (+0.064, *p* = 0.016) and `importance_weighted` (+0.048,
+*p* = 0.039) on BRFSS at 70B. Neither is `similarity`.
+
+`similarity` at 8B beats zero-shot by +0.041 on BRFSS and +0.010 on ACS Income —
+neither significant — and loses by 0.097 on ANES. (Zero-shot was run at a single
+seed, so these are one-sample tests against a constant that ignore zero-shot's
+own query-draw noise; they are weaker than the §11.1 paired tests and should not
+be corrected alongside them.)
+
+The resolution is that **random-*k* is a weak baseline**. `similarity` genuinely
+beats it, robustly and with the mechanism identified — but random-*k* at 8B is
+often *below* zero-shot (−0.031, −0.026, −0.067), so beating it is not the same
+as being worth doing. The honest statement of the result is:
+
+> Query-conditional demonstration selection recovers a feature-channel gain over
+> random demonstrations that survives complete label corruption, at 8B, on all
+> three datasets tested. It does not, on this benchmark, make an 8B model better
+> than the same model given no demonstrations at all, and at 70B it is actively
+> harmful.
+
+### 11.6 Ranking improves; the decision threshold still does not
+
+The §11.1 AUROC gains only partly reach thresholded accuracy. On BRFSS 8B,
+ΔAUROC +0.108 at 0 % corruption becomes Δbalanced-accuracy +0.041 (*p* = 0.016);
+on ACS Income 8B, ΔAUROC +0.041 becomes −0.009 (n.s.). Consistent with §10.5 and
+§2: what these models lack is a usable decision threshold, and demonstration
+*selection* improves the ranking without fixing the threshold. Any practical
+gain therefore still depends on a separate calibration step.
+
+### 11.7 Consequences for Step 5 (SATA / RQ4)
+
+This materially improves the case for the learned selector, and narrows it:
+
+- There **is** a channel for a selector to exploit, now demonstrated rather than
+  assumed, and it is feature-based — which is what a learned scorer over feature
+  representations is architecturally suited to.
+- It is an **8B-scale** phenomenon. SATA should be trained and evaluated at 8B;
+  a 70B evaluation is a falsification test, not the headline.
+- The comparison that matters is **SATA vs `similarity`**, not SATA vs random-*k*.
+  `similarity` is now the strong baseline, and the §11.2 diversity hypothesis is
+  the specific thing a learned selector could beat it on.
+- Every SATA arm must be run at **0 % and 100 % corruption**. A selector that
+  only helps at 0 % has learned to exploit the label channel that §10.4 shows is
+  inert, which would mean it had overfit the training signal.
+- Report against zero-shot, per §11.5. A selector that beats `similarity` but
+  not zero-shot is a negative result for the thesis question, however good the
+  ranking metric looks.
+
+Seed count: **≥11** if the SATA evaluation tests a comparable grid, per §11.4.
+
 ### Not in the plan, deliberately
 
 - The synthetic arm: `data/synthetic/` is empty locally and needs Stage 2
