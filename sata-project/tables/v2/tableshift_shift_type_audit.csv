@@ -1,0 +1,5 @@
+dataset,tableshift_task,ts_delta_x_covariate,ts_delta_y_given_x_labelled_concept,ts_delta_y_label,our_domain_auc,our_covariate_detectable,our_prior_source,our_prior_target_true,our_prior_shift_abs,our_bbse_identifiable,supervised_acc_id,supervised_acc_ood,supervised_acc_drop
+acsincome,Income,30.603,1.395,0.005,0.9148,True,0.3226,0.3985,0.076,True,0.8149,0.8034,0.011
+anes,ANES,13.602,2.229,0.002,0.5574,False,0.696,0.6168,0.079,True,0.8079,0.7615,0.046
+brfss_diabetes,Diabetes,12.28,0.104,0.033,0.6685,True,0.1247,0.1736,0.049,True,0.8756,0.8321,0.044
+acspubcov,Public Health Ins.,5.793,4.058,0.17,0.8079,True,0.2238,0.6374,0.414,False,0.7971,0.6084,0.189
