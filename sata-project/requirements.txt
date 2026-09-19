@@ -14,3 +14,6 @@ pyarrow                # for parquet I/O
 pyyaml
 jupyter
 tqdm
+folktables             # ACS PUMS data access for the WHYSHIFT arm (Notebook 01)
+whyshift               # whyshift.degradation_decomp -- DISDE covariate/concept shift decomposition
+graphviz               # whyshift's region_analysis imports this at package-init time but doesn't declare it

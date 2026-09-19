@@ -16,6 +16,8 @@ data/synthetic/*
 data/tableshift_cache/
 data/tableshift_raw_cache/
 data/anes_timeseries_cdf_csv_*/
+data/folktables_raw/
+data/whyshift_raw_cache/
 results/*
 !results/.gitkeep
 # Exception: the v2 collected results (~14 MB of per-row predictions) ARE
