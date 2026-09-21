@@ -4,3 +4,4 @@
 # External dependency clone (github.com/mlfoundations/tableshift) --
 # reproducible via `git clone`, not part of this project's own code.
 tableshift-src/
+.env
