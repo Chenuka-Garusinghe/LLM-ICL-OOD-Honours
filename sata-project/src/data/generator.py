@@ -98,7 +98,7 @@ class SyntheticTask:
         causal = X[:, self.causal_features]
 
         if self.rule_family == "linear":
-            logit = causal @ self.coefficients
+            logit = np.clip(causal @ self.coefficients, -500, 500)
             p = 1 / (1 + np.exp(-logit))
             if u is None:
                 return (p > 0.5).astype(int)
