@@ -1,0 +1,45 @@
+\contentsline {part}{I\hspace {1em}Data Generation}{3}{part.1}%
+\contentsline {section}{\numberline {1}Overview}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}End-to-End Pipeline}{3}{subsection.1.1}%
+\contentsline {section}{\numberline {2}Configuration Parameters (NB01)}{3}{section.2}%
+\contentsline {section}{\numberline {3}Feature Roles}{3}{section.3}%
+\contentsline {section}{\numberline {4}Task Sampling: \texttt {\_sample\_tasks()}}{4}{section.4}%
+\contentsline {section}{\numberline {5}Rule Families: \texttt {\_apply\_rule()}}{4}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Linear}{4}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Threshold (Majority Vote)}{4}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Tree (Depth-3)}{4}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {5.3.1}Tree Leaf Label Sampling}{5}{subsubsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.4}Sparse Interaction}{5}{subsection.5.4}%
+\contentsline {section}{\numberline {6}Environment Generation: \texttt {generate\_environment()}}{5}{section.6}%
+\contentsline {subsection}{\numberline {6.1}\texttt {id} --- In-Distribution}{5}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}\texttt {covariate} --- $P(X)$ Shift}{5}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}\texttt {mechanism} --- $P(Y|X)$ Shift}{5}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}\texttt {spurious\_reversal} --- Spurious Flip}{6}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}\texttt {extrapolation} --- Out-of-Support}{6}{subsection.6.5}%
+\contentsline {subsection}{\numberline {6.6}\texttt {missing\_feature} --- Broken Measurement}{6}{subsection.6.6}%
+\contentsline {section}{\numberline {7}Spurious Feature Construction ($f_8$)}{6}{section.7}%
+\contentsline {section}{\numberline {8}Label Noise}{6}{section.8}%
+\contentsline {section}{\numberline {9}Dataset Construction: \texttt {task\_to\_dataframes()}}{6}{section.9}%
+\contentsline {section}{\numberline {10}Causal Graph}{7}{section.10}%
+\contentsline {part}{II\hspace {1em}Downstream Pipeline}{8}{part.2}%
+\contentsline {section}{\numberline {11}Demo Selection (NB02)}{8}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Zero-Shot}{8}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Random}{8}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}Similarity}{8}{subsection.11.3}%
+\contentsline {subsection}{\numberline {11.4}Label Diversity (Protocol A)}{8}{subsection.11.4}%
+\contentsline {subsection}{\numberline {11.5}Feature Range (Protocol B)}{8}{subsection.11.5}%
+\contentsline {subsection}{\numberline {11.6}Rule Diversity (Protocol C)}{8}{subsection.11.6}%
+\contentsline {subsection}{\numberline {11.7}Counter-Spurious (Protocol D)}{8}{subsection.11.7}%
+\contentsline {subsection}{\numberline {11.8}Ordering (Applied to All Methods)}{9}{subsection.11.8}%
+\contentsline {section}{\numberline {12}Serialisation}{9}{section.12}%
+\contentsline {section}{\numberline {13}Prompt Construction}{9}{section.13}%
+\contentsline {section}{\numberline {14}LLM Inference}{9}{section.14}%
+\contentsline {subsection}{\numberline {14.1}Forward Pass}{9}{subsection.14.1}%
+\contentsline {subsection}{\numberline {14.2}Prediction Extraction}{10}{subsection.14.2}%
+\contentsline {section}{\numberline {15}Evaluation Metrics}{10}{section.15}%
+\contentsline {subsection}{\numberline {15.1}Accuracy}{10}{subsection.15.1}%
+\contentsline {subsection}{\numberline {15.2}Macro F1}{10}{subsection.15.2}%
+\contentsline {subsection}{\numberline {15.3}Shift Gap}{10}{subsection.15.3}%
+\contentsline {subsection}{\numberline {15.4}Invalid Rate}{10}{subsection.15.4}%
+\contentsline {section}{\numberline {16}Experiment Orchestration (NB02)}{11}{section.16}%
+\contentsline {part}{III\hspace {1em}Bug-Hunting Notes}{12}{part.3}%

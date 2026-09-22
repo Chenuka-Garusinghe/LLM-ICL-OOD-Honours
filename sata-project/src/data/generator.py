@@ -145,7 +145,7 @@ class SyntheticTask:
         probe, just the base rate). `perturb(X)` returns the perturbed copy.
         """
         X_probe = self._base_features(n_probe, rng)
-        X_probe = perturb(X_probe)
+        X_probe = perturb(X_probe) #* apply or dont apply (for id) a shift to the ~N(0,1) distributed values
         return float(self._apply_rule(X_probe).mean())
 
     def _regime(self, X: np.ndarray) -> np.ndarray:
