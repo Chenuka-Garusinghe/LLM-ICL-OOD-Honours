@@ -2,29 +2,60 @@
 \usepackage[margin=2cm]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
 \usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[round]{natbib}
+\usepackage{xurl}
 \usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black,
+            citecolor=green!35!black, urlcolor=blue!60!black}
 \usepackage{tikz}
 \usepackage{listings}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds,decorations.pathreplacing}
 
 \newcommand{\RR}{\mathbb{R}}
 \newcommand{\1}{\mathbf{1}}
+\newcommand{\E}{\mathbb{E}}
 \DeclareMathOperator{\sign}{sign}
-\DeclareMathOperator{\sigmoid}{sigmoid}
+\DeclareMathOperator{\sigmoid}{\sigma}
 \DeclareMathOperator{\logsumexp}{logsumexp}
+\DeclareMathOperator{\Maj}{Maj}
+\DeclareMathOperator{\corr}{corr}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\RMSNorm}{RMSNorm}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\setlength{\emergencystretch}{3em}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\newcommand{\status}[1]{\par\noindent\hfill\fcolorbox{black!35}{black!4}{\scriptsize\sffamily Status: #1}\par\medskip}
 
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
+  breakatwhitespace=true,
   frame=single,
   backgroundcolor=\color{gray!5},
+  columns=fullflexible,
 }
 
 \title{SATA Synthetic Experiment Pipeline\\[4pt]
-       \large Implementation Specification for Bug-Hunting}
+       \large Design Specification v3 --- data, presentation, selection, inference, SATA and probes\\[2pt]
+       \normalsize PyTorch, 7--8B models}
 \author{SATA Project --- Honours Thesis}
-\date{September 2026}
+\date{26 September 2026 (revised 28 September 2026)}
 
 \begin{document}
 \maketitle
@@ -32,109 +63,399 @@
 \newpage
 
 %======================================================================
-\part{Data Generation}
+\part{Overview}
 %======================================================================
 
 %======================================================================
-\section{Overview}
+\section{Purpose, scope and how to read this document}
 %======================================================================
 
-The generator produces synthetic binary-classification tasks with \emph{known
-ground truth}, so that we can precisely control which distribution shift is
-applied and measure whether an LLM's in-context learning (ICL) is affected
-by different demo-selection strategies.
+This document specifies the complete synthetic experiment. It covers how
+tasks and data are generated, how rows are presented to the language model
+(feature naming, serialisation, prompts), how demonstrations are selected,
+how the model is queried, how results are evaluated, how SATA is trained,
+and how the model's internal computation is probed. Every design choice is
+stated with its rationale. Where a property can be proved (label directions,
+base rates, invariances, freedom from leakage), the proof is given; where a
+property is only checked empirically, the check and its threshold are given.
 
-Two independent axes define every dataset:
-\begin{enumerate}
-  \item \textbf{Rule family} --- how labels are generated from features
-        (linear, threshold, tree, sparse\_interaction).
-  \item \textbf{Environment / shift type} --- how the OOD test set differs
-        from the ID data (covariate, mechanism, spurious\_reversal,
-        extrapolation, missing\_feature).
-\end{enumerate}
+The companion document \texttt{docs/research\_plan.md} gives the phase
+schedule (P0--P7), gates and reading list. Section numbers there and here are
+independent; phases are referred to as P0--P7 in both.
+Section~\ref{sec:attribution} lists the published work that each part of the
+design draws on; citations in the text give the details.
 
-The same set of tasks is reused across all three primary datasets; only the
-OOD environment changes.
+\paragraph{Version history.}
+v2 (22 September 2026) documented the pipeline as then implemented,
+including several defects that invalidate its results; they are listed in
+Part~\ref{part:issues}. v3 (this version) specifies the redesigned
+experiment for 7--8B models, run in PyTorch on Apple's Metal (MPS) backend.
+The 27 September revision adds the sources of each design element
+(Section~\ref{sec:attribution}) and a bibliography, and drops the MLX
+fallback: PyTorch is the only backend. The 28 September revision records the P1
+implementation: status labels, the refinements the implementation made to
+the mechanisms and seeding, the rendered prompt, the results schema and the
+G1 results.
 
-%----------------------------------------------------------------------
-\subsection{End-to-End Pipeline}
-%----------------------------------------------------------------------
+\paragraph{Status labels.}
+Each section carries one of three labels:
+\begin{itemize}[nosep]
+  \item \textbf{Implemented} --- the current code on branch
+        \texttt{synthetic-experiments} matches this section.
+  \item \textbf{Planned (P$n$)} --- specified here and implemented in phase
+        $n$ of the research plan.
+  \item \textbf{Changes current code (P$n$)} --- the current code differs;
+        this section is the target, and the defect is listed in
+        Part~\ref{part:issues}.
+\end{itemize}
+
+%======================================================================
+\section{Research questions and hypotheses}
+\label{sec:rqs}
+%======================================================================
+\status{Planned (P4--P6)}
+
+In-context learning \citep{brown2020language,dong2024survey} adapts a
+language model to a task from demonstrations in its prompt.
+\citet{wei2023larger} found that the ability to follow in-context evidence
+over semantic priors emerges with model scale. This thesis asks whether
+demonstration selection, and in particular a learned selector (SATA) trained
+with signals taken from the model itself, can help 7--8B models do so under
+controlled distribution shift. Evidence so far suggests 7--8B models follow
+contradicting demonstrations only partially: Llama-3.1-8B-Instruct agrees
+with fully flipped sentiment labels about half the time
+\citep{krishnakumar2025semantic}, and with flipped labels in-context
+accuracy plateaus below its level with the original labels
+\citep{kossen2024incontext}. Models of this size also contain machinery for
+following the context: under false demonstrations their later layers switch
+to the demonstrated labels \citep{halawi2024overthinking}, and a single
+direction in the residual stream controls whether they follow the context
+or their prior \citep{minder2025controllable}. The framing is therefore a
+graded contest between prior and demonstrations, in the spirit of Bayesian
+accounts of in-context learning \citep{xie2022explanation},
+rather than an absent ability.
 
 \begin{center}
-\begin{tikzpicture}[
-    box/.style={draw, rounded corners, minimum width=2.8cm,
-                minimum height=0.9cm, align=center, font=\footnotesize},
-    data/.style={box, fill=blue!8},
-    arrow/.style={-{Stealth[length=2.5mm]}, thick},
-    lbl/.style={font=\scriptsize\itshape, text=gray},
-    every node/.style={inner sep=4pt},
-  ]
-  % Row 1
-  \node[box] (config) at (0,0) {Config};
-  \node[box] (sample) at (3.2,0) {\texttt{\_sample\_tasks}\\$\to 5$ tasks};
-  \node[box] (task) at (6.4,0) {SyntheticTask};
-
-  \draw[arrow] (config) -- (sample);
-  \draw[arrow] (sample) -- (task);
-
-  % Row 2
-  \node[box] (t2df) at (6.4,-2) {\texttt{task\_to\_df}};
-  \draw[arrow] (task) -- (t2df);
-
-  % Outputs
-  \node[data] (pool) at (3.2,-4) {pool\\(256)};
-  \node[data] (tid) at (6.4,-4) {test\_id\\(100)};
-  \node[data] (tood) at (9.6,-4) {test\_ood\\(100)};
-
-  \draw[arrow] (t2df) -- (pool) node[midway, above left, lbl] {ID};
-  \draw[arrow] (t2df) -- (tid) node[midway, left, lbl] {ID};
-  \draw[arrow] (t2df) -- (tood) node[midway, above right, lbl] {OOD};
-
-  \node[lbl, text width=2cm] at (0,-2) {$\times 5$ tasks\\$\times 3$ datasets};
-
-  % Row 3 -- downstream
-  \node[box] (select) at (3.2,-6) {Demo\\selection};
-  \node[box] (serial) at (6.4,-6) {Serialise\\+ prompt};
-  \node[box] (infer) at (9.6,-6) {LLM\\inference};
-  \node[box] (eval) at (12.4,-6) {Eval\\metrics};
-
-  \draw[arrow] (pool) -- (select);
-  \draw[arrow] (select) -- (serial);
-  \draw[arrow] (tid) -- (serial);
-  \draw[arrow] (tood) -- (serial);
-  \draw[arrow] (serial) -- (infer);
-  \draw[arrow] (infer) -- (eval);
-\end{tikzpicture}
-\end{center}
-
-%======================================================================
-\section{Configuration Parameters (NB01)}
-%======================================================================
-
-\begin{center}
-\begin{tabular}{lll}
+\begin{tabular}{L{1.1cm}L{6.6cm}L{7.6cm}}
 \toprule
-\textbf{Parameter} & \textbf{Value} & \textbf{Meaning} \\
+\textbf{RQ} & \textbf{Question} & \textbf{Hypothesis} \\
 \midrule
-\texttt{n\_features}             & 10              & Total columns: $f_0,\ldots,f_9$ \\
-\texttt{n\_causal\_range}        & $[3, 5]$        & $n_{\text{causal}} \sim \text{U}\{3,4,5\}$ \\
-\texttt{rule\_families}          & linear, threshold, tree & Sampled uniformly \\
-\texttt{spurious\_strength\_range}& $[0.80, 0.90]$ & $s \sim \text{U}(0.80, 0.90)$ \\
-\texttt{label\_noise}            & 0.02            & $P(\text{flip}) = 0.02$ \\
-\texttt{coefficient\_scale}      & 1.5             & $c_j \sim \mathcal{N}(0, 1.5^2)$ \\
-\texttt{N\_TASKS}                & 5               & Tasks per experiment \\
-\texttt{N\_POOL}                 & 256             & Demo candidate pool per task \\
-\texttt{N\_TEST\_ID}             & 100             & ID test rows per task \\
-\texttt{N\_TEST\_OOD}            & 100             & OOD test rows per task \\
+RQ1 & Does in-context learning degrade out of distribution? &
+H1: calibrated balanced accuracy with random demonstrations is lower on
+covariate-shift, spurious-reversal and concept-shift (flipped-name) queries
+than on ID queries. \\
+RQ2 & Do different selection strategies win under different shift types? &
+H2: strategy $\times$ shift interaction; counter-spurious helps most under
+spurious reversal, coverage/kNN under covariate shift, counter-prior under
+concept shift. \\
+RQ3 & Does the model rely on the correct features, and why does the prior
+win when it does? &
+H3: under flipped names, behavioural reliance follows the demonstrations
+less than under abstract names while self-reports follow the names; the
+logit lens shows a layer where prior and demonstration evidence diverge. \\
+RQ4 & Does SATA beat hand-designed strategies, and do model-informed
+signals help? &
+H4: SATA-v2 is at least as good as the best hand-designed strategy on
+worst-environment accuracy; SATA-MI beats SATA-v2 and the SATA-names control
+under flipped names. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 %======================================================================
-\section{Feature Roles}
+\section{Pipeline overview}
 %======================================================================
 
-Every row has 10 features:
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners, minimum width=2.9cm, text width=2.7cm,
+                minimum height=1.0cm, align=center, font=\footnotesize},
+    side/.style={box, fill=orange!10},
+    arrow/.style={-{Stealth[length=2.5mm]}, thick},
+    dashedarrow/.style={arrow, dashed},
+    lbl/.style={font=\scriptsize\itshape, text=gray},
+  ]
+  \node[box] (gen)    at (0,0)     {Task generator\\(linear, tree)};
+  \node[box] (data)   at (4.4,0)   {Per-task data\\+ manifest};
+  \node[box] (sel)    at (8.8,0)   {Demo selection\\mechanism $\times$ composition};
+  \node[box] (prompt) at (13.2,0)  {Naming, serialisation + prompt};
+  \node[side] (sata)  at (4.4,-2.4) {SATA training\\(v2 / MI / MI-mech)};
+  \node[side] (prior) at (8.8,-2.4) {Priors\\(zero-shot surrogate)};
+  \node[box] (run)    at (13.2,-2.4) {HFRunner\\(PyTorch, auto GPU)};
+  \node[box] (met)    at (8.8,-4.8) {Metrics +\\statistics};
+  \node[side] (probe) at (13.2,-4.8) {Mechanistic\\probes};
+
+  \draw[arrow] (gen) -- (data);
+  \draw[arrow] (data) -- node[above, lbl] {pool} (sel);
+  \draw[arrow] (sel) -- node[above, lbl] {demo ids} (prompt);
+  \draw[arrow] (prompt) -- (run);
+  \draw[dashedarrow] (gen) -- node[below left, lbl] {training tasks} (sata);
+  \draw[arrow] (sata) -- (sel);
+  \draw[arrow] (run) -- node[below, lbl] {zero-shot} (prior);
+  \draw[arrow] (prior) -- (sel);
+  \draw[arrow] (prior) -- (sata);
+  \draw[arrow] (run) -- (met);
+  \draw[arrow] (run) -- node[right, lbl] {hidden states} (probe);
+\end{tikzpicture}
+\end{center}
+
+%======================================================================
+\section{Implementation status}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{L{3.0cm}L{5.4cm}L{5.4cm}L{1.2cm}}
+\toprule
+\textbf{Component} & \textbf{v2 code} & \textbf{v3} & \textbf{Phase} \\
+\midrule
+Task generation & 5 tasks; families linear, threshold, tree; 3--5 causal &
+24 evaluation tasks (+12 pilot); linear + tree; exactly 3 causal; manifest & done (P1) \\
+Datasets & 5 tasks merged into one 1{,}280-row pool per shift & per-task
+pools; standardised; column roles permuted & done (P1) \\
+Naming & abstract only & abstract / aligned / flipped & P3 \\
+Selection & 7 selectors, one fixed seed, test leakage & mechanism $\times$
+composition engine; ground-truth tags; seeded demo sets & done (P1) \\
+Prompt & ungrammatical template & one template (instruct and base) & done (P1) \\
+Inference & \texttt{MLXRunner}; double BOS on Llama & \texttt{HFRunner}
+(PyTorch only); prefix caching & done (P1) \\
+Device selection & CUDA-or-CPU in two places; SATA selection assumed CPU &
+shared auto-detection: CUDA, then MPS, then CPU & done (P0) \\
+Calibration & none & contextual calibration & done (P1) \\
+Priors & none & zero-shot surrogate, conflict statistic & P3 \\
+SATA & not on this branch & ported (v2) + MI + MI-mech & P5 \\
+Probes & none & logit lens, probes, steering & P6 \\
+Statistics & per-cell accuracy, $n=30$ & hierarchical bootstrap (P2 gate); Holm & P2, P4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{Notation}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$x \in \RR^{10}$ & feature vector (generator scale unless stated) \\
+$C \subset \{0,\ldots,7\}$, $|C|=3$ & load-bearing (causal) features of a task \\
+$s \in [0.80, 0.90]$ & spurious strength; $d = \Phi^{-1}(s)$ \\
+$\eta = 0.02$ & label-noise rate \\
+$y_{\mathrm{clean}}, y$ & rule label before and after label noise \\
+$s_j \in \{+1,-1\}$ & direction of load-bearing feature $j$ \\
+$k$ & demonstrations per prompt (chosen in P2 from $\{8,16,32\}$) \\
+$m = \ell_1 - \ell_0$ & label margin (logit of \texttt{1} minus logit of \texttt{0}) \\
+$m_0(x; N)$ & zero-shot margin under naming $N$ \\
+$\beta_{\mathrm{name}}$ & prior slope of a feature name (P3 surrogate) \\
+$\pi_t$ & column-role permutation of task $t$ \\
+$T$, $n$ & number of tasks, queries per task and environment \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\clearpage
+\section{Sources and attribution}
+\label{sec:attribution}
+%======================================================================
+
+This design builds on published work. The table maps each part of the
+design to the work it draws on and what is taken from it; citations in later
+sections give the details. The starting points were the project's literature
+review and the reading list in \texttt{docs/research\_plan.md}; further
+sources were found by targeted searches, and every reference was checked
+against the original publication.
+
+{\small
+\begin{longtable}{L{3.0cm}L{13.0cm}}
+\toprule
+\textbf{Component} & \textbf{What is taken, and from where} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Research question &
+Following in-context evidence over semantic priors emerges with scale
+\citep{wei2023larger}. 7--8B models follow contradicting demonstrations
+only partially \citep{kossen2024incontext,krishnakumar2025semantic}, yet
+already contain machinery for following the context
+\citep{halawi2024overthinking,minder2025controllable}. The contest between
+prior and evidence follows Bayesian accounts of in-context learning
+\citep{xie2022explanation}. \\
+Synthetic tasks &
+Tasks sampled from known function classes, including linear functions and
+sign-split decision trees over Gaussian inputs \citep{garg2022what};
+synthetic task priors for tabular models
+\citep{muller2022transformers,hollmann2023tabpfn,hollmann2025accurate}.
+Public tabular datasets
+can be memorised by LLMs \citep{bordt2024elephants}, which synthetic tasks
+avoid. \\
+Shift types &
+Definitions of covariate, prior-probability and concept shift
+\citep{shimodaira2000improving,quinonero2009dataset,morenotorres2012unifying};
+most large performance drops on real tabular data are dominated by concept
+($Y \mid X$) shift \citep{liu2023need}; in-context learners of linear
+functions are brittle under covariate shift \citep{zhang2024trained}. Realising concept shift through naming is this
+project's design. \\
+Spurious feature &
+Colored MNIST: a noisy causal signal competing with a spurious feature whose
+correlation reverses at test time \citep{arjovsky2019invariant};
+class-conditional Gaussian environmental features
+\citep{rosenfeld2021risks}; why learners adopt spurious features and
+shortcuts \citep{nagarajan2021understanding,geirhos2020shortcut}. \\
+Naming &
+Flipped and semantically unrelated labels \citep{wei2023larger}; named
+versus anonymised features in in-context regression
+\citep{nafar2025learning}; task recognition versus task learning
+\citep{pan2023what}; the effect of feature names
+\citep{dinh2022lift,choi2022lmpriors}. Applying the flip to feature names,
+with antonym pairs
+matched on measured prior strength, is this project's design. \\
+Serialisation, scoring &
+Rows serialised as text \citep{hegselmann2023tabllm,dinh2022lift};
+classification by label-token probabilities \citep{brown2020language};
+surface-form competition \citep{holtzman2021surface}. \\
+Selection strategies &
+The label, feature-range, rule and counter-spurious protocols come from the
+project's literature review. Related work: similarity retrieval
+\citep{liu2022what}; diverse and coverage-based selection
+\citep{levy2023diverse,gupta2023coverage}; label-flipped comparable
+demonstrations \citep{fan2024comparable}; misconfidence-based selection
+\citep{xu2024misconfidence}. Label balance and order are controlled because
+they bias predictions
+\citep{zhao2021calibrate,min2022rethinking,lu2022fantastically}. \\
+Counter-spurious sets &
+(label, spurious attribute) groups and worst-group accuracy
+\citep{sagawa2020distributionally}, for which simple group balancing is
+competitive \citep{idrissi2022simple}; nearest-neighbour
+matching \citep{rubin1973matching,stuart2010matching}; spurious features
+and shortcuts in in-context learning
+\citep{si2023measuring,tang2023large,harutyunyan2026incontext,chen2026incontext}.
+The
+magnitude-matching rule and its analysis are this project's. \\
+Inference &
+Contextual calibration \citep{zhao2021calibrate}; key--value and prefix
+caching \citep{pope2023efficiently,gim2024prompt,zheng2024sglang}; causal
+attention \citep{vaswani2017attention}. \\
+Priors &
+Surrogate models \citep{craven1996extracting,ribeiro2016why} fitted by
+ridge regression \citep{hoerl1970ridge}; prior--data conflict
+\citep{evans2006checking} and knowledge conflicts in LLMs
+\citep{longpre2021entity,xie2024adaptive}; the random-label control
+\citep{min2022rethinking}. \\
+Faithfulness (RQ3) &
+Self-reported versus ablation-based feature rankings \citep{li2025stads};
+keeping perturbed inputs in distribution \citep{zhu2026faithfulness},
+here by hot-deck imputation \citep{andridge2010review}; removal-based
+importance \citep{breiman2001random,covert2021explaining}; LLM
+self-explanations and
+their unfaithfulness \citep{huang2023can,turpin2023language}; ground-truth
+importance from synthetic data \citep{liu2021synthetic}. The demo-following
+index is this project's. \\
+Statistics &
+AUROC \citep{hanley1982meaning,fawcett2006introduction}; balanced accuracy
+\citep{brodersen2010balanced}; shift gap \citep{gardner2023tableshift};
+bootstrap
+\citep{efron1993introduction,davison1997bootstrap,saravanan2020application};
+sign test \citep{dixon1946statistical}; Holm correction
+\citep{holm1979simple}; pre-registration \citep{nosek2018preregistration};
+two-stage sampling variance \citep{cochran1977sampling}. \\
+SATA &
+Attention over context examples to adapt to an environment
+\citep{gupta2024context}, as proposed in the literature review; row tokens
+carrying features and a label embedding \citep{hollmann2023tabpfn} and
+attention over sets \citep{lee2019set}; selectors trained from language-model
+feedback
+\citep{rubin2022learning,li2023unified,ye2023compositional,zhang2022active};
+temperature-softened targets \citep{hinton2015distilling}; task diversity
+\citep{goddard2025when}. \\
+Model-informed targets &
+Datamodels \citep{ilyas2022datamodels}, which \citet{chang2023data} fit to
+in-context examples on the correct-class margin, the utility used here;
+subset-based influence estimates \citep{nguyen2023incontext}; selection
+signals from model internals or learned judges
+\citep{kato2025affinity,wang2026disp}. \\
+Mechanistic probes &
+Logit lens and its limits
+\citep{nostalgebraist2020logit,belrose2023eliciting}; residual stream
+\citep{elhage2021mathematical}; critical layer
+\citep{halawi2024overthinking}; linear probes
+\citep{alain2017understanding,belinkov2022probing}; steering vectors
+\citep{turner2023activation,rimsky2024steering}; a context-versus-prior
+direction \citep{minder2025controllable}; task and function vectors
+\citep{hendel2023incontext,todd2024function}. \\
+Supporting mathematics &
+Boolean functions \citep{odonnell2014analysis}; Bayes error
+\citep{devroye1996probabilistic}; label noise \citep{angluin1988learning};
+causal graphs, anticausal features and mechanisms
+\citep{pearl2009causality,scholkopf2012causal,peters2017elements}. \\
+Models and software &
+\citet{qwen2024qwen25}; \citet{grattafiori2024llama3};
+\citet{paszke2019pytorch}; \citet{wolf2020transformers};
+\citet{apple2024mps}; \citet{harris2020array};
+\citet{pedregosa2011scikit}; \citet{chen2016xgboost};
+\citet{reimers2019sentence}. \\
+\end{longtable}
+}
+
+\paragraph{Own design.} Everything without a citation is this project's own
+work, although it builds on the ideas above. This includes the naming
+lexicons and screening, the magnitude-matched counter-spurious rule, the
+analysis of the mechanism environment as a placebo, the column-role
+permutation, the SATA targets and model-informed variants, and the gates.
+The proofs are our own derivations; where they rest on a standard result,
+the source is cited at that point.
+
+%======================================================================
+\newpage
+\part{Data generation}
+%======================================================================
+
+%======================================================================
+\section{Configuration}
+\label{sec:config}
+%======================================================================
+\status{Implemented (P1)}
+
+\begin{center}
+\begin{tabular}{L{5.0cm}L{6.4cm}L{4.2cm}}
+\toprule
+\textbf{Parameter} & \textbf{v3 value} & \textbf{v2 value} \\
+\midrule
+\texttt{n\_features}              & 10 & 10 \\
+load-bearing features $|C|$      & 3 & $\sim \text{U}\{3,4,5\}$ \\
+rule families                    & linear, tree & linear, threshold, tree \\
+linear coefficients              & $c_j = u_j r_j$, $u_j \sim \text{U}(1,2)$, $r_j$ Rademacher & $c_j \sim \mathcal{N}(0, 1.5^2)$ \\
+spurious strength $s$            & $\sim \text{U}(0.80, 0.90)$ & same \\
+spurious direction $\sigma_t$    & $+1$ or $-1$, half of each (family, domain) cell & always $+1$ \\
+label noise $\eta$               & 0.02 & same \\
+pool per task                    & 256 rows & 256 \\
+ID test per task                 & 100 rows & 100 \\
+OOD test per task and environment & 100 rows & 100 \\
+queries used per task and environment & $n = 20$ (10 per class) & first 30 of the merged set \\
+evaluation tasks (suite \texttt{eval}) & 24 (12 linear, 12 tree; 12 per domain) & 5, merged \\
+pilot tasks (suite \texttt{pilot}) & 12 (6 linear, 6 tree), disjoint ids; P2 only & --- \\
+task seed                        & 42: task $i$ of suite $S$ draws from \texttt{SeedSequence([42, $S$, $i$])} & global RNG state \\
+SATA tasks                       & train and validation, disjoint ids (default 1000 / 100) & --- \\
+evaluated environments           & id, covariate, spurious\_reversal & covariate, mechanism, spurious\_reversal \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All values live in \texttt{configs/default.yaml}. The generator also
+implements three environments that are not evaluated: \texttt{mechanism},
+\texttt{extrapolation} and \texttt{missing\_feature}.
+Section~\ref{sec:mechanism} explains why \texttt{mechanism} is uninformative
+for in-context learning; it is used in SATA training.
+\path{scripts/make_synth_data.py} (or NB01) writes both suites; tasks and
+data are fully determined by the configuration.
+
+%======================================================================
+\section{Feature roles and column-role permutation}
+\label{sec:roles}
+%======================================================================
+\status{Implemented (P1)}
 
 \begin{center}
 \begin{tikzpicture}[
@@ -152,139 +473,239 @@ Every row has 10 features:
   \draw[decorate, decoration={brace, amplitude=5pt, raise=3pt}]
     (f0.north west) -- (f7.north east)
     node[midway, above=10pt, font=\footnotesize]
-    {3--5 causal (task-specific), rest distractors};
+    {3 load-bearing (task-specific) + 5 distractors};
 
   \node[below=0.4cm of f8, font=\scriptsize\itshape, text=red!70!black] {spurious};
   \node[below=0.4cm of f9, font=\scriptsize\itshape, text=olive] {noise};
+  \node[font=\scriptsize\itshape, text=gray] at (5.0,-1.3)
+    {generator indices; the displayed column order is permuted per task};
 \end{tikzpicture}
 \end{center}
 
-\begin{itemize}[nosep]
-  \item $f_0$--$f_7$: drawn $\sim \mathcal{N}(0,1)$. A task-specific subset
-        (3--5) is \emph{causal}; the rest are distractors.
-  \item $f_8$: \textbf{spurious}, generated \emph{from} the label
-        (Section~\ref{sec:spurious}). Not used by any rule.
-  \item $f_9$: \textbf{pure noise}, $\sim \mathcal{N}(0,1)$, independent of
-        everything.
-\end{itemize}
+Inside the generator, load-bearing features are drawn from indices
+$\{0,\ldots,7\}$, the spurious feature is index 8 and the noise feature is
+index 9. When a task is written to disk, its 10 columns are reordered by a
+permutation $\pi_t$ drawn uniformly per task and recorded in the manifest.
+Every downstream component reads column roles from the manifest, never from
+position.
+
+\begin{lemma}[No positional shortcut]
+If $\pi_t$ is uniform on the permutations of $\{0,\ldots,9\}$ and independent
+of the task's rule, the displayed position $\pi_t(8)$ of the spurious feature
+is uniform on $\{0,\ldots,9\}$ and independent of the rule. A selector
+trained across tasks (SATA) therefore cannot identify the spurious column by
+its position.
+\end{lemma}
+\begin{proof}
+For any position $p$, the number of permutations with $\pi(8)=p$ is $9!$ for
+every $p$, so $P(\pi_t(8)=p) = 9!/10! = 1/10$. Independence holds because
+$\pi_t$ is drawn independently of the rule.
+\end{proof}
+
+In v2 the spurious feature was always $f_8$ (the ninth column), which a
+selector trained across tasks can learn by position: a shortcut in the sense
+of \citet{geirhos2020shortcut}.
 
 %======================================================================
-\section{Task Sampling: \texttt{\_sample\_tasks()}}
+\section{Task sampling}
 \label{sec:sample-tasks}
 %======================================================================
+\status{Implemented (P1)}
 
-For each of the $N=5$ tasks, sampled independently:
+Sampling tasks from known function classes follows studies of in-context
+learning on synthetic functions \citep{garg2022what} and the synthetic
+priors used to train tabular foundation models
+\citep{muller2022transformers,hollmann2023tabpfn,hollmann2025accurate}.
+Synthetic tasks also
+avoid the memorisation of public tabular datasets documented for large
+language models such as GPT-3.5 and GPT-4 \citep{bordt2024elephants}, and
+they provide the ground truth (load-bearing
+features, directions and spurious strength) that the analyses need.
 
+Each task $i$ of a suite $S$ is sampled by \texttt{sample\_eval\_tasks}
+from its own stream (a NumPy \texttt{SeedSequence} of the task seed, the
+suite name and $i$), so its parameters do not depend on the other tasks,
+except its family and its spurious direction, which are balanced over the
+suite:
 \begin{enumerate}[nosep]
-  \item \textbf{Rule family:}
-        $\text{family} \sim \text{Uniform}\{\text{linear},\;
-        \text{threshold},\;\text{tree}\}$
-
-  \item \textbf{Number of causal features:}
-        $n_{\text{causal}} \sim \text{U}\{3,4,5\}$
-
-  \item \textbf{Causal feature indices:}
-        $n_{\text{causal}}$ distinct indices from $\{0,\ldots,7\}$, sorted.
-
-  \item \textbf{Coefficients} (used only by linear, sampled for all
-        families for RNG consistency):
-        $c_j \sim \mathcal{N}(0,\; 1.5^2)$
-
-  \item \textbf{Spurious strength:}
-        $s \sim \text{U}(0.80,\; 0.90)$
-
-  \item \textbf{Family-specific:}
-        \begin{itemize}[nosep]
-          \item \texttt{threshold}: $k{=}\min(3, n_{\text{causal}})$ thresholds,
-                $t_j \sim \text{U}(-0.3,\; 0.3)$.
-          \item \texttt{tree}: $k{=}\min(3, n_{\text{causal}})$ leaf labels via
-                \texttt{\_sample\_tree\_leaf\_labels(k)}
-                (Section~\ref{sec:tree-labels}).
-          \item \texttt{sparse\_interaction}: threshold from a
-                10k-sample probe targeting base rate $\sim \text{U}(0.35, 0.65)$.
-        \end{itemize}
+  \item \textbf{Rule family:} fixed by position (the first half of the suite
+        linear, the rest tree: tasks 0--11 and 12--23 in \texttt{eval}),
+        crossed with domain, which alternates (loan, medical), so each family
+        has 6 tasks per domain (Section~\ref{sec:naming}).
+  \item \textbf{Load-bearing features:} 3 distinct indices from
+        $\{0,\ldots,7\}$, sorted.
+  \item \textbf{Linear coefficients:} $c_j = u_j r_j$ with
+        $u_j \sim \text{U}(1,2)$ and $r_j$ a Rademacher sign, so every
+        load-bearing feature has a non-negligible effect and a definite
+        direction.
+  \item \textbf{Tree leaf table:} the signed majority with literal signs
+        $r_j$, which is uniform over the 8 admissible tables
+        (Theorem~\ref{thm:tree}); the code asserts that each table is
+        complement antisymmetric and not degenerate.
+  \item \textbf{Spurious strength:} $s \sim \text{U}(0.80, 0.90)$.
+  \item \textbf{Spurious direction:} $\sigma_t \in \{+1, -1\}$
+        (Section~\ref{sec:spurious}), $+1$ for half of the tasks in each
+        (family, domain) cell and $-1$ for the other half, in random order,
+        from a separate stream so the other draws are unchanged. An odd
+        cell's extra sign alternates between cells, so each pilot family (two
+        cells of 3 tasks) is still split 3/3.
+  \item \textbf{Data seed:} one integer from the same stream, from which
+        every split of the task derives (Section~\ref{sec:datasets}).
 \end{enumerate}
+Two suites are written: \texttt{eval} (24 tasks) and \texttt{pilot}
+(12 tasks), from the same distribution with disjoint task ids. The pilot
+suite is used only in P2, so the number of demonstrations is chosen without
+touching the evaluation tasks. SATA training and validation tasks will be
+drawn from the same distribution with disjoint ids (P5).
 
 %======================================================================
-\section{Rule Families: \texttt{\_apply\_rule()}}
+\section{Rule families}
 \label{sec:rules}
 %======================================================================
+\status{Implemented (P1): evaluation uses linear and tree only}
 
-Given $X \in \RR^{n \times 10}$ and optional $u \in [0,1]^n$, compute
-$y_{\text{clean}} \in \{0,1\}^n$:
+Given $X \in \RR^{n \times 10}$ and optional $u \in [0,1]^n$, the generator
+computes $y_{\mathrm{clean}} \in \{0,1\}^n$.
 
 %----------------------------------------------------------------------
 \subsection{Linear}
 %----------------------------------------------------------------------
 
 \[
-  \text{logit}_i = \mathbf{c}^\top \mathbf{X}_{i,\,\text{causal}},
+  p_i = \sigmoid\!\left(\mathbf{c}^\top \mathbf{X}_{i,C}\right),
   \qquad
-  p_i = \sigmoid(\text{logit}_i) = \frac{1}{1 + e^{-\text{logit}_i}}
-\]
-\[
-  y_{\text{clean},i} =
+  y_{\mathrm{clean},i} =
   \begin{cases}
-    \1[u_i < p_i] & \text{stochastic (data generation)} \\
-    \1[p_i > 0.5] & \text{MAP (probes)}
+    \1[u_i < p_i] & \text{data generation (Bernoulli)} \\
+    \1[p_i > 0.5] & \text{probes (MAP)}
   \end{cases}
 \]
 
-\textit{Why stochastic?} A deterministic rule is scale-invariant, making the
-causal signal perfectly reliable at any coefficient scale. Bernoulli sampling
-introduces concept noise so the spurious feature can compete.
+\begin{lemma}[Monotone directions]
+\label{lem:linear-direction}
+$P(y_{\mathrm{clean}}=1 \mid x) = \sigmoid(\mathbf{c}^\top x_C)$ is strictly
+increasing in $x_j$ when $c_j > 0$ and strictly decreasing when $c_j < 0$,
+for every value of the other features. The direction of feature $j$ is
+therefore well defined: $s_j = \sign(c_j)$.
+\end{lemma}
+\begin{proof}
+$\partial p / \partial x_j = \sigmoid'(\mathbf{c}^\top x_C)\, c_j$ and
+$\sigmoid' > 0$ everywhere.
+\end{proof}
+
+\paragraph{Reliability of the causal signal.}
+With $|C| = 3$ and $|c_j| \sim \text{U}(1,2)$, the Bayes accuracy (the
+accuracy of the Bayes classifier; \citealp{devroye1996probabilistic}) from the
+load-bearing features, $\E[\max(p, 1-p)]$, has mean $0.817$ (5th--95th
+percentile $0.788$--$0.840$ over tasks, by simulation). This is comparable to
+the spurious strength $s \in [0.80, 0.90]$, so in linear tasks the spurious
+feature is about as reliable as the causal signal: the shortcut competes.
+The design follows Colored MNIST \citep{arjovsky2019invariant}, where
+flipping 25\% of the labels caps the causal (digit-shape) signal at 75\%
+accuracy while colour agrees with the label 80--90\% of the time in training
+and 10\% at test. Labels are therefore drawn from $p_i$ rather than
+thresholded: a noise-free linear rule would be perfectly reliable and would
+dominate the shortcut.
 
 %----------------------------------------------------------------------
-\subsection{Threshold (Majority Vote)}
-%----------------------------------------------------------------------
-
-$k = \min(3, n_{\text{causal}})$, thresholds $t_1, t_2, t_3$:
-\[
-  b_{i,j} = \1\bigl[X_{i,\,\text{causal}_j} > t_j\bigr],
-  \qquad
-  y_{\text{clean},i} = \1\!\left[\sum_{j=1}^{k} b_{i,j} \geq 2\right]
-\]
-
-%----------------------------------------------------------------------
-\subsection{Tree (Depth-3)}
+\subsection{Tree (signed majority)}
 \label{sec:tree}
 %----------------------------------------------------------------------
 
-$k = \min(3, n_{\text{causal}})$, giving $2^k$ leaves:
+With $k = 3$ load-bearing features $C_1, C_2, C_3$ and bits
+$b_j = \1[X_{i,C_j} > 0]$, the leaf index is
+$L = b_1 + 2b_2 + 4b_3$ and $y_{\mathrm{clean}} = \text{leaf\_labels}[L]$.
+Splitting at zero follows the decision-tree class of \citet{garg2022what},
+whose depth-4 trees send an input left or right by the sign of a randomly
+chosen coordinate; here the tree has depth 3 with one feature per level,
+and its binary leaf labels are constrained as follows.
+Leaf tables are sampled by \texttt{\_sample\_tree\_leaf\_labels}, which
+imposes complement antisymmetry, $\text{leaf\_labels}[L] =
+1 - \text{leaf\_labels}[7-L]$, and rejects dictator and parity functions.
+
+\begin{theorem}[Admissible trees are signed majorities]
+\label{thm:tree}
+For $k=3$, the leaf tables accepted by \texttt{\_sample\_tree\_leaf\_labels}
+are exactly the 8 functions
 \[
-  \text{leaf\_id}_i = \sum_{j=0}^{k-1}
-  \1\bigl[X_{i,\,\text{causal}_j} > 0\bigr] \cdot 2^j,
-  \qquad
-  y_{\text{clean},i} = \text{leaf\_labels}[\text{leaf\_id}_i]
+  y_{\mathrm{clean}} = \Maj(\ell_1, \ell_2, \ell_3), \qquad
+  \ell_j \in \{b_j,\ 1 - b_j\}.
 \]
+\end{theorem}
+\begin{proof}
+Complement antisymmetry says $f(\bar b) = 1 - f(b)$, where $\bar b$ flips
+all three bits: $f$ is \emph{self-dual} (an odd function in the $\pm 1$
+notation of \citealp{odonnell2014analysis}, which also defines the dictator,
+parity and majority functions used below). The 8 inputs form 4 complementary
+pairs $\{b, \bar b\}$, and a self-dual function is determined by a free
+choice of its value on one member of each pair, so there are exactly
+$2^4 = 16$ self-dual functions of 3 bits.
 
-\subsubsection{Tree Leaf Label Sampling}
-\label{sec:tree-labels}
+The sampler rejects the 6 dictators $b_j$ and $1-b_j$ (each self-dual) and
+the 2 parities $b_1 \oplus b_2 \oplus b_3$ and its complement (self-dual,
+because flipping three bits flips the parity). That leaves $16 - 8 = 8$
+functions.
 
-Two constraints:
-\begin{enumerate}[nosep]
-  \item \textbf{Complement antisymmetry:}
-        $\text{leaf\_labels}[L] = 1 - \text{leaf\_labels}[2^k{-}1{-}L]$.
-        Guarantees mechanism's sign flip always inverts the label.
-  \item \textbf{Non-degeneracy} ($k \geq 3$): Reject dictator (single-bit)
-        and parity (XOR-of-all-bits) functions.
-\end{enumerate}
+Each signed majority is self-dual, since
+$\Maj(1-\ell_1, 1-\ell_2, 1-\ell_3) = 1 - \Maj(\ell_1,\ell_2,\ell_3)$. It
+depends on all three bits, so it is not a dictator. It is monotone in each
+literal while parity is not, so it is not a parity. There are $2^3 = 8$ sign
+patterns, giving 8 distinct functions (distinctness is checked by exhaustive
+enumeration in Appendix~\ref{app:tree}). These 8 functions lie in the
+admissible set of size 8, so they are the whole set.
+\end{proof}
+
+\begin{corollary}[Tree directions]
+Every admissible tree task is monotone in the sign of each load-bearing
+feature, with direction $s_j = +1$ if $\ell_j = b_j$ and $s_j = -1$ if
+$\ell_j = 1 - b_j$. Tree rules are deterministic, so the Bayes accuracy from
+the load-bearing features is $1 - \eta = 0.98 > s$: in tree tasks the causal
+rule dominates the shortcut. Linear and tree tasks therefore contrast a
+competitive shortcut with a dominated one.
+\end{corollary}
+A dominated shortcut can still be adopted:
+\citet{nagarajan2021understanding} show that gradient-trained classifiers
+rely on a spurious feature more as its correlation grows, even when the
+invariant features predict the label perfectly. Tree tasks therefore still
+test reliance on $f_8$, with a weaker incentive.
+
+\paragraph{Regime.} \texttt{\_regime} encodes the sign pattern of the
+load-bearing features (\texttt{load\_bearing\_features()}: all causal
+features for linear tasks, the first 3 for tree tasks) with the leaf-index
+encoding $b_1 + 2b_2 + 4b_3$. For a tree task it therefore equals the leaf
+(tested); for linear tasks it is the orthant, used only for stratification.
+(In v2 it used all 3--5 causal features while \texttt{tree} used only the
+first 3, splitting each true leaf.)
+
+\paragraph{Directions.} \texttt{directions()} returns $s_j$ for each
+load-bearing feature: $\sign(c_j)$ for linear tasks, and for tree tasks the
+sign of the label difference between $b_j = 1$ and $b_j = 0$ over the leaf
+table, which recovers the literal signs of the signed majority. A test nudges
+every load-bearing feature by $+s_j$ and checks that the share of rows with
+the MAP label 1 rises.
 
 %----------------------------------------------------------------------
-\subsection{Sparse Interaction}
+\subsection{Families excluded from evaluation}
 %----------------------------------------------------------------------
 
-\[
-  y_{\text{clean}} = \1\bigl[X_{:,\,i} \cdot X_{:,\,j} > \theta\bigr]
-\]
-Only the first two causal features participate; the rest are decoys.
+\begin{lemma}[Threshold confounds naming]
+The threshold rule $y = \1[\sum_{j} \1[x_{C_j} > t_j] \geq 2]$ is
+non-decreasing in every load-bearing feature, so $s_j = +1$ for all $j$.
+\end{lemma}
+Under the naming protocol (Section~\ref{sec:naming}), aligned threshold
+tasks would always carry positive-association names and flipped ones
+negative-association names, so the naming condition would be confounded with
+name valence. Sparse interaction, $y = \1[x_i x_j > \theta]$, is not monotone
+in $x_i$ (the sign of its effect depends on $x_j$), so no direction exists.
+Both remain in the generator but are not evaluated.
 
 %======================================================================
-\section{Environment Generation: \texttt{generate\_environment()}}
+\section{Environment generation}
 \label{sec:environments}
 %======================================================================
+\status{Implemented (P1)}
 
-Every call follows the same skeleton:
+Every call to \texttt{generate\_environment()} follows the same skeleton:
 
 \begin{center}
 \begin{tikzpicture}[
@@ -296,179 +717,359 @@ Every call follows the same skeleton:
   ]
   \node[stp]     (s1) at (0, 0)    {1.\ Draw $X \sim \mathcal{N}(0,\,I_{n\times 10})$};
   \node[perturb] (s2) at (0,-1.4)  {2.\ Apply environment perturbation};
-  \node[stp]     (s3) at (0,-2.8)  {3.\ $y_{\text{clean}} = \texttt{\_apply\_rule}(X)$};
-  \node[stp]     (s4) at (0,-4.2)  {4.\ Generate $f_8$ from $y_{\text{clean}}$;\quad $f_9 \sim \mathcal{N}(0,1)$};
-  \node[stp]     (s5) at (0,-5.6)  {5.\ Label noise: flip with $P{=}0.02$};
+  \node[stp]     (s3) at (0,-2.8)  {3.\ $y_{\mathrm{clean}} = \texttt{\_apply\_rule}(X)$};
+  \node[stp]     (s4) at (0,-4.2)  {4.\ Generate $f_8$ from $y_{\mathrm{clean}}$;\quad $f_9 \sim \mathcal{N}(0,1)$};
+  \node[stp]     (s5) at (0,-5.6)  {5.\ Label noise: flip with $P{=}\eta$};
 
   \draw[arrow] (s1) -- (s2);
   \draw[arrow] (s2) -- (s3);
   \draw[arrow] (s3) -- (s4);
   \draw[arrow] (s4) -- (s5);
 
-  \node[note, right=0.5cm of s2] {Varies by env type\\(subsections below)};
-  \node[note, right=0.5cm of s4] {Unconditional ---\\always overwrites\\$f_8$ and $f_9$};
+  \node[note, right=0.5cm of s2] {Varies by environment\\(subsections below)};
+  \node[note, right=0.5cm of s4] {Always overwrites\\$f_8$ and $f_9$};
 \end{tikzpicture}
 \end{center}
 
 %----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{id}}{id} --- In-Distribution}
+\subsection{\texorpdfstring{\texttt{id}}{id} --- in distribution}
 %----------------------------------------------------------------------
-
-No perturbation. $X$, $\mathbf{c}$, $s$ unchanged.
+No perturbation.
 
 %----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{covariate}}{covariate} --- $P(X)$ Shift}
+\subsection{\texorpdfstring{\texttt{covariate}}{covariate} --- \texorpdfstring{$P(X)$}{P(X)} shift}
 \label{sec:covariate}
 %----------------------------------------------------------------------
 
-Shift $P(X)$ while preserving $P(Y)$:
+Covariate shift changes $P(X)$ while the labelling rule $P(y \mid x)$ stays
+fixed \citep{shimodaira2000improving,morenotorres2012unifying}. Transformers
+trained to learn linear functions in context are brittle under it
+\citep{zhang2024trained}, which motivates testing it here.
+A shift vector is added to 3 features from $\{0,\ldots,7\}$, with
+$\delta_j \sim \text{U}(1,2)\times$Rademacher. The shift is found by
+rejection sampling (up to 50 draws): each candidate's label-1 rate is
+estimated on a 2048-row probe and accepted if it is within 0.03 of the
+unshifted rate, also estimated on 2048 rows. Holding the label rate fixed
+keeps covariate shift from being confounded with prior-probability (label)
+shift \citep{morenotorres2012unifying}.
 
-\begin{enumerate}[nosep]
-  \item Estimate unshifted base rate
-        $r_{\text{id}} = \hat{P}(y{=}1)$ via 2048-row probe.
+\begin{proposition}[Base-rate control]
+Each probe estimate has standard error at most $\sqrt{0.25/2048} = 0.011$,
+and the difference of two independent estimates at most $0.0156$. An
+accepted shift therefore changes the true base rate by at most about
+$0.03 + 2 \times 0.0156 \approx 0.06$ with roughly 95\% confidence. If no
+draw is accepted within 50 tries the last draw is used and a warning is
+logged; the manifest records the achieved probe difference.
+\end{proposition}
 
-  \item \textbf{Rejection loop} (up to 50 iterations):
-        \begin{enumerate}[nosep,label=(\alph*)]
-          \item Sample 3 features from $\{0,\ldots,7\}$ without replacement.
-          \item Sample deltas:
-                $\delta_j \sim \text{U}(1,2) \times \text{Rademacher}$
-                (so $\delta_j \in [-2,-1]\cup[1,2]$).
-          \item Probe shifted base rate $r_{\text{shifted}}$.
-          \item Accept if $|r_{\text{shifted}} - r_{\text{id}}| \leq 0.03$.
-        \end{enumerate}
-
-  \item Apply: $X_{:,\,\text{feats}} \mathrel{+}= \delta$.
-\end{enumerate}
-
-Features 8, 9 excluded (overwritten later).
+Features 8 and 9 are excluded because they are overwritten in step 4.
 
 %----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{mechanism}}{mechanism} --- $P(Y|X)$ Shift}
+\subsection{\texorpdfstring{\texttt{spurious\_reversal}}{spurious-reversal}}
+\label{sec:spurious-reversal}
+%----------------------------------------------------------------------
+$s' = 1 - s$; the direction $\sigma_t$ and everything else are unchanged.
+Sign agreement between $\sigma_t f_8$ and the label falls from $s$ to $1-s$
+(Proposition~\ref{prop:agreement}). This
+mirrors the test environment of Colored MNIST \citep{arjovsky2019invariant},
+where colour--label agreement falls from 80--90\% in training to 10\% while
+the causal mechanism is unchanged. \citet{chen2026incontext} use the same
+parameters to test transformers trained for in-context learning and find
+that they fail to adapt when the correlation reverses.
+
+%----------------------------------------------------------------------
+\subsection{\texorpdfstring{\texttt{mechanism}}{mechanism} --- why it is a placebo for in-context learning}
 \label{sec:mechanism}
 %----------------------------------------------------------------------
 
-\begin{enumerate}[nosep]
-  \item Rescale coefficients:
-        $c'_j = c_j \cdot u_j,\; u_j \sim \text{U}(0.5, 1.5)$
-  \item Sign-flip causal features (on a copy):
-        $\tilde{X}_{:,\text{causal}} = -X_{:,\text{causal}}$
+The rule is applied to $\tilde X$ with $\tilde X_{:,C} = -X_{:,C}$, and for
+linear tasks the coefficients are rescaled, $c'_j = c_j v_j$ with
+$v_j \sim \text{U}(0.5, 1.5)$. The model sees the original $X$.
+
+\begin{proposition}[The mechanism shift inverts the ID rule]
+\label{prop:mechanism}
+Let $y_{\mathrm{id}}(x)$ and $y_{\mathrm{mech}}(x)$ be the clean labels of the
+same task in the two environments.
+\begin{enumerate}[nosep,label=(\alph*)]
+  \item Tree: $y_{\mathrm{mech}}(x) = 1 - y_{\mathrm{id}}(x)$ for almost every $x$.
+  \item Linear: $P(y_{\mathrm{mech}} = 1 \mid x) = 1 - \sigmoid(\mathbf{c}'^\top x_C)$,
+        where $\mathbf{c}'$ has the same signs as $\mathbf{c}$. The Bayes
+        decision of the mechanism environment, $\1[\mathbf{c}'^\top x_C < 0]$,
+        is the negation of the ID Bayes decision, $\1[\mathbf{c}^\top x_C > 0]$,
+        everywhere except on the set where $\sign(\mathbf{c}'^\top x_C) \neq
+        \sign(\mathbf{c}^\top x_C)$, a region next to the ID decision
+        boundary.
 \end{enumerate}
+\end{proposition}
+\begin{proof}
+(a) Negating the load-bearing features maps each bit to
+$1[-x_j > 0] = 1 - b_j$ (except on the null set $x_j = 0$), so the leaf
+index becomes $7 - L$, and complement antisymmetry gives
+$\text{leaf\_labels}[7-L] = 1 - \text{leaf\_labels}[L]$.
+(b) $P(y_{\mathrm{mech}}=1\mid x) = \sigmoid(\mathbf{c}'^\top(-x_C)) =
+1 - \sigmoid(\mathbf{c}'^\top x_C)$ because $\sigmoid(-z) = 1 - \sigmoid(z)$.
+The mechanism Bayes decision is therefore $\1[\mathbf{c}'^\top x_C < 0]$.
+Since $v_j > 0$, $\mathbf{c}'$ has the signs of $\mathbf{c}$, and wherever
+$\sign(\mathbf{c}'^\top x_C) = \sign(\mathbf{c}^\top x_C)$ this equals
+$1 - \1[\mathbf{c}^\top x_C > 0]$.
+\end{proof}
 
-The rule operates on $\tilde{X}$ with $c'$; the returned $X$ is unchanged.
-The LLM sees original features but shifted labels.
+\begin{corollary}[Consequences]
+\begin{enumerate}[nosep,label=(\roman*)]
+  \item \emph{Demonstrations from the ID pool.} A model that recovers the ID
+        rule from ID demonstrations is systematically wrong on mechanism
+        queries (accuracy about $1 - \mathrm{acc}_{\mathrm{ID}}$). Only $f_8$,
+        generated from the post-shift label, keeps its relation to the
+        label, so above-chance accuracy indicates spurious reliance rather
+        than generalisation.
+  \item \emph{Demonstrations from the mechanism environment.} $X$ is
+        symmetric ($X \stackrel{d}{=} -X$), so the mechanism environment is
+        distributed as another task of the same family with its signs
+        flipped. With matched demonstrations it is just a new ID task, and
+        ID $\approx$ OOD by construction: a placebo.
+  \item \emph{Naming.} If feature names are aligned with the ID rule, the
+        mechanism environment with matched demonstrations is the ID
+        environment with flipped names, up to the coefficient rescale
+        (Proposition~\ref{prop:concept-naming}).
+\end{enumerate}
+\end{corollary}
 
-\textbf{Note on $f_8$:} Generated from $y_{\text{clean}}$ \emph{after} the
-mechanism flip, so $f_8$ tracks the \emph{new} ground truth at strength $s$.
+Changing the rule while $P(X)$ stays fixed is concept shift
+\citep{morenotorres2012unifying}; in causal terms it replaces one mechanism
+and leaves the others unchanged \citep{peters2017elements}. On real tabular
+data most large performance drops are dominated by such $Y \mid X$ shifts
+\citep{liu2023need}, so concept shift needs a valid operationalisation.
+It is therefore realised through naming (Section~\ref{sec:naming}), an
+input-side analogue of the flipped labels of \citet{wei2023larger}. The
+mechanism environment is kept for SATA
+training, where it is always paired with matched demonstrations, as on
+\texttt{main}.
 
 %----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{spurious\_reversal}}{spurious-reversal} --- Spurious Flip}
-\label{sec:spurious-reversal}
+\subsection{\texorpdfstring{\texttt{extrapolation}}{extrapolation} and \texorpdfstring{\texttt{missing\_feature}}{missing-feature}}
 %----------------------------------------------------------------------
-
-One line: $s' = 1 - s$. Everything else unchanged. $P(\text{agreement})$
-drops from ${\sim}0.85$ to ${\sim}0.15$.
-
-%----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{extrapolation}}{extrapolation} --- Out-of-Support}
-%----------------------------------------------------------------------
-
-Replace 2--3 causal features per row:
-$X_{i,f} = s_i \cdot m_i$, \;
-$m_i \sim \text{U}(2,4)$, \;
-$s_i \sim \text{Rademacher}$.
-
-%----------------------------------------------------------------------
-\subsection{\texorpdfstring{\texttt{missing\_feature}}{missing-feature} --- Broken Measurement}
-%----------------------------------------------------------------------
-
-$X_{:,\,\text{causal}[0]} \leftarrow \mathcal{N}(0,1)$ (fresh, independent of label).
+Extrapolation replaces 2--3 load-bearing features per row with
+$\pm\,\text{U}(2,4)$; missing feature redraws the first load-bearing feature
+independently of the label. Both are retained in the generator and not
+evaluated.
 
 %======================================================================
-\section{Spurious Feature Construction ($f_8$)}
+\section{Spurious feature construction (\texorpdfstring{$f_8$}{f8})}
 \label{sec:spurious}
 %======================================================================
+\status{Implemented (P1); per-task direction added in P2}
 
 \[
   d = \Phi^{-1}(s), \qquad
-  X_{i,8} = (2\,y_{\text{clean},i} - 1) \cdot d + \varepsilon_i,
-  \quad \varepsilon_i \sim \mathcal{N}(0, 1)
+  X_{i,8} = \sigma_t \big( (2\,y_{\mathrm{clean},i} - 1)\, d + \varepsilon_i \big),
+  \quad \varepsilon_i \sim \mathcal{N}(0, 1),
 \]
+where $\sigma_t \in \{+1, -1\}$ is the task's spurious direction
+(Section~\ref{sec:sample-tasks}). So $X_8 \mid y{=}1 \sim \mathcal{N}(\sigma_t d,1)$
+and $X_8 \mid y{=}0 \sim \mathcal{N}(-\sigma_t d,1)$: in half of the tasks a
+large $f_8$ indicates label 1, in the other half label 0. This is a class-conditional Gaussian
+feature, like the environmental features in the data model of
+\citet{rosenfeld2021risks}, whose class-conditional mean and variance change
+across environments; here only the sign of the mean changes (spurious
+reversal). The range of $s$ matches the colour--label agreement in the
+training environments of Colored MNIST \citep{arjovsky2019invariant}.
 
-\textbf{Distribution by label:}
-\begin{align*}
-  y = 1 &\implies X_8 \sim \mathcal{N}(+d,\; 1) \\
-  y = 0 &\implies X_8 \sim \mathcal{N}(-d,\; 1)
-\end{align*}
+\begin{proposition}[Sign agreement]
+\label{prop:agreement}
+$P\big(\sign(\sigma_t X_8) = \sign(2y_{\mathrm{clean}}-1)\big) = s$; under
+spurious reversal it is $1-s$.
+\end{proposition}
+\begin{proof}
+$\sigma_t X_8 = (2y_{\mathrm{clean}}-1)d + \varepsilon$. For $y=1$:
+$P(\sigma_t X_8 > 0) = P(Z > -d) = \Phi(d) = s$. For $y=0$:
+$P(\sigma_t X_8 < 0) = P(Z < d) = s$. Under reversal
+$d' = \Phi^{-1}(1-s) = -d$, so the same computation gives $1-s$.
+\end{proof}
 
-\textbf{Sign-agreement:}
-For $y=1$: $P(X_8 > 0) = P(Z > -d) = \Phi(d) = s$.
-For $y=0$: $P(X_8 < 0) = P(Z < d) = \Phi(d) = s$.
+\paragraph{Why the direction is random.} In v2 and in the first P2 run,
+$\sigma_t = +1$ for every task. With abstract names, the zero-shot margin of
+Qwen2.5-7B-Instruct on the pilot tasks rose with every feature value: its
+Spearman correlation with the plain sum of the 10 features was $0.70$, and
+82\% of the per-task least-squares slopes of the margin on the features were
+positive. The load-bearing directions are random, so such a prior helps in
+some tasks and hurts in others; the spurious direction was not, so the prior
+backed the shortcut in every task. Scoring the ID queries by the sum of the
+features gives AUROC $0.628$, and $0.511$ once $f_8$ is left out; Qwen's
+zero-shot AUROC was $0.633$, so its zero-shot signal came from $f_8$ through
+the prior. Under spurious reversal the same prior would have lowered every
+condition, zero-shot included, confounding demonstration-induced shortcut
+use with a prior shared by all strategies. With $\sigma_t$ balanced, the
+prior backs the shortcut in half of the tasks and opposes it in the other
+half, and the two halves can be compared (prior-aligned against
+prior-opposed shortcut).
 
-Under spurious reversal: $d' = \Phi^{-1}(1-s) = -d$, so
-$P(\text{agreement}) = 1 - s$.
+Because $\sigma_t$ multiplies the whole column, $\sigma_t = -1$ changes
+nothing but the sign of $f_8$: the other columns, the labels, $|f_8|$, the
+agreement flags and therefore the counter-spurious demonstration sets are
+identical to those of $\sigma_t = +1$ (tested). The archived first P2 run
+and the rerun therefore differ only in the sign of $f_8$ on the 6 pilot
+tasks with $\sigma_t = -1$.
+
+\begin{proposition}[Scale of $f_8$]
+With balanced classes, $\E X_8 = 0$ and $\Var X_8 = 1 + d^2$. For
+$s = 0.80, 0.85, 0.90$ the standard deviation is $1.307$, $1.440$ and
+$1.626$, against 1 for every other feature.
+\end{proposition}
+\begin{proof}
+$X_8$ is an equal mixture of $\mathcal{N}(\pm d, 1)$; its mean is 0 and its
+second moment is $1 + d^2$.
+\end{proof}
+
+Unstandardised, $f_8$ is visibly wider than the other columns (a v2 defect).
+v3 z-scores every feature with the task's ID-pool mean and standard
+deviation.
+
+\begin{lemma}[What standardisation preserves]
+\label{lem:standardise}
+Z-scoring is an affine map $x \mapsto (x - \hat\mu)/\hat\sigma$ with
+$\hat\sigma > 0$, so the Pearson correlation of $f_8$ with any variable is
+unchanged. Sign agreement is not preserved: centring $\sigma_t X_8$ at its
+pool mean $\hat\mu_8 = (2\hat\pi - 1)d$, where $\hat\pi$ is the pool label
+rate, changes agreement to
+$\hat\pi\,\Phi(d - \hat\mu_8) + (1 - \hat\pi)\,\Phi(d + \hat\mu_8)$.
+\end{lemma}
+\begin{proof}
+$\corr(aX + b, Y) = \corr(X, Y)$ for $a > 0$. For the agreement, the
+displayed sign, read in the task's direction, is
+$\sign(\sigma_t X_8 - \hat\mu_8)$; condition on $y$ and use the normal CDF.
+\end{proof}
+
+At $s = 0.85$ and $\hat\pi \in \{0.35, 0.65\}$, agreement after centring is
+$0.817$ against $0.850$. Therefore every statistic about $f_8$ reliance is
+defined on the generator scale, and correlation-based statistics are
+preferred to sign-based ones.
 
 %======================================================================
-\section{Label Noise}
+\section{Label noise and row metadata}
 %======================================================================
+\status{Implemented (P1)}
 
-\[
-  y_i = \begin{cases}
-    1 - y_{\text{clean},i} & \text{w.p.\ } \eta = 0.02 \\
-    y_{\text{clean},i}     & \text{w.p.\ } 1 - \eta
-  \end{cases}
-\]
-
-$f_8$ is generated from $y_{\text{clean}}$ (pre-noise), not $y$ (post-noise).
-
-%======================================================================
-\section{Dataset Construction: \texttt{task\_to\_dataframes()}}
-\label{sec:datasets}
-%======================================================================
-
-For one task and one OOD environment:
+With probability $\eta = 0.02$ the label is flipped: $y = 1 - y_{\mathrm{clean}}$
+(random classification noise; \citealp{angluin1988learning}).
+$f_8$ is generated from $y_{\mathrm{clean}}$, so about 2\% of rows have $f_8$
+misaligned with the label the model sees. Each row stores:
 
 \begin{center}
-\begin{tikzpicture}[
-    call/.style={draw, rounded corners, minimum width=3.8cm,
-                 minimum height=0.8cm, align=center, font=\scriptsize,
-                 fill=blue!5},
-    split/.style={draw, rounded corners, minimum width=2.2cm,
-                  minimum height=0.7cm, align=center, font=\scriptsize},
-    arrow/.style={-{Stealth[length=2mm]}, thick},
-    lbl/.style={font=\tiny\itshape, text=gray},
-  ]
-  \node[call] (id) at (0,0) {\texttt{gen\_env("id", 356)}};
-  \node[call] (ood) at (6,0) {\texttt{gen\_env(env\_ood, 100)}};
-
-  \node[split] (pool) at (-1.5,-1.8) {pool\\$[0, 256)$};
-  \node[split] (tid) at (1.5,-1.8) {test\_id\\$[256, 356)$};
-  \node[split] (tood) at (6,-1.8) {test\_ood\\all 100};
-
-  \draw[arrow] (id) -- (pool) node[midway, left, lbl] {slice};
-  \draw[arrow] (id) -- (tid) node[midway, right, lbl] {slice};
-  \draw[arrow] (ood) -- (tood);
-\end{tikzpicture}
-\end{center}
-
-Repeated for 5 tasks $\times$ 3 datasets. Each dataset uses a different OOD:
-
-\begin{center}
-\begin{tabular}{lll}
+\begin{tabular}{ll}
 \toprule
-\textbf{Dataset} & \textbf{\texttt{env\_ood}} & \textbf{What shifts} \\
+\textbf{Field} & \textbf{Definition} \\
 \midrule
-\texttt{synth\_covariate} & \texttt{covariate}          & $P(X)$ \\
-\texttt{synth\_concept}   & \texttt{mechanism}          & $P(Y|X)$ \\
-\texttt{synth\_spurious}  & \texttt{spurious\_reversal} & $f_8$ correlation \\
+\texttt{y\_clean}, \texttt{label} & rule label; label after noise (shown in prompts) \\
+\texttt{regime} & sign pattern of the load-bearing features \\
+\texttt{agree\_clean} & $\1[\sign(\sigma_t X_8) = \sign(2y_{\mathrm{clean}}-1)]$ (generator scale) \\
+\texttt{agree\_obs} & $\1[\sign(\sigma_t X_8) = \sign(2y-1)]$; used by counter-spurious selection \\
+\texttt{spurious\_raw} & $X_8$ on the generator scale, sign included (for magnitude matching) \\
+\texttt{query\_id} & 0--19 for the environment's queries, $-1$ otherwise \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Sizes per dataset: pool = $5 \times 256 = 1280$, test\_id = 500, test\_ood = 500.
+v2's \texttt{is\_counter\_spurious} used $y_{\mathrm{clean}}$; it now follows
+the observed label (\texttt{is\_counter\_spurious} $= \lnot$
+\texttt{agree\_obs}), because that is what the demonstrations show. The
+generator check of the spurious strength uses \texttt{agree\_clean}, which
+the construction sets to $s$ exactly.
 
 %======================================================================
-\section{Causal Graph}
+\section{Dataset construction}
+\label{sec:datasets}
 %======================================================================
+\status{Implemented (P1)}
+
+\begin{center}
+\begin{tikzpicture}[
+    call/.style={draw, rounded corners, minimum width=3.6cm,
+                 minimum height=0.8cm, align=center, font=\scriptsize,
+                 fill=blue!5},
+    split/.style={draw, rounded corners, minimum width=2.2cm,
+                  minimum height=0.7cm, align=center, font=\scriptsize},
+    proc/.style={draw, rounded corners, minimum width=9.5cm,
+                 minimum height=0.8cm, align=center, font=\scriptsize,
+                 fill=orange!10},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+    lbl/.style={font=\tiny\itshape, text=gray},
+  ]
+  \node[call] (id)   at (0,0)    {\texttt{gen\_env("id", 356)}};
+  \node[call] (cov)  at (5.0,0)  {\texttt{gen\_env("covariate", 100)}};
+  \node[call] (spu)  at (10.6,0) {\texttt{gen\_env("spurious\_reversal", 100)}};
+
+  \node[split] (pool) at (-1.3,-1.6) {pool\\$[0, 256)$};
+  \node[split] (tid)  at (1.3,-1.6)  {test\_id\\$[256, 356)$};
+  \node[split] (tcov) at (5.0,-1.6)  {test\_ood\\covariate};
+  \node[split] (tspu) at (10.6,-1.6) {test\_ood\\spurious};
+
+  \draw[arrow] (id) -- (pool) node[midway, left, lbl] {slice};
+  \draw[arrow] (id) -- (tid) node[midway, right, lbl] {slice};
+  \draw[arrow] (cov) -- (tcov);
+  \draw[arrow] (spu) -- (tspu);
+
+  \node[proc, minimum width=12.5cm] (std) at (4.6,-3.2) {standardise every split with pool mean and sd $\;\to\;$ permute columns by $\pi_t$ $\;\to\;$ one long-format parquet per task};
+  \draw[arrow] (pool) -- (std);
+  \draw[arrow] (tid) -- (std);
+  \draw[arrow] (tcov) -- (std);
+  \draw[arrow] (tspu) -- (std);
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}[nosep]
+  \item Each task has its own pool. Demonstrations for a query from task $t$
+        come only from task $t$'s pool.
+  \item ID rows are generated once per task and shared by all environments.
+        This is deliberate: ID and OOD queries are then compared against the
+        same demonstration sets (v2 produced identical ID data for each of
+        its three datasets and triplicated the ID results).
+  \item OOD splits are standardised with the \emph{ID-pool} statistics, so a
+        covariate shift appears as an offset of $\delta_j / \hat\sigma_j$ in
+        z-units rather than being standardised away.
+  \item Queries: 20 per task and environment, 10 per class, drawn with a
+        fixed seed and numbered 0--19 in a random order, so a smaller run
+        (the smoke run's 4 queries) takes the lowest numbers of each class.
+        Balanced query sets make accuracy equal to balanced accuracy and keep
+        AUROC well defined.
+  \item Every random choice of a task (ID rows, each OOD environment, the
+        permutation, the queries) has its own seed,
+        \texttt{SeedSequence([data\_seed, purpose])}, so no draw depends on
+        another.
+  \item Files: \path{data/synthetic/v3/<suite>/tasks/<task_id>.parquet}
+        and \path{data/synthetic/v3/<suite>/task_manifest.json}, written by
+        \path{src/data/synthetic_bridge.py}. The parquet holds
+        \texttt{task\_id}, \texttt{split}, \texttt{env}, \texttt{row\_id}
+        (unique within the task), the 10 displayed columns, and the metadata
+        above.
+  \item \texttt{task\_manifest.json} records every parameter needed to
+        rebuild a task: family, load-bearing set, coefficients or leaf
+        table, $s$, $\eta$, seeds, $\pi_t$, the column roles and directions
+        under their displayed names, the spurious direction $\sigma_t$
+        (\texttt{spurious\_direction}), the standardisation statistics, domain,
+        and the covariate-shift draw (features, $\delta$, probe rates and
+        difference, whether it was accepted). (v2's \texttt{task\_meta.json}
+        omitted coefficients, thresholds and leaf tables.)
+\end{itemize}
+
+For the 24 evaluation tasks, every covariate draw was accepted (largest
+probe difference 0.028). The spurious column lands in 7 of the 10 display
+positions, and the raw standard deviation of $f_8$ ranges from 1.29 to 1.61
+before z-scoring (mean 1.45), against about 1.00 for the other columns.
+
+\begin{proposition}[No cross-task mixing]
+Every demonstration pool used for a query from task $t$ contains only rows
+from task $t$'s ID pool.
+\end{proposition}
+\begin{proof}
+Data are stored one task per file; the selection API receives one task's
+pool; the grid iterates over tasks, and a task's queries are scored only
+against demonstrations selected from that task's pool.
+\end{proof}
+
+%======================================================================
+\section{Causal graph}
+%======================================================================
+\status{Implemented}
 
 \begin{center}
 \begin{tikzpicture}[
@@ -479,11 +1080,11 @@ Sizes per dataset: pool = $5 \times 256 = 1280$, test\_id = 500, test\_ood = 500
     arrow/.style={-{Stealth[length=2.5mm]}, thick},
     lbl/.style={font=\scriptsize\itshape, text=gray},
   ]
-  \node[obs] (Xc) {$X_{\text{c}}$};
-  \node[obs, right=2cm of Xc] (yclean) {$y_{\text{cl}}$};
+  \node[obs] (Xc) {$X_{C}$};
+  \node[obs, right=2cm of Xc] (yclean) {$y_{\mathrm{cl}}$};
   \node[obs, right=2cm of yclean] (f8) {$f_8$};
   \node[obs, below=1.2cm of yclean] (y) {$y$};
-  \node[obs, above=1.2cm of Xc] (Xd) {$X_{\text{d}}$};
+  \node[obs, above=1.2cm of Xc] (Xd) {$X_{\mathrm{d}}$};
   \node[obs, above=1.2cm of f8] (f9) {$f_9$};
 
   \node[hidden, above=0.6cm of yclean] (rule) {Rule};
@@ -502,391 +1103,1500 @@ Sizes per dataset: pool = $5 \times 256 = 1280$, test\_id = 500, test\_ood = 500
 \end{tikzpicture}
 \end{center}
 
-\[
-  X_{\text{causal}} \xrightarrow{\text{rule}} y_{\text{clean}}
-  \xrightarrow{(2y{-}1)d + \varepsilon} f_8
-\]
-
-$f_8$ is a \emph{descendant} of $y$, not a cause.
+The graph follows the notation of causal directed acyclic graphs
+\citep{pearl2009causality}. $f_8$ is a descendant of the label, not a cause:
+an anticausal feature in the sense of \citet{scholkopf2012causal}. Naming,
+serialisation and prompting are presentation layers and are not part of the
+data-generating process.
 
 %======================================================================
-\newpage
-\part{Downstream Pipeline}
+\part{Presentation: naming, serialisation and prompts}
 %======================================================================
 
 %======================================================================
-\section{Demo Selection (NB02)}
-\label{sec:selection}
+\section{Naming protocol}
+\label{sec:naming}
 %======================================================================
+\status{Planned (P3)}
 
-All selection functions return \texttt{list[int]} --- indices into the pool
-DataFrame. $K = 8$ demos per query.
+The naming factor carries the label manipulations of \citet{wei2023larger}
+over to feature names. Abstract names play the role of their semantically
+unrelated labels, removing the prior; flipped names play the role of their
+flipped labels, making the prior contradict the rule.
+\citet{nafar2025learning} compare named and anonymised features in
+in-context regression and find that names let models draw on prior
+knowledge in addition to learning from the examples, and
+\citet{pan2023what} separate task recognition, which relies on such priors,
+from task learning. Feature names matter for fine-tuned models too: correct
+names help and shuffled names hurt \citep{dinh2022lift}. Language models'
+knowledge of variable names can also serve directly as a prior
+\citep{choi2022lmpriors}.
 
-%----------------------------------------------------------------------
-\subsection{Zero-Shot}
-%----------------------------------------------------------------------
+\begin{definition}[Lexicon]
+A domain $D$ has a label meaning ($1$ and $0$), a set of antonym pairs
+$\mathcal{P}_D = \{(p_m, q_m)\}$, where $p_m$ is a name whose real-world
+association with label 1 is positive and $q_m$ one whose association is
+negative, and a set $\mathcal{N}_D$ of plausible names with weak priors. Two
+domains are used: loan approval (1 = approved) and medical risk
+(1 = high risk). Domain is a between-task factor. Draft lexicons are in
+Appendix~\ref{app:lexicon}; final lexicons are fixed by the P3 screening.
+\end{definition}
 
-No demos selected. The LLM receives only the system instruction and query.
-
-%----------------------------------------------------------------------
-\subsection{Random}
-%----------------------------------------------------------------------
-
-$K$ indices sampled uniformly without replacement from the pool:
-\[
-  \text{demos} \sim \text{Uniform}(\text{pool.index},\; K)
-\]
-
-%----------------------------------------------------------------------
-\subsection{Similarity}
-%----------------------------------------------------------------------
-
-Each pool row and query are serialised to text, then encoded via
-\texttt{all-MiniLM-L6-v2} sentence embeddings (normalised).
-Cosine similarity is a dot product:
-\[
-  \text{sim}_j = \mathbf{e}_{\text{pool}_j}^\top \mathbf{e}_{\text{query}},
-  \qquad
-  \text{demos} = \text{argsort}(-\text{sim})[:K]
-\]
-
-Pool embeddings are cached (keyed by hash of pool texts, max 64 entries).
-Batch variant computes $Q \times P$ similarity matrix in one call.
-
-%----------------------------------------------------------------------
-\subsection{Label Diversity (Protocol A)}
-%----------------------------------------------------------------------
-
-Stratified sampling: $\lfloor K/2 \rfloor$ demos per class.
-Remainder (if $K$ is odd) filled randomly from leftover pool.
-
-%----------------------------------------------------------------------
-\subsection{Feature Range (Protocol B)}
-%----------------------------------------------------------------------
-
-For up to 3 features from \texttt{top\_features} (ranked by mutual information):
-\begin{enumerate}[nosep]
-  \item Bin each feature into $n_{\text{bins}} = 3$ quantiles via \texttt{pd.qcut}.
-  \item Form Cartesian cell key per row: $(\text{bin}_{f_1}, \text{bin}_{f_2}, \text{bin}_{f_3})$.
-  \item Shuffle cells, sample 1 demo per cell until $K$ reached.
-  \item Remainder filled randomly.
-\end{enumerate}
-
-%----------------------------------------------------------------------
-\subsection{Rule Diversity (Protocol C)}
-%----------------------------------------------------------------------
-
-Two arms:
+\begin{definition}[Namings]
+For task $t$ with directions $s_j$ ($j \in C$), assign each load-bearing
+feature a distinct pair $m(j)$ at random (seeded). Then:
 \begin{itemize}[nosep]
-  \item \textbf{Real arm:} Fit a \texttt{max\_depth=3} decision tree on
-        the pool; use \texttt{tree.apply()} to get leaf IDs as regime proxies.
-  \item \textbf{Synthetic arm:} Use ground-truth \texttt{regime} from metadata.
+  \item \textbf{abstract}: every column is named by its displayed position,
+        \texttt{f0}--\texttt{f9};
+  \item \textbf{aligned}: feature $j$ is named $p_{m(j)}$ if $s_j = +1$ and
+        $q_{m(j)}$ if $s_j = -1$;
+  \item \textbf{flipped}: the other member of the pair;
+  \item in aligned and flipped, every other column (distractors, $f_8$,
+        $f_9$) gets a distinct name from $\mathcal{N}_D$, identical in the
+        two conditions.
 \end{itemize}
+\end{definition}
 
-Group pool rows by leaf/regime, shuffle groups, take 1 per group.
+Directions come from ground truth: $s_j = \sign(c_j)$ for linear tasks
+(Lemma~\ref{lem:linear-direction}) and the literal signs for tree tasks
+(Theorem~\ref{thm:tree}). The pool correlation of each feature with the label
+is computed only as a check. Pairs are admitted only if their two members
+have opposite measured prior slopes of similar magnitude
+(Section~\ref{sec:priors}), so flipping changes the direction of the prior
+but not its strength.
 
-%----------------------------------------------------------------------
-\subsection{Counter-Spurious (Protocol D)}
-%----------------------------------------------------------------------
+\begin{proposition}[Identification]
+\label{prop:identification}
+For a fixed task, demonstration set and query, the aligned and flipped
+prompts differ only in the names of the three load-bearing columns. The
+numbers, labels, column order and system message are identical. For any
+predictor whose output does not depend on display names, expected accuracy
+is identical under aligned and flipped naming, so a difference in the
+model's accuracy between the two is attributable to the semantics of the
+names.
+\end{proposition}
+\begin{proof}
+By construction of the namings and the prompt template
+(Section~\ref{sec:prompts}); the demonstration sets of naming-blind
+selectors are identical across namings (Section~\ref{sec:seeding}).
+\end{proof}
 
-Two arms:
-\begin{itemize}[nosep]
-  \item \textbf{Synthetic arm:} Use ground-truth \texttt{is\_counter\_spurious}
-        boolean from metadata.
-  \item \textbf{Real arm:} Find proxy features by
-        $\text{score}_f = |\text{corr}(f, \text{label})| \cdot |\text{corr}(f, \text{shift})|$.
-        Identify ``minority cells'' where proxy--label correlation is broken.
-\end{itemize}
+\begin{proposition}[Concept shift through naming]
+\label{prop:concept-naming}
+Let names be aligned with the ID rule. With demonstrations drawn from the
+same environment, the mechanism environment presents the model with a rule
+whose directions are the negations of the names' directions, which is
+exactly the flipped condition on ID data (up to the linear coefficient
+rescale).
+\end{proposition}
+\begin{proof}
+By Proposition~\ref{prop:mechanism}, the mechanism rule has directions
+$-s_j$. Aligned names encode $+s_j$, so names and rule disagree on every
+load-bearing feature, which is the definition of the flipped condition.
+\end{proof}
 
-Over-sample counter-spurious rows: $\lfloor K/2 \rfloor + 1$ from
-counter-spurious indices, remainder from the rest.
-
-%----------------------------------------------------------------------
-\subsection{Ordering (Applied to All Methods)}
-%----------------------------------------------------------------------
-
-After selection, demo order is shuffled via a seeded permutation:
-\[
-  \text{ordered\_ids} = \pi_{\text{seed}}(\text{demo\_ids})
-\]
-
-This is a controlled nuisance variable (Lu et al., 2022): ordering effects
-are uniform across all conditions.
+\paragraph{What the names reveal.}
+In named conditions the load-bearing columns carry strong-prior names and
+the others weak-prior names, so name salience correlates with causal
+relevance by design: the experiment manipulates the \emph{direction} of the
+prior, not which features it points to. The LLM and SATA-MI can both use
+this; the SATA-names control (Section~\ref{sec:sata-controls}) receives the
+same information, so comparisons between them are fair. An optional
+robustness check gives one distractor a strong-prior name.
 
 %======================================================================
 \section{Serialisation}
 \label{sec:serialisation}
 %======================================================================
+\status{Implemented (P1)}
 
-Each row is converted to text via \texttt{serialise\_row()}:
-
+Serialising rows as text for a language model follows TabLLM
+\citep{hegselmann2023tabllm}, which compares nine serialisations including a
+list of name--value pairs, and LIFT \citep{dinh2022lift}. The format here is
+a compact name--value list. Each row is converted to text by
+\texttt{serialise\_row()}:
 \begin{lstlisting}
-f0: 0.80; f1: -0.45; f2: -0.30; f3: 1.52; f4: -0.91;
-f5: 1.10; f6: 0.07; f7: -1.33; f8: 0.64; f9: 0.22 -> 1
+f0: 0.80; f1: -0.45; f2: -0.30; f3: 1.52; f4: -0.91; f5: 1.10; f6: 0.07; f7: -1.33; f8: 0.44; f9: 0.22 -> 1
+credit score: 0.80; branch number: -0.45; ... ; debt-to-income ratio: 1.10; ... -> 1
 \end{lstlisting}
-
-\textbf{Format:} \texttt{FeatureName: value; ... -> Label}
-
 \begin{itemize}[nosep]
-  \item Feature order: alphabetical by column name
-        (\texttt{sorted(features.keys())}).
-  \item Numeric values: fixed-width \texttt{f"\{v:.2f\}"} (2 decimal places).
-  \item Query rows: end with \texttt{" ->"} (no label).
-  \item NaN values: rendered as \texttt{"unknown"}.
-  \item When codebook is provided: column names replaced by
-        \texttt{name\_extended}, categorical codes replaced by
-        human-readable labels.
+  \item Format \texttt{name: value; \ldots\ -> label}; query rows end with
+        \texttt{->} (instruct models) or \texttt{-> } (base models,
+        Section~\ref{sec:prompts}).
+  \item Values are z-scores, fixed width with 2 decimals (\verb|f"{v:.2f}"|).
+  \item Column order is the displayed order after $\pi_t$, frozen per task
+        and identical in every condition. \texttt{ordered\_feature\_names}
+        sorts by raw column name, and the raw names are stored in displayed
+        order, so renaming never reorders a prompt.
+  \item Display names come from the naming's codebook
+        (\texttt{name\_extended}).
 \end{itemize}
 
 %======================================================================
-\section{Prompt Construction}
+\section{Prompt templates}
 \label{sec:prompts}
 %======================================================================
+\status{Implemented (P1): abstract condition; the named system messages are used from P3}
 
-\texttt{build\_chat\_messages()} returns a 2-element message list:
+The v2 template rendered ``Given the features of an individual, predict
+Classify the input into one of two classes\ldots'', which is ungrammatical
+and a leftover from the real-data arm. v3 uses one template
+(\texttt{src/inference/prompts.py}); snapshot tests freeze the rendered
+prompt for both instruct models and the base format
+(\texttt{tests/snapshots/}).
 
-\begin{enumerate}[nosep]
-  \item \textbf{System message:}
-        ``You are a classifier. Given the input features, predict the class.
-        Respond with exactly one word: \texttt{0} or \texttt{1},
-        where \texttt{0} = Class~0 and \texttt{1} = Class~1.''
-
-  \item \textbf{User message:}
-        Newline-joined demo lines (each with label), followed by the
-        query line (no label).
-\end{enumerate}
-
-\texttt{ChatFormatter.render(system, user)} applies the model's chat template
-(e.g.\ ChatML for Qwen) with special tokens and generation prompt:
-
+\medskip\noindent\textbf{System message (abstract).}
 \begin{lstlisting}
-<|im_start|>system
-You are a classifier. ...
-<|im_end|>
-<|im_start|>user
-f0: 0.80; f1: -0.45; ... -> 1
-f0: 1.20; f1: 0.33; ... -> 0
-...
-f0: -0.10; f1: 0.72; ... ->
-<|im_end|>
-<|im_start|>assistant
+You are a classifier. Each example lists 10 numeric measurements and a label (0 or 1). All measurements are standardised (0 = average, 1 = one standard deviation above average). The label follows an unknown rule over some of the measurements. Infer the rule from the labelled examples, then classify the final example. Respond with exactly one character: 0 or 1.
 \end{lstlisting}
 
-%======================================================================
-\section{LLM Inference}
-\label{sec:inference}
-%======================================================================
+\medskip\noindent\textbf{System message (named, loan domain).}
+\begin{lstlisting}
+You are a classifier. Each example describes a loan applicant with 10 measurements and a label: 1 means the loan was approved, 0 means it was denied. All measurements are standardised (0 = average, 1 = one standard deviation above average). The label follows an unknown rule over some of the measurements. Infer the rule from the labelled examples, then classify the final example. Respond with exactly one character: 0 or 1.
+\end{lstlisting}
 
-Using \texttt{MLXRunner} (Apple Silicon, Qwen2.5-7B-Instruct).
+In the medical domain the second sentence reads ``Each example describes a
+patient with 10 measurements and a label: 1 means the patient is at high
+risk, 0 means low risk.'' The system message depends only on the domain, so
+the aligned and flipped system messages are byte-identical. The user message
+is the newline-joined demonstrations followed by the query; zero-shot
+prompts contain only the query.
 
-%----------------------------------------------------------------------
-\subsection{Forward Pass}
-%----------------------------------------------------------------------
+\paragraph{Instruct models.} The (system, user) pair is rendered with the
+tokenizer's chat template and the assistant generation prompt, so the next
+token should be the answer. P2 checks this directly, from the probability the
+model puts on the two label tokens (Section~\ref{sec:models}):
+Qwen2.5-7B-Instruct puts 0.996 there, Llama-3.1-8B-Instruct about 0.02. The rendered prompt below is Qwen2.5-7B-Instruct's for
+task \texttt{eval\_0000}, with its first two pool rows as demonstrations and
+its first ID query; it is the output of \texttt{render\_prompt} for that row,
+copied from the snapshot (\texttt{tests/snapshots/prompt\_qwen\_instruct.txt}).
+Llama-3.1's template adds its own header (a BOS token and a dated system
+preamble) around the same messages.
+\begin{lstlisting}
+<|im_start|>system
+You are a classifier. Each example lists 10 numeric measurements and a label (0 or 1). All measurements are standardised (0 = average, 1 = one standard deviation above average). The label follows an unknown rule over some of the measurements. Infer the rule from the labelled examples, then classify the final example. Respond with exactly one character: 0 or 1.<|im_end|>
+<|im_start|>user
+f0: 0.99; f1: 1.42; f2: 0.72; f3: -0.23; f4: -0.52; f5: 1.09; f6: 0.35; f7: -0.74; f8: -0.99; f9: -1.63 -> 0
+f0: -1.78; f1: 0.26; f2: -0.00; f3: 0.82; f4: -0.80; f5: 1.31; f6: -0.02; f7: 0.22; f8: -0.19; f9: 0.99 -> 1
+f0: 1.25; f1: 0.19; f2: 0.10; f3: -0.04; f4: -0.83; f5: 0.20; f6: 0.01; f7: 0.36; f8: -0.31; f9: 0.65 -><|im_end|>
+<|im_start|>assistant
+\end{lstlisting}
+In this task the load-bearing features are shown as \texttt{f3}, \texttt{f9}
+and \texttt{f7}, the spurious feature as \texttt{f4} and the noise feature as
+\texttt{f8}.
 
-For each prompt, \texttt{\_next\_token\_logprobs(prompt)} performs:
-
-\begin{enumerate}[nosep]
-  \item Tokenise the full prompt string.
-  \item Single forward pass through the model.
-  \item Extract logits at the \emph{final} token position.
-  \item Compute full-vocabulary log-probabilities:
-        \[
-          \ell_v = \text{logits}_v - \logsumexp(\text{logits})
-        \]
-\end{enumerate}
-
-No sampling occurs; the model produces a probability distribution over
-all tokens and we extract the two we care about.
-
-%----------------------------------------------------------------------
-\subsection{Prediction Extraction}
-%----------------------------------------------------------------------
-
-\texttt{get\_confidence(logprobs\_dict, label\_tokens)} computes:
-
-\begin{enumerate}[nosep]
-  \item Look up log-probs for the two label tokens:
-        \[
-          \ell_0 = \ell[\text{token}(\texttt{"0"})], \qquad
-          \ell_1 = \ell[\text{token}(\texttt{"1"})]
-        \]
-        If a label token is absent from logprobs, default $\ell = -100$.
-
-  \item \textbf{Constrained two-way softmax} (renormalise over label tokens only):
-        \[
-          p_0 = \frac{e^{\ell_0}}{e^{\ell_0} + e^{\ell_1}}, \qquad
-          p_1 = 1 - p_0
-        \]
-
-  \item Prediction: $\hat{y} = \arg\max(p_0, p_1)$. \\
-        Confidence: $\max(p_0, p_1)$.
-\end{enumerate}
-
-\textbf{Output:} \texttt{PredictionResult(prediction, confidence, p0, p1,
-logprob\_0, logprob\_1)}.
-
-If neither label token appears in logprobs $\to$ \texttt{INVALID}.
-
-%======================================================================
-\section{Evaluation Metrics}
-\label{sec:evaluation}
-%======================================================================
-
-All metrics filter out \texttt{INVALID} predictions first. Predictions are
-canonicalised: strip whitespace, convert numeric-looking strings to integers
-(\texttt{"1.0"} $\to$ \texttt{"1"}).
-
-%----------------------------------------------------------------------
-\subsection{Accuracy}
-%----------------------------------------------------------------------
-
-\[
-  \text{acc} = \frac{1}{|\mathcal{V}|}
-  \sum_{i \in \mathcal{V}} \1[\hat{y}_i = y_i]
-\]
-
-where $\mathcal{V}$ is the set of non-INVALID predictions.
-Returns NaN if $|\mathcal{V}| = 0$.
-
-%----------------------------------------------------------------------
-\subsection{Macro F1}
-%----------------------------------------------------------------------
-
-\[
-  \text{F1}_{\text{macro}} = \frac{1}{C} \sum_{c=1}^{C} \text{F1}_c
-  = \frac{1}{C} \sum_{c=1}^{C}
-  \frac{2 \cdot \text{precision}_c \cdot \text{recall}_c}
-       {\text{precision}_c + \text{recall}_c}
-\]
-
-Via \texttt{sklearn.metrics.f1\_score(..., average="macro")} on
-canonicalised valid predictions.
-
-%----------------------------------------------------------------------
-\subsection{Shift Gap}
-%----------------------------------------------------------------------
-
-\[
-  \Delta = \text{acc}_{\text{ID}} - \text{acc}_{\text{OOD}}
-\]
-
-Positive $\Delta$ indicates OOD degradation.
-
-%----------------------------------------------------------------------
-\subsection{Invalid Rate}
-%----------------------------------------------------------------------
-
-\[
-  \text{inv} = \frac{|\{i : \hat{y}_i = \texttt{INVALID}\}|}{n}
-\]
-
-%======================================================================
-\section{Experiment Orchestration (NB02)}
-\label{sec:orchestration}
-%======================================================================
-
-\textbf{Parameters:} $K = 8$ demos, $N_{\text{queries}} = 30$ per
-environment, seed = 42.
-
-\textbf{Conditions:} zero\_shot, random, similarity, label\_diversity,
-feature\_range, rule\_diversity, counter\_spurious (7 total).
-
-\textbf{Per-dataset pre-computation:}
-\begin{enumerate}[nosep]
-  \item Load parquet files (pool, test\_id, test\_ood).
-  \item \texttt{select\_top\_features(pool, n=3)} for feature\_range.
-  \item \texttt{fit\_leaf\_tree(pool)} for rule\_diversity.
-  \item \texttt{find\_spurious\_proxy\_features(pool $\cup$ test\_ood)} for
-        counter\_spurious.
-  \item Pre-compute similarity embeddings (batch).
-\end{enumerate}
-
-\textbf{Per-query data flow:}
+\paragraph{Base model.} Qwen2.5-7B base uses a raw completion prompt: system
+text, blank line, demonstrations, then the query ending in \texttt{"-> "}
+(with a trailing space), because the tokenizers split \texttt{" 0"} into two
+tokens.
 
 \begin{center}
-\begin{tikzpicture}[
-    stp/.style={draw, rounded corners, minimum width=3cm,
-                 minimum height=0.7cm, align=center, font=\scriptsize},
-    arrow/.style={-{Stealth[length=2mm]}, thick},
-  ]
-  \node[stp] (s1) at (0,0) {1.\ select\_demos};
-  \node[stp] (s2) at (4,0) {2.\ shuffle\_order};
-  \node[stp] (s3) at (0,-1.6) {3.\ serialise\_row};
-  \node[stp] (s4) at (4,-1.6) {4.\ build\_chat\_msgs};
-  \node[stp] (s5) at (0,-3.2) {5.\ ChatFormatter};
-  \node[stp] (s6) at (4,-3.2) {6.\ batch\_predict};
-
-  \draw[arrow] (s1) -- (s2);
-  \draw[arrow] (s2) -- (s3);
-  \draw[arrow] (s3) -- (s4);
-  \draw[arrow] (s4) -- (s5);
-  \draw[arrow] (s5) -- (s6);
-\end{tikzpicture}
+\begin{tabular}{lll}
+\toprule
+\textbf{Tokenisation fact (verified)} & \textbf{Qwen2.5} & \textbf{Llama-3.1} \\
+\midrule
+\texttt{"0"}, \texttt{"1"} & single tokens 15, 16 & single tokens 15, 16 \\
+\texttt{" 0"} & \texttt{[220, 15]} & \texttt{[220, 15]} \\
+beginning-of-sequence token & none & 128000, inserted by the chat template \\
+\bottomrule
+\end{tabular}
 \end{center}
 
-All prompts for a condition are batched, then
-\texttt{runner.batch\_predict(prompts, ("0", "1"))} runs them through MLX.
-Results are scored per environment with accuracy, macro\_f1, invalid\_rate.
+Templated strings are tokenised with \texttt{add\_special\_tokens=False}, so
+Llama prompts begin with exactly one BOS. (v2's \texttt{MLXRunner} produced
+\texttt{[128000, 128000, \ldots]}.)
 
 %======================================================================
 \newpage
-\part{Bug-Hunting Notes}
+\part{Demonstration selection}
 %======================================================================
 
-\begin{enumerate}
-  \item \textbf{$f_8$ is present in ALL environments (including ID).}
-        The spurious correlation is part of the data-generating process.
-        Only \texttt{synth\_spurious} tests reliance on $f_8$ by reversing it.
+%======================================================================
+\section{Selection engine}
+\label{sec:selection}
+%======================================================================
+\status{Implemented (P1); counter\_prior in P3, SATA in P5}
 
-  \item \textbf{$f_8$ is a ``safety net'' in covariate and concept shifts.}
-        In these datasets, $f_8$'s strength is unchanged between ID and OOD.
-        In \texttt{synth\_concept}, $f_8$ tracks the \emph{new} ground truth
-        (generated after the mechanism flip), so it can help the LLM appear to
-        generalise when it is actually following a spurious cue.
+Selection is a \emph{mechanism} (which rows are preferred) crossed with a
+\emph{composition} (how many of each label):
+\[
+  \texttt{select}(\text{mechanism}, \text{composition}, \text{pool},
+  \text{query}, k, \text{seed}) \to (\text{pool indices}, \text{metadata}).
+\]
+\textbf{free}: the mechanism decides the label counts. \textbf{balanced}:
+exactly $k/2$ demonstrations per class, the mechanism choosing within each
+class.
 
-  \item \textbf{Covariate shift only touches $f_0$--$f_7$.}
-        $f_8$ and $f_9$ are overwritten unconditionally.
+\begin{proposition}[Label counts are controlled]
+\label{prop:balanced}
+Under balanced composition every mechanism produces the same demonstration
+label multiset, $k/2$ zeros and $k/2$ ones, whenever each class has at
+least $k/2$ pool rows. Differences between balanced mechanisms therefore
+cannot be caused by label proportions, which are known to drive a model's
+output distribution (majority-label bias;
+\citealp{zhao2021calibrate,min2022rethinking}).
+\end{proposition}
+\begin{proof}
+The quota fixes the count per class before the mechanism chooses rows.
+With 256 pool rows and a label rate in $[0.35, 0.65]$ (G1 gate), each class
+has at least about 90 rows, far more than $k/2 \leq 16$.
+\end{proof}
 
-  \item \textbf{Mechanism shift: LLM sees original $X$, not $\tilde{X}$.}
-        The sign flip is on the copy fed to the rule.
+\begin{center}
+{\small
+\begin{tabular}{L{2.9cm}L{5.2cm}L{1.9cm}L{4.9cm}}
+\toprule
+\textbf{Strategy} & \textbf{Mechanism, composition} & \textbf{Per query} & \textbf{Uses} \\
+\midrule
+zero\_shot       & --- & --- & --- \\
+random           & random, free & no & --- \\
+label\_diversity & random, balanced & no & --- \\
+feature\_range   & feature\_coverage, balanced & no & MI top-3 features of the pool \\
+rule\_diversity  & gt\_regime, balanced & no & ground-truth regime \\
+counter\_spurious & gt\_counter\_spurious (magnitude-matched), balanced & no & ground-truth \texttt{agree\_obs} \\
+similarity       & feature\_knn, balanced & yes & z-scored features \\
+counter\_prior   & counter\_prior, balanced & no & prior surrogate (P3) \\
+SATA-v2, SATA-MI & learned scores, balanced top-$k$ & yes & Part~\ref{part:sata} \\
+\bottomrule
+\end{tabular}}
+\end{center}
 
-  \item \textbf{Probes produce throwaway data.}
-        Monte Carlo estimates for the rejection loop are not part of the
-        final dataset.
+The label, feature-range, rule and counter-spurious strategies are the four
+diversity protocols proposed in the project's literature review. Similarity
+selection follows the nearest-neighbour retrieval of \citet{liu2022what},
+and covering the relevant structure of a task echoes diverse and
+coverage-based selection \citep{levy2023diverse,gupta2023coverage}.
 
-  \item \textbf{Concept noise $u$ drawn for all families.}
-        Ensures RNG stream is family-independent for reproducibility.
+%======================================================================
+\section{Mechanisms}
+%======================================================================
+\status{Implemented (P1); counter\_prior in P3}
 
-  \item \textbf{Sparse interaction's extra ``causal'' features are decoys.}
-        Only the first two indices participate in the product.
+\paragraph{random.} Uniform without replacement.
 
-  \item \textbf{Label noise is after $f_8$ generation.}
-        $f_8$ tracks $y_{\text{clean}}$, not $y_{\text{final}}$.
-        ${\sim}2\%$ of rows have $f_8$ misaligned with the noised label.
+\paragraph{feature\_coverage.} The 3 pool features with the highest mutual
+information with the label are cut into 3 quantile bins, and a row's cell is
+its combination of bins (up to 27 cells). Within each class, cells are
+visited in random order, one row each, until the quota is filled. Mutual
+information is estimated with scikit-learn's nearest-neighbour estimator
+\citep{pedregosa2011scikit,kraskov2004estimating,ross2014mutual}. The version
+ported from \texttt{main} assigned rows feature by feature: the top feature's
+three bins absorbed every row, so the other two features never formed a
+stratum. The top-3 features often include the spurious column, which the
+pool's mutual information cannot tell apart from a causal one.
 
-  \item \textbf{Constrained two-way softmax discards all non-label tokens.}
-        If the model is highly uncertain between ``0'' and ``1'' but
-        confident about some other token (e.g.\ ``The''), the renormalised
-        $p_0, p_1$ can still be near 0.5 --- this is by design (we only
-        care about the relative preference for the two valid labels).
+\paragraph{gt\_regime.} Rows are grouped by ground-truth regime; within each
+class, regimes are visited in random order, one row each. A row is eligible
+for its class only if it is not a label-noise row
+($y = y_{\mathrm{clean}}$) and its class is the pool majority in its regime.
+Without that filter, the few noise rows sitting in the other class's leaves
+would each form a stratum and be over-sampled. Ineligible rows are used only
+if the eligible ones run out. For a tree task each class occupies 4 of the 8
+regimes, so with $k = 8$ every leaf is represented once, with its own label
+(tested on all 12 tree tasks).
 
-  \item \textbf{Feature ordering is alphabetical.}
-        \texttt{sorted(features.keys())} on names like \texttt{f0, f1, ..., f9}
-        gives $f_0, f_1, \ldots, f_9$ --- correct because all names are
-        equal-length single-digit. If features were \texttt{f0, ..., f10},
-        alphabetical sort would give \texttt{f0, f1, f10, f2, ...} --- a
-        potential serialisation bug for $>10$ features.
+\paragraph{feature\_knn.} Euclidean distance on the 10 z-scored columns; the
+$k/2$ nearest rows of each class. This is the nearest-neighbour retrieval of
+\citet{liu2022what}, in feature space rather than sentence-embedding space. It depends only on numbers, so it selects
+the same demonstrations under every naming. It replaces v2's text similarity
+with the sentence-transformers model \texttt{all-MiniLM-L6-v2}
+\citep{reimers2019sentence,wang2020minilm}, whose embeddings would change
+with the display names and confound the naming factor.
 
-  \item \textbf{Demo ordering is a controlled nuisance.}
-        \texttt{shuffle\_order()} applies the same seeded permutation across
-        all conditions, so ordering effects do not confound condition
-        comparisons.
+\paragraph{counter\_prior.} Score
+$\1[\sign \hat m_0(x_i) \neq 2y_i - 1]\cdot\1[y_i = y_{\mathrm{clean},i}]$:
+rows whose label contradicts the model's prior \emph{and} follows the rule
+(so label-noise rows are not rewarded). It is active only when the task's
+prior--data conflict (Section~\ref{sec:priors}) exceeds $1/2$; otherwise it
+reduces to balanced random. It is related to misconfidence-based selection
+\citep{xu2024misconfidence}, which prefers demonstrations on which the
+model's output departs from the true label; here the model's zero-shot
+prior, estimated by the surrogate, plays that role.
 
-  \item \textbf{Similarity selection is on raw text, not features.}
-        The embedding model sees the serialised string including feature
-        names, colons, and semicolons. Similarity is computed in embedding
-        space, not feature space. Whether this is a feature or a bug depends
-        on whether the serialisation format adds meaningful signal.
+\subsection{Counter-spurious selection must match on \texorpdfstring{$|f_8|$}{|f8|}}
+
+The goal is a demonstration set in which $f_8$ carries no information about
+the label, so the model is not taught the shortcut. When demonstrations are
+consistent with more than one feature, models show systematic feature
+preferences \citep{si2023measuring} and exploit shortcuts in the prompt
+\citep{tang2023large}, and in-context learners trained on tasks with
+spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}.
+Demonstrations that break a spurious association improve generalisation
+\citep{fan2024comparable}. Worst-group robustness is defined over
+(label, spurious attribute) groups \citep{sagawa2020distributionally}, and
+simply balancing those groups is a competitive remedy
+\citep{idrissi2022simple}. Balancing the four
+(label $\times$ agreement) cells is not enough, however.
+Throughout this subsection $f_8$ is read in the task's direction,
+$\sigma_t f_8$ (Section~\ref{sec:spurious}); $|f_8|$ and the agreement flags
+do not depend on $\sigma_t$, so neither do the selected sets.
+
+\begin{proposition}[Naive balancing leaves $f_8$ informative]
+\label{prop:naive-balance}
+Take equal numbers of rows from the four cells $(y, \text{agree})$. Then
+sign agreement is exactly $1/2$, but
+\[
+  \Cov\!\big(f_8,\, 2y-1\big) = \tfrac12\Big(
+  \underbrace{d + \tfrac{\phi(d)}{\Phi(d)}}_{\E[\,|f_8| \;\mid\; \mathrm{agree}\,]}
+  \;-\;
+  \underbrace{\tfrac{\phi(d)}{1 - \Phi(d)} - d}_{\E[\,|f_8| \;\mid\; \mathrm{disagree}\,]}
+  \Big) > 0 .
+\]
+\end{proposition}
+\begin{proof}
+Within class $y=1$, $f_8 \sim \mathcal{N}(d,1)$. Agreeing rows are
+$f_8 > 0$, with $\E[f_8 \mid f_8 > 0] = d + \phi(d)/\Phi(d)$; disagreeing
+rows are $f_8 < 0$, with $\E[f_8 \mid f_8 < 0] = d - \phi(d)/(1-\Phi(d))$.
+The product $f_8(2y-1)$ equals $+|f_8|$ on agreeing rows and $-|f_8|$ on
+disagreeing rows; class $y=0$ is symmetric. With equal cell counts,
+$\E[f_8] = 0$ and the covariance is the average of $f_8(2y-1)$, which gives
+the expression. It is positive because agreeing rows lie further from zero.
+\end{proof}
+
+\begin{center}
+{\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{ccccccc}
+\toprule
+$s$ & $d$ & sd$(f_8)$ & $\E|f_8|$ agree & $\E|f_8|$ disagree & naive $\corr(f_8, y)$ & zero-cov.\ counter share \\
+\midrule
+0.80 & 0.842 & 1.307 & 1.192 & 0.558 & 0.281 & 0.681 \\
+0.85 & 1.036 & 1.440 & 1.311 & 0.518 & 0.334 & 0.717 \\
+0.90 & 1.282 & 1.626 & 1.477 & 0.473 & 0.391 & 0.757 \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+A simulation at $s = 0.85$ gives $\corr = 0.332$ for naive balancing. The v2
+rule ($k/2 + 1$ counter-spurious rows, a share of $0.625$ at $k=8$) gives
+sign agreement $0.375$, reversing $f_8$'s sign relation and mirroring the
+spurious-reversal test, while the covariance stays positive ($0.168$).
+
+\begin{definition}[Magnitude-matched counter-spurious]
+Within each class, draw $k/4$ disagreeing rows at random; for each, take
+the agreeing row of the same class with the nearest $|f_8|$, without
+replacement (nearest-neighbour matching on $|f_8|$;
+\citealp{rubin1973matching,stuart2010matching}), with $|f_8|$ on the
+generator scale. This requires $k$ divisible by 4, which holds for
+$k \in \{8, 16, 32\}$. Label-noise rows ($y \neq y_{\mathrm{clean}}$) are
+excluded on both sides: they are mostly disagreeing rows (a flipped label
+makes an agreeing $f_8$ disagree), so leaving them in would give
+counter-spurious sets several times the pool's noise rate. If a class has
+fewer than $k/4$ eligible disagreeing rows, the remaining slots are filled
+with random rows of that class and the shortfall is recorded.
+\end{definition}
+
+\begin{proposition}
+With perfect matching, sign agreement is $1/2$ and
+$\Cov(f_8, 2y-1) = 0$.
+\end{proposition}
+\begin{proof}
+Within each class, agreeing and disagreeing rows then have the same
+distribution of $|f_8|$, so $f_8(2y-1)$, which is $+|f_8|$ or $-|f_8|$ with
+equal frequency, has mean 0; $\E f_8 = 0$ by class symmetry.
+\end{proof}
+
+With a 256-row pool matching is close to perfect; the simulation gives
+$\corr = 0.000$ and agreement $0.500$. The G1 gate checks that the
+correlation, pooled over counter-spurious demonstration sets, is within
+$\pm 0.1$ of zero. On the 24 evaluation tasks, pooled over $k = 8, 16, 32$,
+the implementation gives $\corr(f_8, y) = 0.005$ and agreement exactly
+$0.500$, with no shortfall.
+
+%======================================================================
+\section{Seeding, reuse and pairing}
+\label{sec:seeding}
+%======================================================================
+\status{Implemented (P1)}
+
+Every random choice uses its own NumPy \citep{harris2020array} stream,
+derived as
+\[
+  \texttt{SeedSequence([base, task, strategy, seed, purpose, ...])}
+\]
+(\texttt{demo\_seed} in \texttt{src/selection/protocols.py}), with 3 demo
+seeds per task and strategy. Task and strategy names enter through CRC-32
+hashes, so no seed depends on list order or on Python's per-process hash
+salt. \texttt{purpose} separates the selection draw, the order shuffle and
+the label shuffle of the P2 control; a query-conditional strategy also
+passes the query's row id. The seed never includes the model, the naming,
+the label mode or the environment, so those comparisons see the same
+demonstration rows.
+
+\begin{itemize}[nosep]
+  \item \textbf{Query-agnostic strategies} draw one demonstration set per
+        (task, strategy, seed). It is reused for every query of that task,
+        in every environment, and under every naming for naming-blind
+        strategies. counter\_prior depends on the naming, so it is reused
+        across environments only.
+  \item \textbf{Query-conditional strategies} (feature\_knn, SATA) select
+        per query.
+  \item \textbf{Order:} a seeded shuffle per demonstration set, so position
+        is a controlled nuisance; order alone can swing in-context accuracy
+        \citep{lu2022fantastically}.
+  \item \textbf{Shuffled labels (P2):} the same rows in the same order, with
+        their labels permuted within the set, which keeps the label counts
+        and breaks the input--label mapping \citep{min2022rethinking}.
+\end{itemize}
+
+This gives three pairings used by the analysis: the same queries across
+strategies; the same demonstration set across environments (the shift gap
+of a query-agnostic strategy is a within-prompt contrast, free of
+demonstration-sampling variance); and the same demonstration set across
+namings for naming-blind strategies. v2 passed one fixed seed to every call,
+so each strategy used a single demonstration set for all queries.
+
+%======================================================================
+\section{Pool provenance and leakage}
+%======================================================================
+\status{Implemented (P1)}
+
+Demonstrations always come from the task's ID pool. Covariate and
+spurious-reversal queries are therefore answered with ID demonstrations, the
+deployment-realistic setting; concept shift is the flipped naming on ID data
+(Proposition~\ref{prop:concept-naming}).
+
+\begin{proposition}[No test leakage]
+No row of \texttt{test\_id} or of any \texttt{test\_ood} split reaches any
+selector, standardisation statistic or prior estimate.
+\end{proposition}
+\begin{proof}
+Selectors receive only the pool; standardisation statistics are computed on
+the pool; prior surrogates are fitted on synthetic random profiles
+(Section~\ref{sec:priors}), not on task data; SATA is trained on separate
+training tasks.
+\end{proof}
+
+v2 violated this: its counter-spurious proxy search used \texttt{test\_ood}
+rows and labels.
+
+%======================================================================
+\newpage
+\part{Model inference}
+%======================================================================
+
+%======================================================================
+\section{Models and runtime}
+\label{sec:models}
+%======================================================================
+\status{Implemented (P0--P1); measured in P2; Llama-3.1-8B-Instruct paused}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Model} & \textbf{Layers} & \textbf{Width} & \textbf{Embeddings} \\
+\midrule
+Qwen2.5-7B-Instruct (primary) & 28 & 3584 & untied \\
+Qwen2.5-7B base & 28 & 3584 & untied \\
+Llama-3.1-8B-Instruct & 32 & 4096 & untied \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Checkpoints (Qwen2.5: \citealp{qwen2024qwen25}; Llama~3.1:
+\citealp{grattafiori2024llama3}):
+\begin{itemize}[nosep]
+  \item \texttt{Qwen/Qwen2.5-7B-Instruct}
+  \item \texttt{Qwen/Qwen2.5-7B}
+  \item \texttt{meta-llama/Llama-3.1-8B-Instruct} (gated; access must be
+        requested on Hugging Face)
+\end{itemize}
+
+PyTorch 2.14 \citep{paszke2019pytorch} and transformers 5.17
+\citep{wolf2020transformers}, batch size 1, one model in memory at a
+time (15--16 GB each). Attention is \texttt{sdpa}; \texttt{eager} is used only
+if attention weights are needed.
+
+\paragraph{Device selection (implemented, P0).} \texttt{src/utils/device.py}
+chooses the device and dtype for every PyTorch component (the runner, SATA
+training and SATA selection):
+\begin{itemize}[nosep]
+  \item \texttt{resolve\_device("auto")} returns NVIDIA CUDA if available,
+        otherwise Apple Metal (MPS; \citealp{apple2024mps}), otherwise CPU;
+        an explicit
+        \texttt{cuda}, \texttt{mps} or \texttt{cpu} is honoured or fails
+        loudly if unavailable. Configured by \texttt{inference.device} and
+        \texttt{sata.device}.
+  \item \texttt{resolve\_dtype} keeps bf16 \citep{kalamkar2019study}
+        (verified on MPS) except on
+        pre-Ampere CUDA GPUs such as the T4 and V100, which fall back to
+        fp16, and on CPU, which uses fp32.
+  \item On macOS, \texttt{PYTORCH\_ENABLE\_MPS\_FALLBACK=1} is set before
+        torch is imported, so an unsupported MPS operation runs on CPU
+        instead of raising.
+\end{itemize}
+
+\paragraph{Reproducibility across devices.} The device does not change the
+design, but CUDA, MPS and CPU use different kernels and summation orders, so
+logits can differ slightly (around the third decimal in bf16), enough to flip
+predictions that sit on the decision boundary. Every result row therefore
+records the device, its hardware name and the dtype, and each comparison is
+run on a single device. For SATA in fp32, scores on MPS and CPU agree within
+$10^{-5}$ (tested).
+
+\paragraph{Single backend.} Every model computation (scoring, prior
+measurement, SATA validation and the probes) runs in PyTorch through
+transformers. The v2 \texttt{MLXRunner} is removed in P1 once
+\texttt{HFRunner} passes its tests, so all results come from one
+implementation of tokenisation, caching and scoring. If PyTorch on MPS is
+slower than the compute budget assumes, the experiment is cut (the cut order
+in the research plan) rather than split across backends.
+
+\paragraph{Answer format (P2).} Scoring reads the two label tokens only, so
+it is meaningful only if the model intends to answer with one of them. The
+label mass $P(\texttt{0}) + P(\texttt{1})$ at the answer position measures
+this. On the pilot, Qwen2.5-7B-Instruct's median label mass was 0.996.
+Llama-3.1-8B-Instruct's was 0.009--0.11 with demonstrations and 0.000
+zero-shot: its most likely first token was \texttt{To} (probability 0.5--0.8),
+beginning ``To infer the rule, I will analyze the given examples'', because
+the system message asks the model to infer the rule before it classifies.
+Its two-token scores then barely varied between queries (standard
+deviation 0.05 within a demonstration set, against 2.7 for Qwen), and its
+failed learnability gate (below) says nothing about learnability. A gate
+result therefore counts only if the model's median label mass on the pilot
+is at least 0.9. Starting the assistant's reply with \texttt{Label:~}
+raised Llama's label mass to about 0.99 on pilot prompts (both tokenizers
+split \texttt{Label: 1} into \texttt{Label}, \texttt{:}, a space and
+\texttt{1}), but Llama was paused instead, by the user's decision on
+28 September 2026; the grids use the Qwen models for now.
+
+%======================================================================
+\section{Scoring}
+\label{sec:scoring}
+%======================================================================
+\status{Implemented (P1)}
+
+Predictions are read from the probabilities of the label tokens rather than
+from generated text, the usual way of scoring language models on
+classification tasks \citep{brown2020language,zhao2021calibrate}.
+For each prompt, \texttt{HFRunner}:
+\begin{enumerate}[nosep]
+  \item tokenises the rendered prompt (no added special tokens);
+  \item runs the decoder once (without the output layer), so the output
+        layer is applied at the last position only;
+  \item computes the logits of the tokens \texttt{0} and \texttt{1} in fp32
+        from the final normed hidden state $h_L$ (two rows of the output
+        layer), takes the full-vocabulary log-normaliser from the model's
+        output layer at the last position with those two logits substituted
+        in fp32 (so the label probabilities never sum to more than 1), and
+        forms the two-way probability as a logistic of the label-logit
+        difference, which cannot underflow.
 \end{enumerate}
+The model's own bf16 output layer rounds its logits to bf16, a step of
+0.125 at logit sizes near 20. In the first P2 run this put every margin on
+a 1/16 grid, left 19\% of the $p_1$ values within a demonstration set exactly
+tied, and made cached and full passes disagree on near-ties (Llama: 96\% of
+predictions, margin differences at most 0.25). Computing the two label
+logits in fp32 removes that rounding; everything before the output layer is
+unchanged. A test checks that the fp32 path equals the model's own output
+when both run in fp32.
+The runner (\texttt{src/inference/hf\_runner.py}) loads \texttt{.env}
+before touching the Hugging Face hub, because the gated Llama repository
+needs \texttt{HF\_TOKEN} even when every file is cached.
+
+\begin{lemma}[Margin]
+\label{lem:margin}
+With $p_1 = e^{\ell_1}/(e^{\ell_0} + e^{\ell_1})$ (the constrained two-way
+softmax) and $m = \ell_1 - \ell_0$, we have $p_1 = \sigmoid(m)$. The margin
+is the same whether computed from logits or from full-vocabulary
+log-probabilities.
+\end{lemma}
+\begin{proof}
+$p_1/(1-p_1) = e^{\ell_1 - \ell_0}$. Log-probabilities are logits minus a
+common $\logsumexp$, which cancels in the difference.
+\end{proof}
+
+Prediction is $\hat y = \1[m > 0]$ and confidence is $\max(p_0, p_1)$.
+Because scoring is constrained to the two label tokens, no prediction is
+invalid.
+
+%======================================================================
+\section{Prefix caching}
+\label{sec:prefix-cache}
+%======================================================================
+\status{Implemented (P1)}
+
+All queries that share a demonstration set share the prompt prefix up to
+the query line. The prefix is run once; each query suffix is scored against
+the cached keys and values, and the cache is cropped back to the prefix
+length afterwards. Key--value caching is standard in transformer inference
+\citep{pope2023efficiently}, and reusing the cache of a shared prompt prefix
+is how serving systems avoid recomputing it
+\citep{gim2024prompt,zheng2024sglang}; the proposition below states when the
+reuse is exact.
+
+\begin{proposition}[Exactness]
+For a decoder-only transformer with causal (masked) attention
+\citep{vaswani2017attention}, the hidden states,
+and hence the cached keys and values, at positions $< |P|$ depend only on
+the tokens at those positions. Running prefix $P$ once and then suffix $S$
+against the cache yields the same final-position logits as a full forward
+pass on $P \Vert S$, provided that $\text{tok}(P \Vert S) =
+\text{tok}(P) \Vert \text{tok}(S)$ and the positions of $S$ continue from
+$|P|$.
+\end{proposition}
+\begin{proof}
+By induction over layers. Embeddings, normalisation and MLPs act position
+by position; attention at position $t$ reads keys and values at positions
+$\leq t$ only. So the states at positions $< |P|$ are unchanged by
+appending $S$, and the states at the positions of $S$ are computed from the
+same inputs in both cases.
+\end{proof}
+
+Equality holds up to floating-point reduction order. The runner checks the
+token-prefix condition for every suffix, because a byte-pair tokenizer
+\citep{sennrich2016neural} can break it at the boundary; a suffix that fails
+the check is scored with a full forward pass instead, and the runner counts
+these fallbacks (none so far: prompts split at the start of the query line,
+which the tokenizers treat as a word boundary). After each suffix the cache
+is cropped back to the prefix length. Checks:
+\begin{itemize}[nosep]
+  \item G1 (passed): on the tiny test model, cached and full label
+        log-probabilities agree within $10^{-4}$ (they are identical on CPU
+        and MPS), and scoring the suffixes in reverse order gives the same
+        values, so cropping leaves nothing behind;
+  \item P2 (passed for Qwen2.5-7B-Instruct in bf16): caching moves the mean
+        per-task AUROC by at most 0.005, a tenth of the learnability
+        threshold; measured 0.0025, with 99.6\% prediction agreement. The
+        plan's first rule, at least 99\% prediction agreement, was replaced
+        because a prediction can flip only on a near-tie, so its rate
+        depends on the model's margins rather than on the cache: all five
+        Llama flips had $|m| \leq 0.022$.
+\end{itemize}
+
+%======================================================================
+\section{Contextual calibration}
+\label{sec:calibration}
+%======================================================================
+\status{Implemented (P1)}
+
+Following \citet{zhao2021calibrate}, the model's two-way output
+$(c_0, c_1)$ on a content-free query (every value replaced by
+\texttt{N/A}) with the same demonstration prefix estimates its bias for that
+prompt. The calibrated probability is
+\[
+  \tilde p_1 = \frac{p_1 / c_1}{p_1/c_1 + p_0/c_0}.
+\]
+
+\begin{lemma}[Calibration preserves ranks within a prompt]
+\label{lem:calibration}
+For fixed $(c_0, c_1)$, $\tilde p_1$ is strictly increasing in $p_1$. So
+within one demonstration set calibration does not change the ranking of
+queries, and AUROC computed within a demonstration set is unchanged; it
+changes thresholded metrics and AUROC pooled across demonstration sets.
+\end{lemma}
+\begin{proof}
+$\tilde p_1 = \big(1 + \tfrac{1-p_1}{p_1}\cdot\tfrac{c_1}{c_0}\big)^{-1}$
+and $(1-p_1)/p_1$ is strictly decreasing in $p_1$. AUROC depends on the
+scores only through their ranking \citep{fawcett2006introduction}.
+\end{proof}
+
+Zero-shot predictions are reported uncalibrated: with no demonstrations, the
+content-free prompt measures the prior this thesis studies.
+
+%======================================================================
+\section{Measuring priors}
+\label{sec:priors}
+%======================================================================
+\status{Planned (P3)}
+
+\begin{definition}[Prior surrogate]
+For a model and domain, the zero-shot margin $m_0(x; N)$ is measured on
+about 400 random profiles $x \sim \mathcal{N}(0, I_{10})$ in z-units, with
+lexicon names assigned to random columns in each profile (so that name and
+position are uncorrelated). A ridge regression \citep{hoerl1970ridge} fits
+\[
+  m_0(x; N) \approx \beta_0 + \sum_{j} \beta_{N(j)}\, x_j ,
+\]
+giving each name a prior slope $\beta_{\mathrm{name}}$: its direction is
+$\sign \beta$ and its strength $|\beta|$. Fit quality is the held-out $R^2$
+(5-fold).
+\end{definition}
+The surrogate is a global surrogate model of the LLM's zero-shot behaviour:
+an interpretable model fitted to a black box's outputs on sampled inputs
+\citep{craven1996extracting}. LIME \citep{ribeiro2016why} fits such models
+locally.
+
+\paragraph{Screening.} An antonym pair is admitted if
+$\beta_p > 0 > \beta_q$ and $|\beta_p|$ and $|\beta_q|$ are within a set
+tolerance; a neutral name is admitted if $|\beta|$ is small.
+
+\begin{definition}[Prior--data conflict]
+For task $t$ under naming $N$, with the surrogate prediction
+$\hat y_0(x) = \1[\hat m_0(x; N) > 0]$,
+\[
+  C_t(N) = 1 - \frac{1}{|\text{pool}|} \sum_{i \in \text{pool}}
+  \1[\hat y_0(x_i) = y_i].
+\]
+\end{definition}
+Aligned tasks should have $C_t < 1/2$ and flipped tasks $C_t > 1/2$; this
+is checked. The name follows prior--data conflict in Bayesian model checking
+\citep{evans2006checking}. For language models, context that contradicts
+parametric knowledge is studied as knowledge conflict
+\citep{longpre2021entity,xie2024adaptive}; here the conflict is between the
+rule the names imply and the rule the demonstrations show.
+
+\paragraph{Random-label control.} Demonstrations with shuffled labels keep
+the label marginals and format but break the input--label mapping
+\citep{min2022rethinking}, separating what the model takes from the mapping
+from what it takes from format and prior.
+
+\paragraph{Gate G3.} Held-out $R^2 \geq 0.5$, and zero-shot accuracy under
+aligned minus flipped naming $\geq 0.15$ (the names really carry priors).
+Names that fail are replaced; if the gate cannot be met, the naming factor
+is dropped and this is documented.
+
+%======================================================================
+\newpage
+\part{Evaluation and statistics}
+%======================================================================
+
+%======================================================================
+\section{Metrics}
+\label{sec:evaluation}
+%======================================================================
+\status{Implemented (P1--P2): AUROC and balanced accuracy; the full analysis in P4}
+
+\begin{center}
+\begin{tabular}{L{4.2cm}L{11.0cm}}
+\toprule
+\textbf{Metric} & \textbf{Definition} \\
+\midrule
+Accuracy & $\frac{1}{n}\sum_i \1[\hat y_i = y_i]$ \\
+Balanced accuracy (BA) & $\tfrac12(\text{TPR} + \text{TNR})$; equal to
+accuracy on the 10/10 query sets \\
+Calibrated BA (primary) & BA of $\1[\tilde p_1 > 1/2]$ \\
+AUROC (primary) & area under the ROC curve of $p_1$, per (task, strategy,
+seed, environment) cell, averaged over cells \\
+Macro-F1 & mean of per-class F1 \\
+Prior-agreement rate (PA) & $\frac1n \sum_i \1[\hat y_i = \hat y_i^{\,0}]$,
+where $\hat y^{\,0}$ is the zero-shot prediction under the same naming \\
+Shift gap & $\Delta = \mathrm{BA}_{\mathrm{ID}} - \mathrm{BA}_{\mathrm{OOD}}$ \\
+Demo-following index (DFI) & Section~\ref{sec:faithfulness} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+For query-agnostic strategies, a cell's AUROC is computed within one
+demonstration set and is therefore unchanged by calibration
+(Lemma~\ref{lem:calibration}). AUROC is the probability that a random
+positive query scores above a random negative one
+\citep{hanley1982meaning,fawcett2006introduction}; balanced accuracy is the
+mean of the per-class accuracies \citep{brodersen2010balanced}; the shift gap
+is TableShift's gap between ID and OOD accuracy
+\citep{gardner2023tableshift} with the sign reversed (TableShift reports
+OOD minus ID), so that a positive gap means degradation. Prior agreement and
+DFI
+are defined for this study.
+
+%======================================================================
+\section{Design and inference}
+%======================================================================
+\status{Hierarchical bootstrap implemented (P2); contrasts and Holm correction in P4}
+
+\paragraph{Units.} Task (the unit of generalisation over rules), query
+within task, and demonstration seed. Per model, the full grid has 24 tasks
+$\times$ 3 namings $\times$ 3 environments $\times$ 20 queries, crossed with
+strategies and 3 seeds.
+
+\paragraph{Why more tasks.} For a per-task effect with between-task
+variance $\sigma_T^2$ and within-task variance $\sigma_W^2$, the variance of
+the grand mean is $\sigma_T^2/T + \sigma_W^2/(Tn)$ (two-stage sampling;
+\citealp{cochran1977sampling}), so tasks, not queries, control precision
+when rules differ. v2 evaluated one task with $n = 30$
+queries per cell (95\% interval half-width $0.179$ at accuracy $0.5$).
+
+\paragraph{Hierarchical bootstrap.} For a contrast between conditions $A$
+and $B$ on paired queries: (1) resample tasks with replacement; (2) within
+each resampled task, resample queries with replacement; (3) compute the
+metric difference on the resample; repeat $B = 2000$ times and report the
+percentile interval \citep{efron1993introduction}
+(\texttt{bootstrap\_ci}, \texttt{paired\_bootstrap\_diff} from
+\texttt{main}). Resampling at both levels respects the nesting of queries
+within tasks \citep{davison1997bootstrap,saravanan2020application}.
+
+\paragraph{Per-task sign tests} count tasks on which $A$ beats $B$ (binomial
+sign test; \citealp{dixon1946statistical}), guarding against a few tasks
+driving the mean.
+
+\paragraph{Multiplicity.} Holm correction \citep{holm1979simple} over a
+pre-registered contrast family \citep{nosek2018preregistration}, frozen
+before P4. Draft:
+\begin{enumerate}[nosep,label=C\arabic*.]
+  \item RQ1: $\mathrm{BA}_{\mathrm{ID}} - \mathrm{BA}_{\mathrm{OOD}} > 0$ for random
+        demonstrations, for each shift type (3 contrasts).
+  \item RQ2: counter\_spurious $-$ random $> 0$ under spurious reversal;
+        feature\_knn and feature\_range $-$ random $> 0$ under covariate
+        shift; counter\_prior $-$ random $> 0$ under concept shift; and the
+        interaction (counter\_spurious $-$ random) under spurious reversal
+        minus the same under covariate shift $> 0$.
+  \item RQ3: DFI under flipped $<$ DFI under abstract naming;
+        $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$ under flipped $<$
+        under abstract.
+  \item RQ4: SATA-v2 $-$ best hand-designed strategy $\geq 0$ on
+        worst-environment calibrated BA; SATA-MI $-$ SATA-v2 $> 0$ and
+        SATA-MI $-$ SATA-names $> 0$ under flipped naming.
+\end{enumerate}
+
+%======================================================================
+\section{Faithfulness and reliance (RQ3)}
+\label{sec:faithfulness}
+%======================================================================
+\status{Planned (P4)}
+
+As in the project's literature review, the design follows STaDS
+\citep{li2025stads}, which measures decision faithfulness as the rank
+correlation between a model's self-reported feature ranking and its ranking
+from leave-any-out ablation. Self-explanations can be unfaithful
+\citep{turpin2023language,lanham2023measuring}, and LLM-reported feature
+importance has previously been compared with occlusion and LIME
+\citep{huang2023can}.
+
+\begin{itemize}[nosep]
+  \item $\pi_{\mathrm{true}}$: ground-truth importance from the generator
+        (positive for load-bearing features, zero otherwise;
+        \texttt{true\_importance\_scores} from \texttt{main}), available
+        because the data are synthetic \citep{liu2021synthetic}.
+  \item $\pi_{\mathrm{behav}}$: the drop in accuracy when feature $j$ of the
+        query is replaced by a donor row's value (hot-deck imputation,
+        \citealp{andridge2010review}; \texttt{hot\_deck\_impute\_feature}).
+        Drawing the replacement from the data keeps the perturbed query in
+        distribution, the principle \citet{zhu2026faithfulness} argue for
+        image attribution. It is removal by marginal sampling in the
+        framework of \citet{covert2021explaining}, and resembles permutation
+        importance \citep{breiman2001random}.
+  \item $\pi_{\mathrm{self}}$: the model's own ranking from the
+        feature-ranking prompt.\newline
+        Code: \texttt{build\_feature\_ranking\_prompt} and
+        \texttt{parse\_feature\_ranking}.
+  \item Correctness $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$ and
+        internal consistency $\rho(\pi_{\mathrm{self}}, \pi_{\mathrm{behav}})$,
+        Spearman with bootstrap intervals, by naming.
+\end{itemize}
+
+\begin{definition}[Directional sensitivity and demo-following index]
+For query $x$ and load-bearing feature $j$, let
+$g_j = m(x + \delta e_j) - m(x - \delta e_j)$ with $\delta = 0.5$ z-units.
+The response follows the data if $\sign g_j = s_j$ and follows the name if
+$\sign g_j = \sign \beta_{N(j)}$. The demo-following index is the fraction
+of (query, load-bearing feature) pairs with $\sign g_j = s_j$.
+\end{definition}
+Under flipped naming, following the data and following the name are
+mutually exclusive, so DFI measures, feature by feature, which side of the
+contest wins. It plays the role, for individual features, of the
+flipped-label accuracy of \citet{wei2023larger}.
+
+%======================================================================
+\newpage
+\part{SATA}
+\label{part:sata}
+%======================================================================
+
+%======================================================================
+\section{Architecture}
+%======================================================================
+\status{Planned (P5): ported from main}
+
+SATA was proposed in the project's literature review. It draws on
+In-Context Risk Minimization \citep{gupta2024context}, in which a
+transformer reads other inputs from the test environment as context in
+order to adapt to that environment.
+
+SATA scores each candidate demonstration given the whole pool and the
+query. Candidates are embedded as feature vector plus label embedding plus a
+demonstration-type embedding; the query is embedded as its feature vector
+plus a query-type embedding; a transformer encoder ($d = 128$, 4 heads,
+4 layers) attends over all tokens; a linear head gives one score per
+candidate, normalised by a softmax. The query-agnostic ablation replaces the
+query with a zero vector. Selection takes the balanced top-$k$.
+
+The row encoding resembles TabPFN \citep{hollmann2023tabpfn}, which also
+embeds each labelled row as one token and lets query rows attend to them.
+There are no positional encodings, so the encoder is permutation
+equivariant over candidates, the property that set-based attention models
+are built around \citep{lee2019set}.
+
+\paragraph{Relation to learned selectors.} Training a demonstration
+selector from language-model feedback is established: EPR
+\citep{rubin2022learning} and UDR \citep{li2023unified} train retrievers on
+the model's scores of candidate demonstrations, CEIL
+\citep{ye2023compositional} learns to select whole sets, and
+\citet{zhang2022active} learn a selection policy by reinforcement learning.
+Signals from model internals and learned judges of demonstration sets have
+also been proposed \citep{kato2025affinity,wang2026disp}. SATA differs in
+being trained on synthetic tasks with ground-truth structural targets, in
+targeting robustness to controlled shift, and, in the MI variants, in using
+the model's measured priors.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Variant} & \textbf{Per-row input} & \textbf{Width} \\
+\midrule
+SATA-v2 & $x$ (z-scored, displayed order) & 10 \\
+SATA-names (control) & $[x,\ s^{\text{lex}} \odot x]$, lexicon directions $\pm 1$, 0 for neutral names & 20 \\
+SATA-MI & $[x,\ \beta \odot x,\ \hat m_0(x)]$, measured prior slopes and surrogate margin & 21 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{Training targets}
+%======================================================================
+\status{Planned (P5)}
+
+\paragraph{Structural targets (SATA-v2, as on main).}
+For candidate $i$ and query $q$,
+\[
+  \tau_i = 2\,\1[r_i = r_q] + 1.5\,\1[\text{counter}_i]
+          - 1.5\,\1[\text{consistent}_i \wedge r_i \neq r_q],
+  \qquad
+  q_i = \operatorname{softmax}(\tau / T)_i ,
+\]
+where $r$ is the regime and counter/consistent refer to \texttt{agree\_obs}.
+Softening the targets with a temperature $T$ follows knowledge distillation
+\citep{hinton2015distilling}.
+
+\begin{lemma}[No query-label term]
+Every term of $\tau$ is a function of the candidate's features and label
+and of the query's features. None depends on the query's label.
+\end{lemma}
+\begin{proof}
+The regime is a function of features; agreement is a function of the
+candidate's $f_8$ and label.
+\end{proof}
+(v1's targets rewarded candidates whose label matched the query's label,
+which, with a near-copy $f_8$, taught SATA to read the query label from
+$f_8$.)
+
+\paragraph{SATA-MI.} Adds $\lambda\,\1[\text{counter-prior}_i \wedge
+y_i = y_{\mathrm{clean},i}]$ when $C_t(N) > 1/2$, rewarding candidates that
+contradict the prior and follow the rule when the prior is wrong.
+
+\paragraph{SATA-MI-mech (datamodel utilities).} For a training task and
+naming, sample $M = 128$ balanced subsets $S_1, \ldots, S_M$ of size $k$
+from a 64-row candidate pool and measure, with the LLM,
+\[
+  U(S) = \frac{1}{|Q|}\sum_{q \in Q} (2y_q - 1)\, m(q; S),
+\]
+the mean margin toward the correct label over a label-balanced query set
+$Q$ drawn from the training task. Fit
+$U(S) \approx \theta_0 + \sum_i \theta_i \1[i \in S]$ by ridge regression,
+a linear datamodel \citep{ilyas2022datamodels}, and use
+$q = \operatorname{softmax}(\theta/T)$ as targets for the query-agnostic
+head. The closest precedent is \citet{chang2023data}, who fit linear
+datamodels to the correct-class margin of in-context examples to find
+examples that stabilise in-context learning; \citet{nguyen2023incontext}
+estimate similar influences by comparing random subsets with and without
+each example. Here the fitted utilities become training targets for a
+selector.
+
+\begin{lemma}[No query-label leak]
+$\theta$ is a property of the candidate pool: it depends on query labels
+only through an average over a label-balanced set $Q$ from a training task.
+Evaluation queries never enter any target, so SATA cannot learn to infer an
+evaluation query's label.
+\end{lemma}
+\begin{proof}
+Targets are computed on training tasks only, and the query-agnostic head
+receives no query input.
+\end{proof}
+
+%======================================================================
+\section{Training}
+%======================================================================
+\status{Planned (P5)}
+
+\begin{itemize}[nosep]
+  \item Tasks: the evaluation distribution (Section~\ref{sec:config}) with
+        disjoint ids; pool size 256, matching evaluation. Out-of-distribution
+        in-context generalisation depends on the diversity of the training
+        tasks \citep{goddard2025when}, so training covers the full task
+        distribution rather than a few fixed tasks.
+  \item Environments: id, covariate and spurious\_reversal (ID pool 75\% of
+        batches, matched pool 25\%), and mechanism (always matched pool;
+        Section~\ref{sec:mechanism}).
+  \item Loss $\mathrm{KL}(q \,\Vert\, p_\theta)$; Adam
+        \citep{kingma2015adam}, learning rate $10^{-4}$; early stopping
+        \citep{prechelt1998early} on the proxy with patience 10.
+  \item Device: auto-detected (\texttt{sata.device}); benchmarked once
+        against CPU, because SATA's batches are small and GPU launch overhead
+        may outweigh the gain. A one-epoch run on MPS is verified.
+\end{itemize}
+
+%======================================================================
+\section{Validation}
+%======================================================================
+\status{Planned (P5)}
+
+\begin{itemize}[nosep]
+  \item \textbf{Oracle gate (S3a):} top-$k$ by the target function itself
+        (no model) must beat the hand-designed strategies on the proxy
+        before any training.
+  \item \textbf{XGBoost proxy:} an XGBoost classifier
+        \citep{chen2016xgboost} is fitted on the selected demonstrations and
+        predicts the query; worst-environment accuracy, the environment-level
+        counterpart of worst-group accuracy
+        \citep{sagawa2020distributionally}, drives early stopping.
+  \item \textbf{Prior-augmented proxy (MI variants):}
+        $P(y=1 \mid x) = \sigmoid(\alpha\, \hat m_0(x) + w^\top x)$, with $w$
+        fitted by ridge on the $k$ selected demonstrations and $\alpha$ on
+        validation tasks. The XGBoost proxy cannot see names, so it cannot
+        validate the model-informed component.
+  \item \textbf{LLM validation:} 8 held-out validation tasks, all
+        environments and namings, calibrated BA. Never evaluation tasks.
+  \item \textbf{Gates:} 5b requires proxy--LLM Spearman $\geq 0.5$ and
+        SATA-MI $\geq$ both controls; 5c requires utility held-out
+        $R^2 \geq 0.2$ and top-$k$ by utility beating random under the LLM.
+\end{itemize}
+
+%======================================================================
+\section{Leakage and fairness controls}
+\label{sec:sata-controls}
+%======================================================================
+\status{Planned (P5)}
+
+\begin{enumerate}[nosep]
+  \item No target depends on an evaluation query's label (lemmas above).
+  \item Column-role permutation removes the positional route to $f_8$
+        (Section~\ref{sec:roles}).
+  \item Name salience reveals causal relevance by design; the SATA-names
+        control receives the same information without any LLM measurement,
+        isolating the value of the measured priors.
+  \item The counter\_prior heuristic is the only other naming-aware
+        selector, so SATA-MI is compared against a simple selector that sees
+        the same prior.
+  \item Asymmetry, disclosed: rule\_diversity and counter\_spurious use
+        ground-truth tags at inference, while SATA does not. This favours the
+        hand-designed strategies.
+  \item Validation tasks are disjoint from evaluation tasks.
+\end{enumerate}
+
+%======================================================================
+\newpage
+\part{Mechanistic probes}
+%======================================================================
+
+%======================================================================
+\section{Residual stream and logit lens}
+%======================================================================
+\status{Planned (P6)}
+
+The logit lens \citep{nostalgebraist2020logit} reads a model's intermediate
+predictions by applying the final normalisation and unembedding to each
+layer's residual-stream state \citep{elhage2021mathematical}.
+A forward pass with \texttt{output\_hidden\_states=True} returns $L+1$
+tensors: the embeddings and the output of each layer. In transformers 5.17
+the last one has already been through the final norm (verified: applying
+\texttt{lm\_head} to it reproduces the logits, applying the norm again does
+not). Let $h_l$ be the last-position state and
+$w = W_U[\texttt{1}] - W_U[\texttt{0}]$ the difference of the two label rows
+of the (untied) unembedding.
+
+\begin{definition}[Logit-lens margin]
+$m_l = w^\top \RMSNorm(h_l)$ for $l < L$, and $m_L = w^\top h_L$, where
+$\RMSNorm$ is the model's final RMS normalisation layer
+\citep{zhang2019root}.
+\end{definition}
+
+\begin{lemma}[Final-layer identity]
+$m_L$ equals the runner margin $m$ of Lemma~\ref{lem:margin}.
+\end{lemma}
+\begin{proof}
+$h_L$ is the normed final state and $\ell = W_U h_L$, so
+$m_L = \ell_1 - \ell_0 = m$.
+\end{proof}
+The P6 gate checks this identity within $10^{-3}$ in bf16. It is attainable
+because the runner computes the label logits in fp32 from $h_L$, as the logit
+lens does (Section~\ref{sec:scoring}); margins read from the bf16 output layer
+would miss it by up to half a bf16 step, about 0.06.
+
+%======================================================================
+\section{Critical layer, probes and steering}
+%======================================================================
+\status{Planned (P6)}
+
+\begin{definition}[Critical layer]
+Let $\mathrm{acc}_l(N)$ be the accuracy of $\1[m_l > 0]$ against the rule
+label with demonstrations under naming $N$. The critical layer of a task
+is the smallest $l$ at which $\mathrm{acc}_l(\text{aligned}) -
+\mathrm{acc}_l(\text{flipped})$ exceeds $0.1$ with a bootstrap interval
+excluding zero: the point where prior and demonstration evidence diverge
+\citep[after][]{halawi2024overthinking}.
+\end{definition}
+
+\paragraph{Linear probes.} Per layer, logistic regressions on $h_l$ decode
+the rule label and the prior prediction $\hat y^{\,0}$; the decodability
+curves show where each kind of information is linearly available
+\citep{alain2017understanding}. Probes complement the logit lens, whose
+readings are biased across layers and unreliable for some model families
+\citep{belrose2023eliciting}. Decodability
+shows that information is present, not that the model uses it
+\citep{belinkov2022probing}, which is why steering serves as the causal
+check.
+
+\paragraph{Steering (causal check).} On training tasks, take the difference
+of mean states between prompts whose prediction follows the demonstrations
+and prompts whose prediction follows the prior:
+\[
+  v_l = \bar h_l(\text{follows demonstrations}) - \bar h_l(\text{follows prior}).
+\]
+At the critical layer, set $h_l \leftarrow h_l + \alpha v_l$ with a forward
+hook and measure the change in accuracy on held-out tasks. Steering is an
+upper bound and a causal test of the diagnosis, not a selection method.
+Difference-of-means steering vectors follow activation addition
+\citep{turner2023activation} and contrastive activation addition
+\citep{rimsky2024steering}. \citet{minder2025controllable} find a
+context-versus-prior direction of this kind in Llama-3.1-8B, and task and
+function vectors \citep{hendel2023incontext,todd2024function} are the
+in-context-learning counterparts. Similar tools have been used to diagnose
+false demonstrations \citep{halawi2024overthinking}.
+
+\paragraph{Question for selection.} Do counter\_prior or SATA-MI
+demonstrations move the divergence point, or raise $m_l$ toward the
+demonstrated label earlier, relative to random demonstrations?
+\citet{kato2025affinity} show that scores computed from induction-head
+representations track in-context accuracy, and leave selection with such
+scores to future work.
+
+%======================================================================
+\newpage
+\part{Experiment orchestration}
+%======================================================================
+
+%======================================================================
+\section{Grid, runs and compute}
+\label{sec:orchestration}
+%======================================================================
+\status{Implemented (P1); the full grid runs in P4}
+
+\paragraph{Runner script.} \texttt{scripts/run\_synth\_grid.py} (engine:
+\texttt{src/experiments/synth\_grid.py}) executes resumable units (model,
+naming, task, strategy, label mode, $k$, seed). Zero-shot has one unit per
+(model, naming, task). A query-agnostic unit holds one demonstration set, so
+all its queries in every environment, plus the content-free query, are
+scored against one cached prefix; a query-conditional unit builds one prefix
+per query. The script appends one row per prediction to
+\texttt{results/v3/synthetic/<run>.parquet} once the unit finishes
+(\texttt{RESULTS\_COLUMNS\_V3} in \texttt{src/utils/results\_schema.py}):
+\begin{lstlisting}
+unit_key, run_name, model, model_path, device, device_name, dtype, naming, domain,
+task_id, family, env, strategy, mechanism, composition, label_mode, k, seed,
+query_id, row_id, demo_ids, demo_labels, order_seed, prompt_hash, n_prompt_tokens,
+logprob_0, logprob_1, p1, logprob_0_cf, logprob_1_cf, calibrated_p1, prediction,
+prediction_cal, label, y_clean, selection_meta, unit_seconds
+\end{lstlisting}
+\texttt{demo\_ids} lists the pool rows in prompt order and
+\texttt{demo\_labels} the labels as shown (they differ from the rows' labels
+only under shuffled labels). \texttt{prediction} is the raw argmax and
+\texttt{prediction\_cal} the calibrated one (empty for zero-shot). The file
+is rewritten through a temporary file and an atomic rename, and a unit is
+skipped if its rows already exist; a model is not loaded at all when none of
+its units remain. The P1 smoke run was stopped after 6 of 26 units and
+rerun: it finished the other 20, with every unit saved exactly once.
+
+\paragraph{Grids.} Full grid on Qwen2.5-7B-Instruct. Reduced grid on
+Qwen2.5-7B base (and on Llama-3.1-8B-Instruct if it is resumed with a fixed
+answer format): abstract and flipped namings;
+zero\_shot, random, counter\_spurious, counter\_prior and SATA variants.
+
+\paragraph{Compute (measured in P2).} On the M3 Max with PyTorch on MPS
+(bf16, batch size 1), a P4 unit (one demonstration set, 60 queries and the
+content-free query) takes 24, 26 and 32~s at $k = 8, 16, 32$ for
+Qwen2.5-7B-Instruct and 24, 25 and 31~s for Llama-3.1-8B-Instruct; a
+zero-shot unit about 23~s; a similarity unit, which builds one prompt per
+query, about 155~s at $k=8$ (Qwen). The provisional budget, from timings of
+the v2 MLX pipeline, assumed about 18.5~s per $k = 8$ unit, so units cost
+about $1.3\times$ more. The Qwen2.5-7B-Instruct grid at $k = 8$ (3 namings
+$\times$ 24 tasks) needs 8.7~h for the six query-agnostic strategies at 3
+seeds, 0.5~h for zero-shot, and 9.3~h for similarity at 3 seeds or 3.1~h at
+one seed.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Item} & \textbf{Provisional} & \textbf{Rescaled (P2)} \\
+\midrule
+Pilot + prior screening & 2.5 & 7 \\
+Qwen2.5-7B-Instruct grid & 10 & 12--18 \\
+SATA conditions in the grid & 6 & 8 \\
+Reduced grids (Qwen base; Llama paused) & 9 & 6 \\
+RQ3 & 3 & 4 \\
+SATA LLM validation & 5 & 6.5 \\
+SATA-MI-mech datamodels & 9 & 12 \\
+Probes & 3 & 4 \\
+\midrule
+\textbf{Total} & $\approx 48$ & $\approx 60$--$66$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The range reflects the number of similarity seeds, to be fixed before P4.
+Without prefix caching the total exceeds 150 GPU-hours.
+
+%======================================================================
+\section{Gates}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{L{1.1cm}L{1.2cm}L{8.1cm}L{4.6cm}}
+\toprule
+\textbf{Gate} & \textbf{Phase} & \textbf{Criterion} & \textbf{If it fails} \\
+\midrule
+P0 & P0 & \texttt{pytest tests/} passes after porting & fix before P1 \\
+G1 & P1 & pools single-task; no test rows reach selectors; balanced label
+counts; counter-spurious pooled $|\corr(\sigma_t f_8, y)| \leq 0.1$; one BOS on Llama;
+cached = full scoring on the tiny model ($10^{-4}$); task label rate in
+$[0.35, 0.65]$; $\sigma_t f_8$ agreement within $\pm 0.03$ of $s$ (generator scale);
+prompt snapshot & fix before P2 \\
+P2 & P2 & AUROC(gold labels) $-$ AUROC(shuffled) $\geq 0.05$ with interval
+above 0, at the smallest passing $k$; median label mass $\geq 0.9$; caching
+moves the mean AUROC by $\leq 0.005$ &
+retry with 6 visible features; else abstract names become the floor
+condition \\
+G3 & P3 & surrogate $R^2 \geq 0.5$; zero-shot aligned $-$ flipped accuracy
+$\geq 0.15$ & replace names; else drop naming \\
+5a & P5 & oracle targets beat strategies on the proxy; LLM validation run &
+RQ4 reported as a documented negative \\
+5b & P5 & proxy--LLM Spearman $\geq 0.5$; SATA-MI $\geq$ both controls &
+report SATA-v2 only \\
+5c & P5 & utility $R^2 \geq 0.2$; top-$k$ by utility beats random & skip
+MI-mech \\
+P6 & P6 & $|m_L - m| \leq 10^{-3}$ & fix probe code \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Gates passed so far.}
+\begin{itemize}[nosep]
+  \item P0, 26 September 2026: \texttt{pytest tests/} passed (27 tests).
+  \item G1, 28 September 2026: \texttt{pytest tests/} passed (74 tests). The
+        G1 criteria are tested in \texttt{tests/test\_synth\_pipeline.py}
+        (data, selection, grid engine against a stub runner) and
+        \texttt{tests/test\_hf\_runner.py} (prefix caching on the tiny model,
+        a single BOS token, the base-model answer token, prompt snapshots),
+        and the P2 gate's statistics in \texttt{tests/test\_gates.py}.
+        The P1 smoke run on Qwen2.5-7B-Instruct and its kill-and-resume
+        check passed.
+  \item P2, 28 September 2026, Qwen2.5-7B-Instruct: learnability passes at
+        $k = 8$ ($\Delta = 0.098$, 95\% interval $[0.021, 0.188]$, 9 of 12
+        tasks) and $k = 16$, and fails at $k = 32$, so $k = 8$; median label
+        mass 0.996; caching moves the mean AUROC by 0.0025. The first P2 run
+        (fixed spurious direction) is archived
+        (Section~\ref{sec:spurious}). Llama-3.1-8B-Instruct's result is not
+        valid (label mass 0.02) and Llama is paused. 80 tests pass.
+\end{itemize}
+
+%======================================================================
+\newpage
+\part{Known issues in the v2 implementation}
+\label{part:issues}
+%======================================================================
+
+All issues below were verified on branch \texttt{synthetic-experiments}
+before the v3 redesign. No v2 results were saved.
+
+\begin{center}
+\begin{tabular}{L{0.5cm}L{8.9cm}L{4.3cm}L{1.2cm}}
+\toprule
+\textbf{\#} & \textbf{Issue} & \textbf{v3 resolution} & \textbf{Phase} \\
+\midrule
+1 & NB01 merges 5 tasks with different rules into one 1{,}280-row pool;
+NB02 draws demonstrations across rules; \texttt{head(30)} evaluates task 0
+only & per-task pools; stratified queries & fixed (P1) \\
+2 & one fixed seed in every \texttt{select()} call: one demonstration set per
+strategy for all queries; identical ID data triplicated across datasets &
+seeded demonstration sets; shared ID data & fixed (P1) \\
+3 & counter-spurious proxy search uses \texttt{test\_ood} rows and labels
+(leak); the intended rule reverses $f_8$'s sign relation;
+\texttt{rule\_diversity} fits a tree on the mixed pool; ground-truth tags not
+saved & ground-truth tags; magnitude-matched counter-spurious & fixed (P1) \\
+4 & prompt renders ``\ldots predict Classify the input\ldots''; this
+specification's v2 quoted a different prompt; its selection and
+orchestration sections contradicted each other & one template, quoted from
+real output & fixed (P1) \\
+5 & double BOS on Llama (\texttt{[128000, 128000, \ldots]}) & no added special
+tokens & fixed (P1) \\
+6 & $f_8$ standard deviation $\approx 1.44$ vs 1 for other features &
+z-scores from pool statistics & fixed (P1) \\
+7 & \texttt{task\_meta.json} lacks coefficients, thresholds and leaf tables;
+result rows lack task, seed and demonstration ids & full manifest; results
+schema & fixed (P1) \\
+8 & \texttt{\_regime} uses all 3--5 causal features while \texttt{tree} uses
+3 & exactly 3 load-bearing features & fixed (P1) \\
+9 & threshold family has all directions positive; sparse interaction is not
+monotone & evaluate linear and tree only & fixed (P1) \\
+10 & $n = 30$ per cell (interval half-width $0.179$) & 24 tasks $\times$ 20
+queries $\times$ 3 seeds & P4 \\
+11 & spurious column always at position 9 (positional shortcut for SATA) &
+column-role permutation & fixed (P1) \\
+12 & MiniLM similarity embeds labelled pool rows but unlabelled queries, and
+its embeddings would change with names & feature-space kNN & fixed (P1) \\
+13 & \texttt{MLXRunner} computes logits at every position and has no prefix
+cache & \texttt{HFRunner}: output layer at the last position only, prefix
+caching; \texttt{MLXRunner} removed & fixed (P1) \\
+14 & NB03 reads a results file that nothing writes and saves to a missing
+directory & NB03 archived (P1); new analysis notebook & P4 \\
+\midrule
+\multicolumn{4}{l}{\textit{Found while implementing P1}} \\
+15 & \texttt{feature\_coverage} (ported from \texttt{main}) assigned rows
+feature by feature, so only the top feature ever formed strata & joint
+quantile cells of the top 3 features & fixed (P1) \\
+16 & the ported generator tests sampled tasks from the unseeded global random
+state, so they failed about one run in six on sampling noise & seeded
+fixture & fixed (P1) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{L{0.5cm}L{8.9cm}L{4.3cm}L{1.2cm}}
+\toprule
+\textbf{\#} & \textbf{Issue found in P2} & \textbf{Resolution} & \textbf{Phase} \\
+\midrule
+17 & the bf16 output layer rounded the label logits: margins on a 1/16 grid,
+19\% of $p_1$ values tied within a demonstration set & fp32 label logits
+from the final hidden state (Section~\ref{sec:scoring}) & fixed (P2) \\
+18 & the spurious direction was the same in every task, so a model prior
+``bigger values mean 1'' backed the shortcut in every task (Qwen's zero-shot
+AUROC $0.633$, all of it from $f_8$) & per-task direction $\sigma_t$,
+balanced (Section~\ref{sec:spurious}) & fixed (P2) \\
+19 & Llama-3.1-8B-Instruct began to explain its reasoning (``To infer the
+rule\ldots''), putting about 2\% of its probability on the label tokens, so
+its scores carried almost no signal & label-mass rule ($\geq 0.9$) in the
+gate; Llama paused (a \texttt{Label:~} reply prefix fixes the format) &
+P2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All v2 notebooks that depended on the old design are archived in
+\texttt{notebooks/archive/v2/}; NB01 was rewritten for the per-task design.
+The data and results of the first P2 run, with the fixed spurious
+direction, are archived in \path{data/synthetic/v3/archive/fixed_f8/} and
+\path{results/v3/synthetic/archive/fixed_f8/}.
+
+\section{Bug-hunting notes (v3 invariants to test)}
+
+Items marked (tested) have a test in \texttt{tests/}; the rest arrive with
+the phase that needs them.
+
+\begin{enumerate}
+  \item \textbf{Single-task pools.} Every demonstration id belongs to the
+        query's task (tested, G1).
+  \item \textbf{No test rows upstream.} Selectors, standardisation and
+        priors never see \texttt{test\_id} or \texttt{test\_ood} rows (tested for selectors and standardisation; priors in P3).
+  \item \textbf{$f_8$ is present in every environment.} Only spurious
+        reversal tests reliance on it by flipping its relation to the label.
+  \item \textbf{$f_8$ statistics on the generator scale.} Sign agreement
+        changes under centring (Lemma~\ref{lem:standardise}); correlations
+        do not.
+  \item \textbf{Label noise comes after $f_8$.} About 2\% of rows have $f_8$
+        misaligned with the observed label; counter-spurious selection uses
+        the observed label, and both ground-truth strategies exclude
+        label-noise rows from their candidates.
+  \item \textbf{Pairing.} Demonstration seeds exclude the model, naming,
+        label mode and environment, so gold and shuffled units show the same
+        rows (tested with the grid engine).
+  \item \textbf{Mechanism is not evaluated.} It is a placebo for in-context
+        learning (Proposition~\ref{prop:mechanism}); it appears only in
+        SATA training, with matched pools.
+  \item \textbf{Aligned and flipped prompts differ only in three names.}
+        Snapshot-test the system message and the non-load-bearing names.
+  \item \textbf{Balanced composition.} Structured strategies always show
+        $k/2$ labels of each class (tested).
+  \item \textbf{Counter-spurious decorrelation.} Pooled
+        $|\corr(\sigma_t f_8, y)| \leq 0.1$ in counter-spurious sets; naive cell
+        balancing would give about $0.33$ (tested).
+  \item \textbf{Spurious direction.} $\sigma_t$ is balanced within each
+        (family, domain) cell, and $\sigma_t = -1$ changes only the sign of
+        $f_8$ (tested). Statistics of $f_8$ reliance read $f_8$ in the
+        task's direction, and prior-aligned and prior-opposed tasks are
+        reported separately as well as pooled.
+  \item \textbf{Tokenisation.} One BOS on Llama; label tokens
+        single-piece; base-model queries end in \texttt{"-> "} (tested, with the real Qwen and Llama tokenizers).
+  \item \textbf{Prefix caching.} Check the token-prefix condition for every
+        suffix and fall back to a full pass; compare cached and full scoring
+        (tested on the tiny model; P2 on Qwen).
+  \item \textbf{Constrained softmax.} $p_0, p_1$ renormalise over the two
+        label tokens only; a model confident in some other token can still
+        produce $p_1 \approx 0.5$. This is by design. Mass on other surface
+        forms of the same answer (e.g.\ \texttt{" 1"}) is ignored, a form of
+        surface-form competition \citep{holtzman2021surface}.
+  \item \textbf{Output precision.} Compute the two label logits in fp32 from
+        the final hidden state; the bf16 output layer quantises margins to a
+        1/16 grid (tested: the fp32 path equals the model's own output in
+        fp32).
+  \item \textbf{Logit lens.} Do not apply the final norm to the last hidden
+        state; it is already normed.
+  \item \textbf{Feature order.} Frozen per task after $\pi_t$; ten columns
+        with single-digit raw names, so alphabetical order equals displayed
+        order. Column roles are read from the manifest (tested).
+  \item \textbf{One device per comparison.} Results record device and dtype;
+        never mix devices within a contrast, because kernels differ slightly
+        across CUDA, MPS and CPU.
+\end{enumerate}
+
+%======================================================================
+\clearpage
+\phantomsection
+\addcontentsline{toc}{part}{References}
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+%======================================================================
+\appendix
+%======================================================================
+
+\section{Draft lexicons}
+\label{app:lexicon}
+
+Candidates only; the P3 screening measures each name's prior slope on each
+model and fixes the final lists.
+
+\paragraph{Loan approval} (1 = approved, 0 = denied).
+\begin{itemize}[nosep]
+  \item Pairs (positive / negative): credit score / number of missed
+        payments; annual income / debt-to-income ratio; years at current
+        job / recent credit applications; savings balance / credit card
+        utilisation; on-time payment rate / number of defaults.
+  \item Weak-prior names: application day of month; branch number; form
+        version; pages in application; applicant ID last digit; hour of
+        submission; days since form printed.
+\end{itemize}
+
+\paragraph{Medical risk} (1 = high risk, 0 = low risk).
+\begin{itemize}[nosep]
+  \item Pairs (increases risk / decreases risk): systolic blood pressure /
+        weekly exercise hours; LDL cholesterol / HDL cholesterol; body mass
+        index / daily vegetable servings; smoking pack-years / nightly hours
+        of sleep; resting heart rate / fitness test score.
+  \item Weak-prior names: clinic room number; appointment weekday; chart
+        version; referral code digit; form page count; staff ID digit;
+        minutes since check-in.
+\end{itemize}
+
+\section{The eight admissible tree tables}
+\label{app:tree}
+
+Exhaustive enumeration over all $2^8$ leaf tables finds 16 that are
+complement antisymmetric, of which exactly 8 pass the degeneracy filter, and
+each equals a signed majority. Each table lists the labels of leaves 0 to 7,
+with leaf index $L = b_1 + 2b_2 + 4b_3$.
+
+\begin{center}
+\begin{tabular}{cc}
+\toprule
+\textbf{Leaf table} & \textbf{Signs $(s_1, s_2, s_3)$ of $\Maj(\ell_1,\ell_2,\ell_3)$} \\
+\midrule
+\texttt{00010111} & $(+,+,+)$ \\
+\texttt{00101011} & $(-,+,+)$ \\
+\texttt{01001101} & $(+,-,+)$ \\
+\texttt{01110001} & $(+,+,-)$ \\
+\texttt{10001110} & $(-,-,+)$ \\
+\texttt{10110010} & $(-,+,-)$ \\
+\texttt{11010100} & $(+,-,-)$ \\
+\texttt{11101000} & $(-,-,-)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \end{document}
