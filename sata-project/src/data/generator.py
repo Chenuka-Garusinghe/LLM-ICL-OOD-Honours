@@ -32,12 +32,18 @@ failure mode this gate exists to detect in the first place.
 The generator is frozen after Notebook 04's validation gate (see that
 notebook for the gate itself and which classifier it validates against);
 everything downstream uses frozen tasks.
+
+v3 (synthetic-experiments): evaluation and pilot tasks come from
+`sample_eval_tasks` (linear + tree, exactly 3 load-bearing features, per-task
+seeds); `_sample_tasks` is the older sampler, still used for SATA training
+until P5 moves it to the evaluation distribution.
 """
 
 from __future__ import annotations
 
 import random
 import warnings
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -74,6 +80,97 @@ class SyntheticTask:
     # round-tripped through JSON -- `_apply_rule` converts via np.asarray).
     thresholds3: Any = field(default=None)
     leaf_labels: Any = field(default=None)
+    # v3 evaluation tasks (`sample_eval_tasks`): presentation domain for the
+    # P3 naming factor, and the seed every data split of the task derives from.
+    domain: str | None = field(default=None)
+    data_seed: int | None = field(default=None)
+    # Direction of the spurious feature: f8 = spurious_sign * ((2y - 1) d + e).
+    # `sample_eval_tasks` gives half the tasks each sign, so a model prior such
+    # as "bigger values mean 1" backs the shortcut in only half of them (P2).
+    spurious_sign: int = field(default=1)
+    # Details of the last `generate_environment` call (covariate shift draw,
+    # probe base rates); the bridge copies them into the task manifest.
+    last_env_info: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def load_bearing_features(self) -> list[int]:
+        """The causal features the rule actually reads.
+
+        `tree` and `threshold` read only the first 3 causal features, and
+        `sparse_interaction` the first 2, so with more causal features the
+        rest are decoys. v2 computed regimes over all causal features, which
+        split each true tree leaf in two or four.
+        """
+        feats = list(self.causal_features)
+        if self.rule_family == "tree":
+            return feats[: int(np.log2(len(self.leaf_labels)))]
+        if self.rule_family == "threshold":
+            return feats[: len(self.thresholds3)]
+        if self.rule_family == "sparse_interaction":
+            return [feats[0], feats[min(1, len(feats) - 1)]]
+        return feats
+
+    def directions(self) -> list[int]:
+        """Direction s_j in {+1, -1} of each load-bearing feature.
+
+        Linear: sign of the coefficient (monotone for every value of the other
+        features). Tree: the literal signs of the signed majority, read off the
+        leaf table as the sign of the label difference between bit_j = 1 and
+        bit_j = 0. Threshold rules are non-decreasing in every feature.
+        `sparse_interaction` is not monotone, so it has no directions.
+        """
+        if self.rule_family == "linear":
+            return [int(np.sign(c)) for c in np.asarray(self.coefficients)]
+        if self.rule_family == "tree":
+            leaf_labels = np.asarray(self.leaf_labels)
+            k = int(np.log2(len(leaf_labels)))
+            bits = (np.arange(2 ** k)[:, None] >> np.arange(k)) & 1
+            return [
+                int(np.sign(leaf_labels[bits[:, j] == 1].mean() - leaf_labels[bits[:, j] == 0].mean()))
+                for j in range(k)
+            ]
+        if self.rule_family == "threshold":
+            return [1] * len(self.thresholds3)
+        raise ValueError(f"rule family {self.rule_family!r} is not monotone, so it has no directions")
+
+    def to_meta(self) -> dict[str, Any]:
+        """Every parameter needed to rebuild the task, as JSON-safe values."""
+        def _list(v):
+            return None if v is None else np.asarray(v).tolist()
+
+        return {
+            "task_id": self.task_id,
+            "rule_family": self.rule_family,
+            "causal_features": [int(f) for f in self.causal_features],
+            "coefficients": _list(self.coefficients),
+            "spurious_strength": float(self.spurious_strength),
+            "n_features": int(self.n_features),
+            "label_noise": float(self.label_noise),
+            "threshold": float(self.threshold),
+            "thresholds3": _list(self.thresholds3),
+            "leaf_labels": _list(self.leaf_labels),
+            "domain": self.domain,
+            "data_seed": None if self.data_seed is None else int(self.data_seed),
+            "spurious_sign": int(self.spurious_sign),
+        }
+
+    @classmethod
+    def from_meta(cls, meta: dict[str, Any]) -> "SyntheticTask":
+        """Inverse of `to_meta`."""
+        return cls(
+            task_id=meta["task_id"],
+            rule_family=meta["rule_family"],
+            causal_features=list(meta["causal_features"]),
+            coefficients=np.asarray(meta["coefficients"], dtype=float),
+            spurious_strength=float(meta["spurious_strength"]),
+            n_features=int(meta.get("n_features", 10)),
+            label_noise=float(meta.get("label_noise", 0.05)),
+            threshold=float(meta.get("threshold", 0.0)),
+            thresholds3=None if meta.get("thresholds3") is None else np.asarray(meta["thresholds3"], dtype=float),
+            leaf_labels=None if meta.get("leaf_labels") is None else np.asarray(meta["leaf_labels"], dtype=int),
+            domain=meta.get("domain"),
+            data_seed=meta.get("data_seed"),
+            spurious_sign=int(meta.get("spurious_sign", 1)),
+        )
 
     def _base_features(self, n_samples: int, rng: np.random.Generator) -> np.ndarray:
         return rng.normal(size=(n_samples, self.n_features))
@@ -148,11 +245,93 @@ class SyntheticTask:
         X_probe = perturb(X_probe) #* apply or dont apply (for id) a shift to the ~N(0,1) distributed values
         return float(self._apply_rule(X_probe).mean())
 
+    def _label_neutral_shift(self, rng: np.random.Generator):
+        """Covariate shift that moves the rule's own inputs but keeps the label
+        rate (generator_spec.pdf, covariate shift), for linear and tree tasks.
+
+        Two of the load-bearing features are shifted, one towards label 1 and
+        one towards label 0 by the same amount in label terms, and one
+        distractor from features 0-7 by U(1, 2) x Rademacher. Returns
+        (features, deltas, roles, push), or None when this task has no such
+        shift (other families, or linear coefficients more than 2x apart).
+
+        - Linear: feature j's push on the logit is c_j * delta_j. The pushes
+          are +m and -m, so c . x keeps its distribution and the label rate is
+          unchanged exactly. m ~ U(max|c|, 2 min|c|) puts both |delta| = m / |c|
+          in [1, 2].
+        - Tree (the rule reads signs only, so |c| = 1): both features move by
+          m ~ U(1, 2), one towards its "1" side and one towards its "0" side.
+          Their vote-1 probabilities are Phi(m) and 1 - Phi(m), and the
+          label-1 rate of the majority, (p_1 + p_2) / 2, stays 1/2.
+
+        v2 drew 3 features at random and rejection-sampled for a base rate
+        within 0.03. A shift of one load-bearing feature never passes that
+        test and a shift of distractors always does, so 21 of the 24
+        evaluation tasks ended up shifting distractors only.
+        """
+        if self.rule_family not in ("linear", "tree"):
+            return None
+        lb = self.load_bearing_features()
+        signs = self.directions()
+        distractors = [f for f in range(8) if f not in self.causal_features]
+        if len(lb) < 2 or not distractors:
+            return None
+        i, j = rng.choice(len(lb), size=2, replace=False)      # i moves towards label 1, j towards 0
+        if self.rule_family == "linear":
+            c = np.abs(np.asarray(self.coefficients, dtype=float))
+            ci, cj = float(c[i]), float(c[j])
+            if max(ci, cj) > 2 * min(ci, cj):
+                return None
+        else:
+            ci = cj = 1.0
+        push = float(rng.uniform(max(ci, cj), 2 * min(ci, cj)))
+        d = int(rng.choice(distractors))
+        feats = [lb[i], lb[j], d]
+        deltas = [signs[i] * push / ci, -signs[j] * push / cj, float(rng.uniform(1.0, 2.0) * rng.choice([-1, 1]))]
+        return feats, deltas, ["towards_1", "towards_0", "distractor"], push
+
+    def _probe_shift(self, feats, deltas, n_probe: int, rng: np.random.Generator) -> tuple[float, float]:
+        """MAP label-1 rate of the same fresh rows before and after a shift (a check, not a filter)."""
+        X_probe = self._base_features(n_probe, rng)
+        shifted = X_probe.copy()
+        shifted[:, feats] += deltas
+        return float(self._apply_rule(X_probe).mean()), float(self._apply_rule(shifted).mean())
+
+    def _rejection_shift(self, rng: np.random.Generator):
+        """v2's covariate shift, kept for families without a label-neutral
+        shift: 3 of features 0-7 moved by U(1, 2) x Rademacher, redrawn (up to
+        50 times) until the probed label-1 rate is within 0.03 of the id rate."""
+        n_shift = min(3, 8)
+        id_rate = self._probe_base_rate(lambda Xp: Xp, 2048, rng)
+        cand_feats, cand_delta, shifted_rate = None, None, None
+        accepted, n_draws = False, 0
+        for _ in range(50):
+            n_draws += 1
+            cand_feats = rng.choice(8, size=n_shift, replace=False)
+            cand_delta = rng.uniform(1.0, 2.0, size=n_shift) * rng.choice([-1, 1], size=n_shift)
+
+            def _apply_shift(Xp, feats=cand_feats, delta=cand_delta):
+                Xp = Xp.copy()
+                Xp[:, feats] += delta
+                return Xp
+
+            shifted_rate = self._probe_base_rate(_apply_shift, 2048, rng)
+            if abs(shifted_rate - id_rate) <= 0.03:
+                accepted = True
+                break
+        else:
+            warnings.warn(
+                f"covariate shift rejection sampling for task {self.task_id} did not find a "
+                f"base-rate-preserving shift in 50 tries (best delta={shifted_rate - id_rate:.3f}); "
+                "using the last draw anyway."
+            )
+        return cand_feats, cand_delta, id_rate, shifted_rate, accepted, n_draws
+
     def _regime(self, X: np.ndarray) -> np.ndarray:
-        """Which decision-rule leaf/region each row falls in (used as demo metadata)."""
-        causal = X[:, self.causal_features]
-        signs = (causal > 0).astype(int)
-        # Encode the sign pattern of causal features as an integer regime id.
+        """Sign pattern of the load-bearing features as an integer id, encoded
+        like the tree leaf index (L = b1 + 2 b2 + 4 b3), so for tree tasks the
+        regime is the leaf and for linear tasks the orthant."""
+        signs = (X[:, self.load_bearing_features()] > 0).astype(int)
         weights = 2 ** np.arange(signs.shape[1])
         return signs @ weights
 
@@ -161,46 +340,49 @@ class SyntheticTask:
     ) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]]]:
         """Generate (X, y, metadata) for a given environment type.
 
-        metadata[i] contains: regime, is_counter_spurious, spurious_consistent, label.
+        metadata[i] contains: regime, label, y_clean, agree_clean, agree_obs,
+        is_counter_spurious and spurious_consistent. Agreement is the sign of
+        the spurious feature, read in the task's direction (`spurious_sign`),
+        against the label: `agree_clean` against the rule label, `agree_obs`
+        against the observed (post-noise) label, which is what demonstrations
+        show. `is_counter_spurious` / `spurious_consistent` follow the observed
+        label (v2 used the clean one).
         """
         rng = np.random.default_rng(seed)
         X = self._base_features(n_samples, rng)
         coeffs = self.coefficients
         spurious_strength = self.spurious_strength
+        self.last_env_info = {"env": env_type, "seed": seed}
 
         if env_type == "id":
             pass
         elif env_type == "covariate":
-            # Restrict the shift to features 0-7 -- 8/9 are the spurious/noise
-            # features, overwritten unconditionally below regardless of any
-            # shift applied here, so shifting them was a silent no-op (Fact
-            # 4.4(b)). Rejection-sample the shift vector so the resulting
-            # label-1 rate stays within 0.03 of the id rate -- a "covariate"
-            # shift must move P(x) while preserving P(y|x)-induced P(y), per
-            # the shift taxonomy (lit review §2.1); v1's shift moved the base
-            # rate to 0.388 vs ~0.49 elsewhere, confounding the shift axis.
-            n_shift = min(3, 8)
-            id_rate = self._probe_base_rate(lambda Xp: Xp, 2048, rng)
-            cand_feats, cand_delta, shifted_rate = None, None, None
-            for _ in range(50):
-                cand_feats = rng.choice(8, size=n_shift, replace=False)
-                cand_delta = rng.uniform(1.0, 2.0, size=n_shift) * rng.choice([-1, 1], size=n_shift)
-
-                def _apply_shift(Xp, feats=cand_feats, delta=cand_delta):
-                    Xp = Xp.copy()
-                    Xp[:, feats] += delta
-                    return Xp
-
-                shifted_rate = self._probe_base_rate(_apply_shift, 2048, rng)
-                if abs(shifted_rate - id_rate) <= 0.03:
-                    break
+            # A pure P(x) shift: move the rule's inputs but not the label rate
+            # (shift taxonomy, lit review §2.1; v1's shift moved the base rate
+            # to 0.388 vs ~0.49 elsewhere). Features 8/9 are excluded: the
+            # spurious and noise features are overwritten below, so shifting
+            # them was a silent no-op (Fact 4.4(b)).
+            shift = self._label_neutral_shift(rng)
+            if shift is not None:
+                cand_feats, cand_delta, roles, push = shift
+                id_rate, shifted_rate = self._probe_shift(cand_feats, cand_delta, 20000, rng)
+                accepted, n_draws, method = True, 1, "label_neutral"
             else:
-                warnings.warn(
-                    f"covariate shift rejection sampling for task {self.task_id} did not find a "
-                    f"base-rate-preserving shift in 50 tries (best delta={shifted_rate - id_rate:.3f}); "
-                    "using the last draw anyway."
-                )
+                cand_feats, cand_delta, id_rate, shifted_rate, accepted, n_draws = self._rejection_shift(rng)
+                roles, push, method = None, None, "rejection"
             X[:, cand_feats] += cand_delta
+            self.last_env_info.update(
+                method=method,
+                shift_features=[int(f) for f in cand_feats],
+                shift_delta=[float(d) for d in cand_delta],
+                shift_roles=roles,
+                label_push=None if push is None else float(push),
+                probe_rate_id=float(id_rate),
+                probe_rate_shifted=float(shifted_rate),
+                probe_diff=float(shifted_rate - id_rate),
+                accepted=accepted,
+                n_draws=n_draws,
+            )
         elif env_type == "spurious_reversal":
             spurious_strength = 1.0 - spurious_strength
         elif env_type == "extrapolation":
@@ -275,23 +457,30 @@ class SyntheticTask:
         # X8 ~ N(d, 1) with d = Phi^-1(strength), so P(X8>0) = Phi(d) =
         # strength. spurious_reversal's `spurious_strength = 1 - spurious_strength`
         # above flips d's sign, which is exactly the intended "reversed" correlate.
+        # `spurious_sign` reflects the whole column, so with -1 the other columns,
+        # |f8| and the agreement flags are exactly those of +1.
         d = scipy.stats.norm.ppf(spurious_strength)
-        X[:, self.spurious_idx] = (2 * y_clean - 1) * d + rng.normal(size=n_samples)
-        agree = np.sign(X[:, self.spurious_idx]) == np.sign(2 * y_clean - 1)
+        X[:, self.spurious_idx] = self.spurious_sign * ((2 * y_clean - 1) * d + rng.normal(size=n_samples))
+        f8_task_direction = self.spurious_sign * X[:, self.spurious_idx]
+        agree_clean = np.sign(f8_task_direction) == np.sign(2 * y_clean - 1)
         # Pure noise feature.
         X[:, self.noise_idx] = rng.normal(size=n_samples)
 
-        # Label noise.
+        # Label noise, applied after f8 is generated from the clean label.
         flip = rng.random(n_samples) < self.label_noise
         y = np.where(flip, 1 - y_clean, y_clean)
+        agree_obs = np.sign(f8_task_direction) == np.sign(2 * y - 1)
 
         regimes = self._regime(X)
         metadata = [
             {
                 "regime": int(regimes[i]),
-                "is_counter_spurious": not bool(agree[i]),
-                "spurious_consistent": bool(agree[i]),
                 "label": int(y[i]),
+                "y_clean": int(y_clean[i]),
+                "agree_clean": bool(agree_clean[i]),
+                "agree_obs": bool(agree_obs[i]),
+                "is_counter_spurious": not bool(agree_obs[i]),
+                "spurious_consistent": bool(agree_obs[i]),
             }
             for i in range(n_samples)
         ]
@@ -430,6 +619,109 @@ def generate_task_suite(config: Any) -> list[SyntheticTask]:
     train_tasks = _sample_tasks(config, config.n_train_tasks, "train", non_heldout_families)
     heldout_tasks = _sample_tasks(config, config.n_heldout_family_tasks, "heldout", [config.heldout_family])
     return train_tasks + heldout_tasks
+
+
+def signed_majority_leaf_labels(signs: list[int] | np.ndarray) -> np.ndarray:
+    """Leaf table of Maj(l1, l2, l3) with l_j = b_j if s_j = +1 else 1 - b_j,
+    for leaf index L = b1 + 2 b2 + 4 b3. These 8 tables are exactly the ones
+    `_sample_tree_leaf_labels` admits (generator_spec.pdf, tree theorem)."""
+    signs = np.asarray(signs)
+    k = len(signs)
+    bits = (np.arange(2 ** k)[:, None] >> np.arange(k)) & 1
+    literals = np.where(signs > 0, bits, 1 - bits)
+    return (literals.sum(axis=1) * 2 > k).astype(int)
+
+
+def _stable_int(text: str) -> int:
+    """Seed component from a string that doesn't depend on Python's hash salt."""
+    return zlib.crc32(text.encode())
+
+
+def _spurious_signs(cells: list[tuple], rng: np.random.Generator) -> np.ndarray:
+    """+1 or -1 per task, half of each (family, domain) cell in random order.
+
+    An odd cell's extra sign alternates from one odd cell to the next, so a
+    family whose two domain cells are odd is still balanced (the pilot suite).
+    """
+    signs = np.zeros(len(cells), dtype=int)
+    extra = int(rng.choice([-1, 1]))
+    for cell in sorted(set(cells), key=str):
+        idx = [i for i, c in enumerate(cells) if c == cell]
+        s = [1, -1] * (len(idx) // 2)
+        if len(idx) % 2:
+            s.append(extra)
+            extra = -extra
+        signs[idx] = rng.permutation(s)
+    return signs
+
+
+def sample_eval_tasks(
+    n_tasks: int,
+    id_prefix: str = "eval",
+    base_seed: int = 42,
+    spurious_strength_range: tuple[float, float] = (0.80, 0.90),
+    label_noise: float = 0.02,
+    n_features: int = 10,
+    n_causal: int = 3,
+    domains: tuple[str, ...] = ("loan", "medical"),
+) -> list[SyntheticTask]:
+    """The v3 evaluation-task distribution (generator_spec.pdf, task sampling).
+
+    - Family is fixed by position: the first half of the tasks are linear, the
+      rest tree. Domain alternates, so each family is split evenly by domain.
+    - 3 load-bearing features drawn from indices 0-7 (8 is spurious, 9 noise).
+    - Linear: c_j = u_j r_j with u_j ~ U(1, 2) and r_j Rademacher, so every
+      load-bearing feature has a definite direction and a non-negligible effect.
+    - Tree: uniform over the 8 admissible leaf tables (the signed majorities).
+    - Spurious strength s ~ U(spurious_strength_range).
+    - Spurious direction: +1 for half of each (family, domain) cell and -1 for
+      the other half (`_spurious_signs`). In P2, Qwen's zero-shot margin rose
+      with every feature, so with a fixed direction that prior backed the
+      shortcut in every task.
+
+    Each task draws its parameters from its own stream,
+    SeedSequence([base_seed, prefix, i]), so they do not depend on the other
+    tasks; only its family (first half linear) and its spurious direction
+    (balanced over the suite, from a separate stream) depend on the suite size.
+    The same stream supplies `data_seed`, from which every data split derives.
+    """
+    tasks: list[SyntheticTask] = []
+    n_linear = n_tasks // 2
+    families = ["linear" if i < n_linear else "tree" for i in range(n_tasks)]
+    task_domains = [domains[i % len(domains)] if domains else None for i in range(n_tasks)]
+    spurious_signs = _spurious_signs(
+        list(zip(families, task_domains)),
+        np.random.default_rng(np.random.SeedSequence([base_seed, _stable_int(id_prefix), _stable_int("spurious_sign")])),
+    )
+    for i in range(n_tasks):
+        rng = np.random.default_rng(np.random.SeedSequence([base_seed, _stable_int(id_prefix), i]))
+        family = families[i]
+        causal = sorted(int(f) for f in rng.choice(8, size=n_causal, replace=False))
+        signs = rng.choice([-1, 1], size=n_causal)
+        if family == "linear":
+            coefficients = rng.uniform(1.0, 2.0, size=n_causal) * signs
+            leaf_labels = None
+        else:
+            # The tree rule ignores coefficient magnitudes; storing the literal
+            # signs keeps `coefficients` meaningful and the stream identical.
+            coefficients = signs.astype(float)
+            leaf_labels = signed_majority_leaf_labels(signs)
+            assert not _is_degenerate_leaf_labels(leaf_labels, n_causal)
+            assert np.array_equal(leaf_labels[::-1], 1 - leaf_labels), "complement antisymmetry"
+        tasks.append(SyntheticTask(
+            task_id=f"{id_prefix}_{i:04d}",
+            rule_family=family,
+            causal_features=causal,
+            coefficients=np.asarray(coefficients, dtype=float),
+            spurious_strength=float(rng.uniform(*spurious_strength_range)),
+            n_features=n_features,
+            label_noise=label_noise,
+            leaf_labels=leaf_labels,
+            domain=task_domains[i],
+            data_seed=int(rng.integers(2**31 - 1)),
+            spurious_sign=int(spurious_signs[i]),
+        ))
+    return tasks
 
 
 def generate_val_test_tasks(config: Any) -> tuple[list[SyntheticTask], list[SyntheticTask]]:

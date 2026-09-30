@@ -50,6 +50,19 @@ RESULTS_SCHEMA_V2 = pa.schema(
 )
 
 
+# v3 synthetic grid (scripts/run_synth_grid.py): one row per prediction,
+# generator_spec.pdf, orchestration. `unit_key` identifies the resumable unit
+# (model, naming, task, strategy, label mode, k, seed) the row belongs to.
+RESULTS_COLUMNS_V3 = [
+    "unit_key", "run_name", "model", "model_path", "device", "device_name", "dtype",
+    "naming", "domain", "task_id", "family", "env", "strategy", "mechanism", "composition",
+    "label_mode", "k", "seed", "query_id", "row_id", "demo_ids", "demo_labels", "order_seed",
+    "prompt_hash", "n_prompt_tokens", "logprob_0", "logprob_1", "p1",
+    "logprob_0_cf", "logprob_1_cf", "calibrated_p1", "prediction", "prediction_cal",
+    "label", "y_clean", "selection_meta", "unit_seconds",
+]
+
+
 def new_results_frame(schema: pa.Schema = RESULTS_SCHEMA) -> pd.DataFrame:
     """Return an empty DataFrame with the correct columns/dtypes for results rows."""
     return pd.DataFrame({field.name: pd.Series(dtype="object") for field in schema})
@@ -60,7 +73,9 @@ def append_results(rows: pd.DataFrame, path: str | Path) -> None:
 
     Re-running a notebook appends rather than overwrites, per the spec's
     reproducibility notes — callers that need a clean slate should delete
-    the file explicitly first.
+    the file explicitly first. The file is rewritten through a temporary
+    file and an atomic rename, so an interrupted write never corrupts the
+    rows already saved.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +84,9 @@ def append_results(rows: pd.DataFrame, path: str | Path) -> None:
         combined = pd.concat([existing, rows], ignore_index=True)
     else:
         combined = rows
-    combined.to_parquet(path, index=False)
+    tmp = path.with_name(path.name + ".tmp")
+    combined.to_parquet(tmp, index=False)
+    tmp.replace(path)
 
 
 def load_results(path: str | Path) -> pd.DataFrame:

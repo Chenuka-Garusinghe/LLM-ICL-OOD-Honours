@@ -41,6 +41,17 @@ tables/*
 models/*
 !models/.gitkeep
 
+# LaTeX build files (the compiled docs/*.pdf stays tracked)
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz
+docs/*.bbl
+docs/*.blg
+
 # OS
 .DS_Store
 

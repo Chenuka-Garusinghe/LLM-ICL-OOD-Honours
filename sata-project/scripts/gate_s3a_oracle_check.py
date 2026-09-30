@@ -15,7 +15,7 @@ after a full training run + LLM evaluation.
 Needs no torch at all (bypasses the SATA model entirely) -- only numpy,
 pandas, and xgboost, so it runs on this Mac without a GPU.
 
-Usage: python3 scripts/gate_s3a_oracle_check.py [--n-tasks 30] [--config configs/v2.yaml]
+Usage: python3 scripts/gate_s3a_oracle_check.py [--n-tasks 30] [--config configs/default.yaml]
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def evaluate_method(tasks: list, gen_config, method: str, k: int = 8) -> dict[st
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-tasks", type=int, default=30)
-    parser.add_argument("--config", default="configs/v2.yaml")
+    parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--k", type=int, default=8)
     args = parser.parse_args()
 

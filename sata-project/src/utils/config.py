@@ -16,6 +16,8 @@ if platform.system() == "Darwin":
     # every notebook's setup cell, so it's the one place that's guaranteed to run
     # before torch/xgboost do.
     os.environ.setdefault("OMP_NUM_THREADS", "1")
+    # Unsupported Apple Metal (MPS) ops fall back to CPU instead of raising; read at torch import.
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 else:
     # The libomp segfault above is macOS-specific (conflicting bundled libomp.dylib
     # copies) -- it doesn't occur on Linux (e.g. Gadi HPC nodes). Forcing 1 thread

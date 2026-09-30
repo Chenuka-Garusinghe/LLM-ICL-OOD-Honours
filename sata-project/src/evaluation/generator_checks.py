@@ -85,7 +85,9 @@ def check_spurious_strength(
     rates = []
     for t in tasks:
         _, _, meta = t.generate_environment("id", n_samples=n_samples, seed=seed)
-        rates.append(np.mean([m["spurious_consistent"] for m in meta]))
+        # Against the clean label: the construction sets this agreement to s
+        # exactly; agreement with the observed label is diluted by label noise.
+        rates.append(np.mean([m["agree_clean"] for m in meta]))
     rates = np.array(rates)
     lo, hi = spurious_strength_range
     passed = bool(((rates >= lo - tolerance) & (rates <= hi + tolerance)).all())

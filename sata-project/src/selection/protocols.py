@@ -1,74 +1,40 @@
-"""Demonstration protocols for tabular OOD tasks, as a mechanism x composition factorial.
+"""Demonstration selection as a mechanism x composition factorial.
 
-Why a factorial rather than a list of named protocols
------------------------------------------------------
-The v1 suite is a list of six mutually exclusive arms (random, label_diversity,
-feature_range, rule_diversity, counter_spurious, similarity). Two problems:
+The composition fixes how many demos of each label are shown, so label counts
+are never confounded with the mechanism (`label_diversity` is random x balanced).
+Every mechanism returns pool index labels, never positions.
 
-1. They confound *what gets selected* with *the label composition of what gets
-   selected*. `label_diversity` is "random, forced to k/2 per class";
-   `counter_spurious` over-samples minority cells, which are label-skewed by
-   construction, so it silently ships a different label composition too. Since
-   the demonstration set's label statistics are a first-order driver of an
-   LLM's output distribution at this scale (Min et al. 2022; Zhao et al. 2021's
-   majority-label bias), an arm-vs-arm comparison cannot tell you whether an
-   effect came from the selection mechanism or from the label counts.
-
-2. Pinning everything to k/2 per class (src/selection/balanced_topk.py) fixes
-   problem 1 by removing the channel entirely -- but on these four TableShift
-   datasets the ID->OOD failure is dominated by label-prior shift, not by loss
-   of discriminative signal (an ID-trained HistGradientBoosting model holds its
-   AUROC almost exactly across the shift on all four, while accuracy collapses
-   where the prior moves: acspubcov 0.795 -> 0.627 as P(y=1) goes 0.23 -> 0.64).
-   Label composition is therefore the single highest-leverage knob available to
-   a demonstration protocol on this benchmark, and a 50/50 pin is the one
-   setting guaranteed not to use it.
-
-So composition is promoted to an explicit, crossed factor. The v1 arms become
-cells of the grid (`label_diversity` == random x balanced), the confound becomes
-an estimable interaction, and prior matching becomes testable rather than
-assumed away.
-
-    mechanism  x  composition  ->  protocol
-    ---------     -----------
-    random        free            mechanism decides the label counts
-    similarity    balanced        k/2 per class (v1's pinned behaviour)
-    feature_coverage              target_prior  counts track the estimated
-    rule_coverage                               target prior pi_T from
-    importance_weighted                         src/selection/shift_estimation.py
-    shift_axis_coverage
-    counter_spurious
-
-Every mechanism returns *pool index labels* (not positional offsets). v1's
-`similarity_select.select` returned positions into `pool_texts` while every
-other selector returned index labels; that asymmetry is a bug magnet at the
-call site and is not reproduced here.
-
-Shift-aware mechanisms degrade gracefully: when the domain discriminator
-cannot separate the domains (`DomainShift.detectable` is False -- observed on
-anes, AUC 0.564), the density ratio is noise, so `importance_weighted` and
-`shift_axis_coverage` fall back to uniform behaviour and set
-`degraded=True` in the returned metadata rather than sampling on noise.
+Synthetic (v3) strategies map onto mechanism x composition through
+`SYNTHETIC_STRATEGIES` (generator_spec.pdf, selection engine). The `gt_*`
+mechanisms read the generator's ground-truth row tags (`regime`, `agree_obs`,
+`spurious_raw`, `y_clean`), which SATA does not get; the spec discloses this
+asymmetry. `counter_prior` reads the model's prior surrogate
+(src/inference/priors.py) through `ProtocolContext.prior_slopes`. Seeds come
+from `demo_seed`, one stream per (task, strategy, seed).
 """
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import pandas as pd
+from sklearn.feature_selection import mutual_info_classif
 from sklearn.tree import DecisionTreeClassifier
 
-COMPOSITIONS = ("free", "balanced", "target_prior")
+COMPOSITIONS = ("free", "balanced")
 MECHANISMS = (
     "random",
     "similarity",
     "feature_coverage",
     "rule_coverage",
     "counter_spurious",
-    "importance_weighted",
-    "shift_axis_coverage",
+    "gt_regime",
+    "gt_counter_spurious",
+    "feature_knn",
+    "counter_prior",
 )
 
 
@@ -78,10 +44,11 @@ class ProtocolContext:
 
     feature_cols: list[str]
     kinds: dict[str, str]
-    shift: Any                                  # shift_estimation.DomainShift
     train_ref: pd.DataFrame                     # labelled ID reference (medians, tree fit)
     label_col: str = "label"
     proxy_features: list[str] = field(default_factory=list)
+    prior_slopes: dict[str, float] = field(default_factory=dict)  # column -> prior surrogate slope
+    prior_margin: pd.Series | None = None      # pool row id -> measured zero-shot margin (centred); preferred
     _cache: dict = field(default_factory=dict, repr=False)
 
     def ranges(self) -> pd.Series:
@@ -149,35 +116,22 @@ def _m_similarity(pool, query, ctx, rng):
 
 
 def _m_feature_coverage(pool, query, ctx, rng, n_bins: int = 3, n_feats: int = 3):
-    """Marginal quantile-bin coverage over the highest-drift features.
+    """Coverage of the joint quantile cells of the pool's top features by mutual
+    information with the label: each of the `n_feats` features is cut into
+    `n_bins` quantile bins, a row's cell is its bin combination, and cells are
+    covered round-robin (generator_spec.pdf, mechanisms).
 
-    v1's `feature_range.select` binned the top 3 features jointly and sampled
-    distinct *joint* cells. With 3 features x 3 bins there are up to 27 joint
-    cells and k=8 slots, so it covered 8 arbitrary cells out of 27 and gave no
-    guarantee that any individual feature's three bins were all represented --
-    which is what "feature-range diversity" is supposed to deliver, and is the
-    property that matters when the target domain sits in a range the demos
-    never show. Stratifying on (feature, bin) pairs instead makes marginal
-    coverage the thing being guaranteed.
-
-    Features are ordered by source->target drift rather than by mutual
-    information: the ranges worth spanning are the ones that actually move.
+    The version ported from main assigned rows feature by feature, so the
+    top feature's bins absorbed every row and the other features never
+    formed a stratum.
     """
-    order = [f for f in ctx.shift.drift["feature"].tolist() if f in pool.columns][:n_feats]
-    if not order:
-        return "weight", np.ones(len(pool)), {"degraded": True}
-    groups = np.full(len(pool), -1, dtype=int)
-    gid, assigned = 0, np.zeros(len(pool), dtype=bool)
+    mi = mutual_info_classif(pool[ctx.feature_cols], pool[ctx.label_col], random_state=0)
+    order = [ctx.feature_cols[i] for i in np.argsort(-mi)[:n_feats]]
+    cells = np.zeros(len(pool), dtype=int)
     for f in order:
-        b = pd.qcut(pool[f], q=n_bins, labels=False, duplicates="drop")
-        for lvl in sorted(pd.unique(b.dropna())):
-            mask = (b == lvl).to_numpy() & ~assigned
-            if mask.any():
-                groups[mask] = gid
-                assigned |= mask
-                gid += 1
-    groups[groups < 0] = gid
-    return "strata", groups, {"n_strata": int(len(np.unique(groups)))}
+        b = pd.qcut(pool[f], q=n_bins, labels=False, duplicates="drop").fillna(0).astype(int).to_numpy()
+        cells = cells * n_bins + b
+    return "strata", cells, {"n_strata": int(len(np.unique(cells))), "features": order}
 
 
 def _m_rule_coverage(pool, query, ctx, rng):
@@ -211,31 +165,76 @@ def _m_counter_spurious(pool, query, ctx, rng):
     return "score", score, {"n_proxies": len(proxies)}
 
 
-def _m_importance_weighted(pool, query, ctx, rng):
-    """Sample ID demos in proportion to the density ratio w(x) = p_T(x)/p_S(x).
+def _m_gt_regime(pool, query, ctx, rng):
+    """Ground-truth regime strata (sign pattern of the load-bearing features).
 
-    The demonstration set then looks like the target domain while still carrying
-    trustworthy source labels -- the demonstration-design analogue of importance
-    weighting. Targets covariate shift and extrapolation.
+    A row is eligible for its class when it is not a label-noise row
+    (label == y_clean) and its class is the pool majority in its regime, so
+    each class covers the regimes where it actually lives: for a tree task
+    the 4 leaves carrying that label. Without the filter, the few noise rows
+    sitting in the other class's leaves would each form a stratum and be
+    over-sampled. Ineligible rows get stratum -1, used only as a fallback.
     """
-    if not ctx.shift.detectable:
-        return "weight", np.ones(len(pool)), {"degraded": True, "reason": "domain AUC < 0.60"}
-    return "weight", ctx.shift.weight(pool), {"degraded": False}
+    labels = pool[ctx.label_col].to_numpy()
+    regimes = pool["regime"].to_numpy().astype(int)
+    clean = labels == pool["y_clean"].to_numpy()
+    rate = pd.Series(labels).groupby(regimes).mean()
+    majority_ok = np.where(labels == 1, rate.loc[regimes].to_numpy() >= 0.5, rate.loc[regimes].to_numpy() <= 0.5)
+    groups = np.where(clean & majority_ok, regimes, -1)
+    return "strata", groups, {"n_strata": int(len(np.unique(groups[groups >= 0])))}
 
 
-def _m_shift_axis_coverage(pool, query, ctx, rng, n_bins: int = 4):
-    """Span the shift axis: strata over quantiles of the discriminator score s(x).
+def _m_feature_knn(pool, query, ctx, rng):
+    """Euclidean distance to the query on the z-scored features. It reads
+    only numbers, so it picks the same rows under every naming (v2's MiniLM
+    text similarity changed with the display names)."""
+    if query is None:
+        raise ValueError("mechanism 'feature_knn' is query-conditional; `query` is required")
+    diff = pool[ctx.feature_cols].to_numpy(dtype=float) - query[ctx.feature_cols].to_numpy(dtype=float)
+    return "score", -np.sqrt((diff ** 2).sum(axis=1)), {}
 
-    Importance weighting concentrates the demo set at the target-like end, which
-    at k=8 can collapse it onto one region. This instead guarantees the prompt
-    contains demos from source-like *and* target-like ends, so the context spans
-    the direction the distribution moved rather than sitting at one point on it.
+
+def prior_scores(frame: pd.DataFrame, ctx: ProtocolContext) -> np.ndarray:
+    """The model's prior for every row: its measured zero-shot margin, centred
+    on the pool median (`prior_margin`, when given), else the intercept-free
+    surrogate sum_j b_j x_j (z-scored columns)."""
+    if ctx.prior_margin is not None:
+        return ctx.prior_margin.reindex(frame.index).to_numpy(dtype=float)
+    if not ctx.prior_slopes:
+        raise ValueError("counter_prior needs the measured prior (prior_margin) or the surrogate (prior_slopes)")
+    b = np.array([ctx.prior_slopes[f] for f in ctx.feature_cols], dtype=float)
+    return frame[ctx.feature_cols].to_numpy(dtype=float) @ b
+
+
+def prior_data_conflict(pool: pd.DataFrame, ctx: ProtocolContext) -> float:
+    """C_t: the share of pool rows whose label the surrogate's prior gets wrong."""
+    return float(np.mean((prior_scores(pool, ctx) > 0) != (pool[ctx.label_col].to_numpy() == 1)))
+
+
+def _m_counter_prior(pool, query, ctx, rng):
+    """Rows whose label contradicts the model's prior and follows the rule
+    (generator_spec.pdf, mechanisms): score 1 when the intercept-free
+    surrogate predicts the other label and the row is not a label-noise row,
+    else 0; top-scoring rows are taken in random order. The grid applies it
+    only when the task's prior-data conflict exceeds 1/2 (`counter_prior_active`).
     """
-    if not ctx.shift.detectable:
-        return "weight", np.ones(len(pool)), {"degraded": True, "reason": "domain AUC < 0.60"}
-    s = ctx.shift.score(pool)
-    b = pd.qcut(pd.Series(s), q=n_bins, labels=False, duplicates="drop").fillna(0).to_numpy()
-    return "strata", b.astype(int), {"n_strata": int(len(np.unique(b)))}
+    z = prior_scores(pool, ctx)
+    labels = pool[ctx.label_col].to_numpy()
+    contra = (z > 0) != (labels == 1)
+    clean = labels == pool["y_clean"].to_numpy()
+    score = (contra & clean).astype(float)
+    return "score", score, {"conflict": float(contra.mean()), "n_eligible": int(score.sum()),
+                            "n_eligible_by_class": {int(c): int(score[labels == c].sum()) for c in (0, 1)}}
+
+
+def counter_prior_active(pool: pd.DataFrame, ctx: ProtocolContext) -> tuple[bool, float]:
+    """Whether counter_prior applies to a task: its prior-data conflict exceeds 1/2.
+
+    Otherwise the strategy falls back to label_diversity's demonstration set
+    (the same rows and order), so the two strategies coincide exactly.
+    """
+    c = prior_data_conflict(pool, ctx)
+    return c > 0.5, c
 
 
 _MECH: dict[str, Callable] = {
@@ -244,12 +243,12 @@ _MECH: dict[str, Callable] = {
     "feature_coverage": _m_feature_coverage,
     "rule_coverage": _m_rule_coverage,
     "counter_spurious": _m_counter_spurious,
-    "importance_weighted": _m_importance_weighted,
-    "shift_axis_coverage": _m_shift_axis_coverage,
+    "gt_regime": _m_gt_regime,
+    "feature_knn": _m_feature_knn,
+    "counter_prior": _m_counter_prior,
 }
 
-QUERY_CONDITIONAL = {"similarity"}
-SHIFT_CONDITIONAL = {"importance_weighted", "shift_axis_coverage", "feature_coverage", "counter_spurious"}
+QUERY_CONDITIONAL = {"similarity", "feature_knn"}
 
 
 # --------------------------------------------------------------------------- #
@@ -261,12 +260,6 @@ def label_quota(composition: str, k: int, ctx: ProtocolContext, pool: pd.DataFra
         return None
     if composition == "balanced":
         n1 = k // 2
-    elif composition == "target_prior":
-        # Round to the nearest achievable count, but never let a class vanish:
-        # a single-class prompt makes the LLM's answer the majority label almost
-        # regardless of the query (Zhao et al. 2021), which would make the
-        # composition factor a degenerate constant-prediction arm.
-        n1 = int(np.clip(round(k * float(ctx.shift.prior_target)), 1, k - 1))
     else:
         raise ValueError(f"unknown composition {composition!r}")
     return {1: n1, 0: k - n1}
@@ -289,12 +282,14 @@ def _choose(positions: np.ndarray, n: int, kind: str, values: np.ndarray, rng) -
         p = w / w.sum() if w.sum() > 0 else np.full(len(w), 1 / len(w))
         return list(rng.choice(positions, size=n, replace=False, p=p))
     if kind == "strata":
+        # Negative strata are fallback rows, drawn only once every real
+        # stratum is exhausted.
         groups = {}
-        for pos in positions:
-            groups.setdefault(int(v[np.where(positions == pos)[0][0]]), []).append(pos)
-        keys = list(groups)
+        for pos, g in zip(positions, v):
+            groups.setdefault(int(g), []).append(pos)
+        keys = [g for g in groups if g >= 0]
         rng.shuffle(keys)
-        for g in keys:
+        for g in groups:
             rng.shuffle(groups[g])
         out: list[int] = []
         while len(out) < n:
@@ -307,6 +302,9 @@ def _choose(positions: np.ndarray, n: int, kind: str, values: np.ndarray, rng) -
                         break
             if not progressed:
                 break
+        fallback = [p for g in groups if g < 0 for p in groups[g]]
+        rng.shuffle(fallback)
+        out.extend(fallback[: n - len(out)])
         return out
     raise ValueError(f"unknown mechanism kind {kind!r}")
 
@@ -326,6 +324,8 @@ def select(
     order -- pass it through src/selection/ordering.py::shuffle_order, as every
     condition must, so demo position stays a uniformly controlled nuisance.
     """
+    if mechanism == "gt_counter_spurious":
+        return _select_counter_spurious_matched(pool, k, seed, ctx, composition)
     if mechanism not in _MECH:
         raise ValueError(f"unknown mechanism {mechanism!r}; expected one of {MECHANISMS}")
     rng = np.random.default_rng(seed)
@@ -354,6 +354,59 @@ def select(
     return list(pool.index[picked]), meta
 
 
+def _select_counter_spurious_matched(
+    pool: pd.DataFrame, k: int, seed: int, ctx: ProtocolContext, composition: str = "balanced"
+) -> tuple[list, dict]:
+    """Magnitude-matched counter-spurious set (generator_spec.pdf, counter-spurious
+    selection must match on |f8|).
+
+    Within each class, draw k/4 rows whose spurious feature disagrees with the
+    observed label and pair each with the agreeing row of the same class with
+    the nearest |f8| (generator scale), without replacement. Sign agreement is
+    then 1/2 and f8 carries no information about the label: simply balancing
+    the four (label x agreement) cells leaves corr(f8, y) near 0.33 at
+    s = 0.85, because agreeing rows lie further from zero.
+
+    Label-noise rows (label != y_clean) are excluded on both sides. They are
+    mostly disagreeing rows, so leaving them in would give counter-spurious
+    sets several times the pool's label-noise rate.
+    """
+    if composition != "balanced":
+        raise ValueError("gt_counter_spurious is defined for the balanced composition only")
+    if k % 4:
+        raise ValueError(f"magnitude-matched counter-spurious needs k divisible by 4, got {k}")
+    rng = np.random.default_rng(seed)
+    labels = pool[ctx.label_col].to_numpy()
+    clean = labels == pool["y_clean"].to_numpy()
+    agree = pool["agree_obs"].to_numpy().astype(bool)
+    mag = np.abs(pool["spurious_raw"].to_numpy(dtype=float))
+    picked: list[int] = []
+    n_unmatched, gaps = 0, []
+    for cls in (0, 1):
+        in_cls = (labels == cls) & clean
+        disagree = np.flatnonzero(in_cls & ~agree)
+        agreeing = list(np.flatnonzero(in_cls & agree))
+        n_pairs = min(k // 4, len(disagree), len(agreeing))
+        for d in rng.choice(disagree, size=n_pairs, replace=False):
+            dist = np.abs(mag[agreeing] - mag[d])
+            j = int(rng.choice(np.flatnonzero(dist == dist.min())))
+            gaps.append(float(dist[j]))
+            picked.extend([int(d), int(agreeing.pop(j))])
+        short = k // 2 - 2 * n_pairs
+        if short:
+            # Too few disagreeing rows in this class: fill with random rows of
+            # the class so the label counts stay k/2 (recorded in the metadata).
+            rest = np.setdiff1d(np.flatnonzero(labels == cls), np.array(picked, dtype=int))
+            picked.extend(int(p) for p in rng.choice(rest, size=min(short, len(rest)), replace=False))
+            n_unmatched += short
+    meta = {
+        "mechanism": "gt_counter_spurious", "composition": composition, "k": k, "seed": seed,
+        "kind": "matched", "n_selected": len(picked), "quota": {0: k // 2, 1: k - k // 2},
+        "n_unmatched": n_unmatched, "mean_abs_f8_gap": float(np.mean(gaps)) if gaps else float("nan"),
+    }
+    return list(pool.index[picked]), meta
+
+
 def protocol_grid(include_degenerate: bool = False) -> list[tuple[str, str]]:
     """All (mechanism, composition) cells.
 
@@ -365,14 +418,38 @@ def protocol_grid(include_degenerate: bool = False) -> list[tuple[str, str]]:
         # counter_spurious under 'free' is a pure score ranking that tends to
         # one label class by construction -- kept only when explicitly asked for.
         cells = [(m, c) for m, c in cells if not (m == "counter_spurious" and c == "free")]
+        cells = [(m, c) for m, c in cells if not (m == "gt_counter_spurious" and c == "free")]
     return cells
 
 
-V1_EQUIVALENTS = {
+# The synthetic arm's strategies (generator_spec.pdf, strategy table).
+# Structured strategies are balanced (k/2 per class); plain random is free.
+# zero_shot (no demonstrations) is handled by the runner, and SATA arrives in P5.
+SYNTHETIC_STRATEGIES = {
     "random": ("random", "free"),
     "label_diversity": ("random", "balanced"),
-    "feature_range": ("feature_coverage", "free"),
-    "rule_diversity": ("rule_coverage", "free"),
-    "similarity": ("similarity", "free"),
-    "counter_spurious": ("counter_spurious", "free"),
+    "feature_range": ("feature_coverage", "balanced"),
+    "rule_diversity": ("gt_regime", "balanced"),
+    "counter_spurious": ("gt_counter_spurious", "balanced"),
+    "similarity": ("feature_knn", "balanced"),
+    "counter_prior": ("counter_prior", "balanced"),
 }
+# Where counter_prior is inactive (prior-data conflict <= 1/2) it shows this
+# strategy's demonstration set.
+COUNTER_PRIOR_FALLBACK = "label_diversity"
+
+# The v1 strategy names, kept as the names of the synthetic strategies above.
+V1_EQUIVALENTS = {k: v for k, v in SYNTHETIC_STRATEGIES.items() if k != "counter_prior"}
+
+
+def demo_seed(base_seed: int, task_id: str, strategy: str, seed: int, purpose: str = "select", *extra: int) -> int:
+    """Seed for one random choice: SeedSequence([base, task, strategy, seed, purpose, ...]).
+
+    Every (task, strategy, seed) gets its own stream, so a demonstration set
+    does not change when other tasks or strategies are added. `purpose`
+    separates the selection draw from the order shuffle and label shuffle;
+    `extra` carries a query row id for query-conditional strategies.
+    """
+    parts = [base_seed, zlib.crc32(task_id.encode()), zlib.crc32(strategy.encode()), seed,
+             zlib.crc32(purpose.encode()), *extra]
+    return int(np.random.SeedSequence([int(p) for p in parts]).generate_state(1)[0])

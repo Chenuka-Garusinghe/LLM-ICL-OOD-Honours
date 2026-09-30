@@ -1,0 +1,98 @@
+# Naming lexicons (generator_spec.pdf, naming protocol and measuring priors).
+# Loaded by src/data/naming.py.
+#
+# Per domain:
+#   candidates: every name the P3 screening measures.
+#     pairs: [name that raises P(label 1), name that lowers it]; one pair names
+#            one load-bearing feature (aligned = the member that agrees with the
+#            rule's direction, flipped = the other member).
+#     weak:  plausible names with little real-world bearing on the label, for
+#            the 7 other columns (distractors, spurious, noise).
+#   final: the names the grid uses (chosen from the screening, scripts/p3_prior_screen.py,
+#          results/v3/synthetic/p3/); a domain without a `final` block cannot be named.
+#
+# Names contain no ":", ";" or "," (serialisation and the ranking parser use them).
+
+domains:
+  loan:
+    label_one: "the loan was approved"
+    candidates:
+      pairs:
+        - ["credit score", "missed payments"]
+        - ["annual income", "debt-to-income ratio"]
+        - ["savings balance", "credit card utilisation"]
+        - ["years at current job", "recent credit applications"]
+        - ["on-time payment rate", "past defaults"]
+        - ["credit history length", "outstanding debt"]
+        - ["net worth", "collection accounts"]
+        - ["collateral value", "loan-to-value ratio"]
+      weak:
+        - "application day of month"
+        - "branch number"
+        - "form version"
+        - "pages in application"
+        - "applicant ID last digit"
+        - "hour of submission"
+        - "days since form printed"
+        - "loan officer ID"
+        - "mailing batch number"
+        - "office floor number"
+    # final (30 Sep 2026, the user's decision after G3; hiccups/14): the 5 pairs with the largest measured
+    # contrast b_p - b_q on Qwen2.5-7B-Instruct (results/v3/synthetic/p3/screen_qwen2.5-7b-instruct.json) and the
+    # 7 weak names with the smallest |b|. The screening's symmetry rule (b_p > 0 > b_q) admitted 1 loan pair.
+    final:
+      pairs:
+        - ["net worth", "collection accounts"]
+        - ["credit score", "missed payments"]
+        - ["on-time payment rate", "past defaults"]
+        - ["years at current job", "recent credit applications"]
+        - ["savings balance", "credit card utilisation"]
+      weak: ["form version", "mailing batch number", "office floor number", "loan officer ID",
+             "days since form printed", "applicant ID last digit", "hour of submission"]
+  medical:
+    label_one: "the patient is at high risk"
+    candidates:
+      pairs:
+        - ["systolic blood pressure", "weekly exercise hours"]
+        - ["LDL cholesterol", "HDL cholesterol"]
+        - ["body mass index", "daily vegetable servings"]
+        - ["smoking pack-years", "nightly hours of sleep"]
+        - ["resting heart rate", "fitness test score"]
+        - ["fasting blood glucose", "daily step count"]
+        - ["alcohol drinks per week", "lung function score"]
+        - ["waist circumference", "grip strength"]
+      weak:
+        - "clinic room number"
+        - "appointment weekday"
+        - "chart version"
+        - "referral code digit"
+        - "form page count"
+        - "staff ID digit"
+        - "minutes since check-in"
+        - "waiting room seat number"
+        - "printer tray number"
+        - "record batch number"
+    # final (30 Sep 2026, as for loan). Only systolic blood pressure / weekly exercise hours has a clear contrast;
+    # the intervals of pairs 3 and 5 include 0, so medical is a weak-prior domain for Qwen.
+    final:
+      pairs:
+        - ["systolic blood pressure", "weekly exercise hours"]
+        - ["waist circumference", "grip strength"]
+        - ["resting heart rate", "fitness test score"]
+        - ["LDL cholesterol", "HDL cholesterol"]
+        - ["smoking pack-years", "nightly hours of sleep"]
+      weak: ["printer tray number", "staff ID digit", "clinic room number", "form page count",
+             "chart version", "waiting room seat number", "minutes since check-in"]
+
+# Screening rules, fixed before the screening run (30 September 2026). On Qwen2.5-7B-Instruct
+# they admitted 1 of 16 pairs (numeric prior "bigger values mean 1"), so the final names were
+# chosen by measured contrast instead (hiccups/14); the rules are kept as the record.
+screening:
+  n_profiles: 800            # random profiles per (model, domain) in the screening run
+  n_profiles_confirm: 400    # profiles per (model, domain) in the confirmation run (final names only)
+  ridge_alpha: 1.0
+  n_bootstrap: 500
+  pair_min_strength_ratio: 0.5   # min(|b_p|, |b_q|) / max(|b_p|, |b_q|)
+  weak_max_relative_slope: 0.25  # |b| <= this x median |b| of the admitted pair members
+  max_pairs: 5                   # keep the strongest admitted pairs (by the weaker member's |b|)
+  n_weak: 7                      # one per non-load-bearing column

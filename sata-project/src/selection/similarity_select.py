@@ -14,12 +14,9 @@ _POOL_CACHE_MAX = 64  # bounded so a long-running notebook can't leak memory
 
 
 def _get_device() -> str:
-    try:
-        import torch
+    from src.utils.device import resolve_device
 
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        return "cpu"
+    return resolve_device().type
 
 
 def _get_model():

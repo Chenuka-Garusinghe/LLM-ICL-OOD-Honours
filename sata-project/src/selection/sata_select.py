@@ -36,12 +36,13 @@ def select(model, pool, query, feature_cols, label_col, k, pre_filtered_idx=None
     candidate_X = (candidate_X - mean) / std
     query_X = (query_X - mean) / std
 
+    device = next((p.device for p in model.parameters()), torch.device("cpu"))
     demo_labels_np = candidates[label_col].to_numpy(dtype=np.int64)
-    demo_features = torch.tensor(candidate_X, dtype=torch.float32).unsqueeze(0)
-    demo_labels = torch.tensor(demo_labels_np).unsqueeze(0)
-    query_features = torch.tensor(query_X, dtype=torch.float32).unsqueeze(0)
+    demo_features = torch.tensor(candidate_X, dtype=torch.float32, device=device).unsqueeze(0)
+    demo_labels = torch.tensor(demo_labels_np, device=device).unsqueeze(0)
+    query_features = torch.tensor(query_X, dtype=torch.float32, device=device).unsqueeze(0)
     model.eval()
     with torch.no_grad():
-        scores = model(demo_features, demo_labels, query_features).squeeze(0).numpy()
+        scores = model(demo_features, demo_labels, query_features).squeeze(0).cpu().numpy()
     top_k_local = balanced_top_k(scores, demo_labels_np, k)
     return list(candidates.index[top_k_local])

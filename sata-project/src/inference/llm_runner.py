@@ -13,6 +13,7 @@ import os
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.special import expit
 
 # vLLM's V1 engine normally runs its worker in a *subprocess*
 # (VLLM_ENABLE_V1_MULTIPROCESSING=1, the default), forked by default. That's
@@ -60,8 +61,10 @@ class PredictionResult:
 def get_confidence(logprobs_dict: dict[str, float], label_tokens: tuple[str, str]) -> PredictionResult:
     lp0 = logprobs_dict.get(label_tokens[0], -100)
     lp1 = logprobs_dict.get(label_tokens[1], -100)
-    p0 = np.exp(lp0) / (np.exp(lp0) + np.exp(lp1))
-    p1 = 1 - p0
+    # Two-way softmax as a logistic of the margin, so very negative
+    # log-probabilities cannot underflow to 0/0.
+    p1 = float(expit(lp1 - lp0))
+    p0 = 1 - p1
     pred = label_tokens[0] if p0 >= p1 else label_tokens[1]
     confidence = max(p0, p1)
     return PredictionResult(prediction=pred, confidence=confidence, p0=p0, p1=p1, logprob_0=lp0, logprob_1=lp1)
@@ -110,7 +113,7 @@ class VLLMRunner:
         )
 
     def chat_formatter(self):
-        """Mirrors MLXRunner.chat_formatter() (src/inference/mlx_runner.py) --
+        """Mirrors HFRunner.chat_formatter() (src/inference/hf_runner.py) --
         wraps the engine's own tokenizer so callers can swap backends via
         this identical method name, no per-call-site branching needed."""
         from src.inference.chat import ChatFormatter

@@ -1,0 +1,5 @@
+You are a classifier. Each example lists 10 numeric measurements and a label (0 or 1). All measurements are standardised (0 = average, 1 = one standard deviation above average). The label follows an unknown rule over some of the measurements. Infer the rule from the labelled examples, then classify the final example. Respond with exactly one character: 0 or 1.
+
+f0: 0.99; f1: 1.42; f2: 0.72; f3: -0.23; f4: -0.52; f5: 1.09; f6: 0.35; f7: -0.74; f8: -0.99; f9: -1.63 -> 0
+f0: -1.78; f1: 0.26; f2: -0.00; f3: 0.82; f4: -0.80; f5: 1.31; f6: -0.02; f7: 0.22; f8: -0.19; f9: 0.99 -> 1
+f0: 1.25; f1: 0.19; f2: 0.10; f3: -0.04; f4: -0.83; f5: 0.20; f6: 0.01; f7: 0.36; f8: -0.31; f9: 0.65 -> 

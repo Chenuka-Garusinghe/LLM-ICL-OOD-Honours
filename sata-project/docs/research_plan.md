@@ -57,7 +57,7 @@ Repo root `LLM-ICL-OOD-Honours/`, project `sata-project/`. Synthetic data only.
 | Factor                  | Levels                                                                                                                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Naming (prior conflict) | abstract (neutral names) · aligned (semantic names agree with the rule) · flipped (the same names contradict it)                                                                               |
-| Environment             | ID · covariate (P(X) moves) · spurious reversal (f8 flips). Concept shift = flipped vs aligned                                                                                                 |
+| Environment             | ID · covariate (two rule features move in opposite label directions, plus a distractor; P(y) unchanged) · spurious reversal (f8 flips). Concept shift = flipped vs aligned                                                                                                 |
 | Selection               | zero-shot · random · label-balanced random · feature coverage · regime coverage · counter-spurious · feature-space kNN · counter-prior heuristic · SATA-v2 · SATA-MI (· SATA-MI-mech if gated) |
 | Task                    | 24 per model: 12 linear + 12 tree, 3 causal features each. Domain (loan approval / medical risk) varies between tasks. The spurious direction is +1 in half of each (family, domain) cell, −1 in the other half |
 | Seed                    | 3 demo seeds per (task, strategy)                                                                                                                                                              |
@@ -242,6 +242,10 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
     - **Llama fails at every k** (Δ = 0.026–0.045, every interval includes 0), but the result is **not valid**. Its label mass is 0.009–0.11 with demonstrations and 0.000 zero-shot. Its most likely first token is "To", as in "To infer the rule, I will analyze the given examples…". Its scores barely vary between queries (sd 0.05), so its cache check fails as well (AUROC difference 0.013).
     - **Llama fix, if it is resumed:** starting the assistant's reply with `Label: ` raised its label mass to about 0.99 on pilot prompts. The user paused Llama instead (Qwen only for now).
     - Smoke runs regenerated with the final data and runner; the kill-and-resume check passed again (26 units, no duplicates).
+  - **Covariate shift redesigned (30 September, the user's decision; `hiccups/` 13):**
+    - **Problem.** The v2 rejection sampler kept a shift only if the label-1 rate moved by at most 0.03. That filter accepted almost only shifts of distractors, which cannot change any label: 21 of the 24 evaluation tasks shifted distractors only.
+    - **New shift.** Two load-bearing features are moved in opposite label directions by equal label pushes, plus one distractor, each by 1–2 SD. The label rate is unchanged by construction: exactly for linear tasks (c·δ = 0), and 1/2 for tree tasks (spec, Lemma "The label rate is unchanged").
+    - **What changed.** Only the covariate rows changed. The pool, ID and spurious-reversal rows and all their query ids are identical, so the P2 results stand. 82 tests pass, NB01 was re-run, and the smoke runs were redone.
 
 ### P3 — Priors and naming (1 week)
 
@@ -258,6 +262,24 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
   - a random-label demo control.
 - **Add a `counter_prior` mechanism:** it scores demos that contradict the prior _and_ follow the true rule, and applies only when the pool shows prior–data conflict.
 - **Gate G3:** surrogate held-out R² ≥ 0.5, and zero-shot aligned minus flipped accuracy ≥ 0.15. Replace names that fail. If the gate can't be met, drop the naming factor and document it.
+  - The accuracy criterion is measured as AUROC (fixed 30 September, before the check ran). Zero-shot predictions are uncalibrated, so raw accuracy mixes in the model's label bias. Raw accuracy is reported too.
+- **Status: done 30 September 2026, with a deviation decided by the user** (`hiccups/` 14).
+  - **Code:**
+    - `configs/lexicons.yaml`: 8 candidate pairs and 10 weak names per domain, the screening rules and the final names;
+    - `src/data/naming.py`: namings and codebooks; aligned and flipped differ only in the 3 load-bearing names;
+    - `src/inference/priors.py`: the surrogate, the screening and the measured pool priors (`PoolPrior`);
+    - the `counter_prior` mechanism;
+    - `scripts/p3_prior_screen.py`, `scripts/p3_pool_priors.py` and `scripts/p3_naming_gate.py`;
+    - `tests/test_naming.py`. 100 tests pass.
+  - **Screening** (Qwen2.5-7B-Instruct, 2,000 zero-shot profiles):
+    - a numeric prior dominates: every abstract column has a positive slope (0.22–0.89);
+    - names that should lower P(1) mostly just push less: 1 of 16 pairs meets the symmetry rule b_p > 0 > b_q;
+    - out-of-fold R² is 0.51 (abstract), 0.20 (loan) and 0.28 (medical); gradient boosting reaches only 0.29 and 0.44.
+  - **G3 as pre-registered fails** on R², but the names shift the prior. On the 12 pilot tasks, zero-shot AUROC is 0.594 aligned and 0.430 flipped: Δ = 0.164, 95% CI [0.053, 0.287], 10/12 tasks. The contrast is 0.278 in loan and 0.050 in medical.
+  - **The user's decision: keep the naming factor.**
+    - **Final names:** the 5 pairs per domain with the largest measured contrast b_p − b_q, and the 7 weak names with the smallest |b|. These are the names used in the pilot check.
+    - **Measured priors:** counter_prior and the prior–data conflict C_t use Qwen's own zero-shot answers on every pool row (margin centred on the pool median) instead of the surrogate. The surrogate is kept as a descriptive table.
+    - **Medical** is reported as a weak-prior domain.
 
 ### P4 — Main grid + RQ3 behavioural (1.5 weeks, overnight runs)
 
@@ -266,6 +288,39 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
 - **RQ3:**
   - π_true from `true_importance_scores`, π_behav from `hot_deck_impute_feature`, π_self from `build_feature_ranking_prompt` + `parse_feature_ranking`, all by naming;
   - directional sensitivity: nudge each feature ±δ and check whether the margin follows the data direction or the name direction.
+- **Decisions made before the runs (30 September 2026):**
+  - **Similarity uses 1 seed.** Feature kNN picks the same rows for every seed, so extra seeds would only reorder them. This saves about 6 GPU-hours.
+  - **Base model.** Before its reduced grid, Qwen-base gets the P2 checks at k = 8 (label mass and learnability on the pilot, `scripts/p4_base_check.py`). The reduced grid runs only if its median label mass is at least 0.9, with its own measured pool priors for counter_prior.
+  - **RQ3 on the grid's label_diversity sets, ID queries.**
+    - Each query is also scored with each of its 10 columns replaced by a hot-deck donor value. Donors depend only on the task and the column, so they are shared by every naming and seed.
+    - Each load-bearing column and f8 is also nudged by ±0.5.
+    - The model is then asked for its own ranking: the same demonstrations, then a ranking request.
+    - π_behav is the mean drop in the correct-label margin; the spec's accuracy drop is reported alongside. With 20 queries, accuracy moves in steps of 0.05, and ties would make Spearman's ρ unstable.
+    - Seed 0 runs first; seeds 1–2 run last.
+  - **Contrast family (frozen before any P4 result):** Holm correction over 10 one-sided contrasts, each tested with the hierarchical bootstrap. The list is `CONTRASTS` in `src/evaluation/analysis.py`:
+    - **Statistic:** AUROC for C1 and C2 (within cell, from calibrated p1); the RQ3 measures for C3. Calibrated balanced accuracy is reported alongside and is not part of the family.
+    - **Why AUROC (the user's decision, 30 September, after the first 11 tasks; `hiccups/` 15):** the family was frozen with calibrated balanced accuracy. Contextual calibration left every query of a plain-random cell on one side of the threshold in 36% of cells, which pins balanced accuracy at 0.5 and forces those shift gaps to 0.
+    - **C1a, C1b:** ID minus covariate, and ID minus spurious reversal, for random demonstrations under abstract names.
+    - **C1c:** aligned minus flipped (concept shift), for random demonstrations on ID queries.
+    - **C2a:** counter_spurious minus label_diversity under spurious reversal.
+    - **C2b:** similarity minus label_diversity under covariate shift.
+    - **C2c:** feature_range minus label_diversity under covariate shift.
+    - **C2d:** counter_prior minus label_diversity under flipped names on ID queries.
+    - **C2e:** the interaction, (counter_spurious minus label_diversity) under spurious reversal minus the same under covariate shift.
+    - C2a–C2c and C2e use abstract names.
+    - **C3a:** demo-following index, abstract minus flipped.
+    - **C3b:** ρ(π_true, π_behav), abstract minus flipped.
+    - **Comparator.** Balanced strategies are compared with label_diversity (random, balanced), not free random, so the contrast compares mechanisms at fixed label counts. The spec's draft said "random".
+    - **Deferred.** RQ4 contrasts go to P5.
+- **Status: running since 30 September 2026, 15:30** (`scripts/run_p4.sh`, resumable stages; logs in `results/v3/synthetic/p4/logs/`). The stages, in order:
+  - abstract grid;
+  - aligned and flipped grid;
+  - pool priors;
+  - counter_prior;
+  - RQ3 on seed 0;
+  - random-label control and similarity under names;
+  - Qwen-base;
+  - RQ3 on seeds 1–2.
 
 ### P5 — SATA (2 weeks; CPU training overlaps P4)
 

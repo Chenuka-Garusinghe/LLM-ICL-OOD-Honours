@@ -180,7 +180,7 @@ under flipped names. \\
   \node[box] (sel)    at (8.8,0)   {Demo selection\\mechanism $\times$ composition};
   \node[box] (prompt) at (13.2,0)  {Naming, serialisation + prompt};
   \node[side] (sata)  at (4.4,-2.4) {SATA training\\(v2 / MI / MI-mech)};
-  \node[side] (prior) at (8.8,-2.4) {Priors\\(zero-shot surrogate)};
+  \node[side] (prior) at (8.8,-2.4) {Priors\\(measured zero-shot)};
   \node[box] (run)    at (13.2,-2.4) {HFRunner\\(PyTorch, auto GPU)};
   \node[box] (met)    at (8.8,-4.8) {Metrics +\\statistics};
   \node[side] (probe) at (13.2,-4.8) {Mechanistic\\probes};
@@ -212,7 +212,7 @@ Task generation & 5 tasks; families linear, threshold, tree; 3--5 causal &
 24 evaluation tasks (+12 pilot); linear + tree; exactly 3 causal; manifest & done (P1) \\
 Datasets & 5 tasks merged into one 1{,}280-row pool per shift & per-task
 pools; standardised; column roles permuted & done (P1) \\
-Naming & abstract only & abstract / aligned / flipped & P3 \\
+Naming & abstract only & abstract / aligned / flipped; screened lexicons & done (P3) \\
 Selection & 7 selectors, one fixed seed, test leakage & mechanism $\times$
 composition engine; ground-truth tags; seeded demo sets & done (P1) \\
 Prompt & ungrammatical template & one template (instruct and base) & done (P1) \\
@@ -221,10 +221,10 @@ Inference & \texttt{MLXRunner}; double BOS on Llama & \texttt{HFRunner}
 Device selection & CUDA-or-CPU in two places; SATA selection assumed CPU &
 shared auto-detection: CUDA, then MPS, then CPU & done (P0) \\
 Calibration & none & contextual calibration & done (P1) \\
-Priors & none & zero-shot surrogate, conflict statistic & P3 \\
+Priors & none & measured zero-shot priors on the pool; surrogate (descriptive); conflict statistic & done (P3) \\
 SATA & not on this branch & ported (v2) + MI + MI-mech & P5 \\
 Probes & none & logit lens, probes, steering & P6 \\
-Statistics & per-cell accuracy, $n=30$ & hierarchical bootstrap (P2 gate); Holm & P2, P4 \\
+Statistics & per-cell accuracy, $n=30$ & hierarchical bootstrap; Holm over a frozen contrast family & P2, P4 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -247,7 +247,8 @@ $s_j \in \{+1,-1\}$ & direction of load-bearing feature $j$ \\
 $k$ & demonstrations per prompt (chosen in P2 from $\{8,16,32\}$) \\
 $m = \ell_1 - \ell_0$ & label margin (logit of \texttt{1} minus logit of \texttt{0}) \\
 $m_0(x; N)$ & zero-shot margin under naming $N$ \\
-$\beta_{\mathrm{name}}$ & prior slope of a feature name (P3 surrogate) \\
+$\beta_{\mathrm{name}}$ & prior slope of a feature name (P3 surrogate, descriptive) \\
+$\tilde m_0(x_i; N)$ & measured zero-shot margin of pool row $i$, centred on the pool median \\
 $\pi_t$ & column-role permutation of task $t$ \\
 $T$, $n$ & number of tasks, queries per task and environment \\
 \bottomrule
@@ -703,7 +704,7 @@ Both remain in the generator but are not evaluated.
 \section{Environment generation}
 \label{sec:environments}
 %======================================================================
-\status{Implemented (P1)}
+\status{Implemented (P1); covariate shift redesigned in P2}
 
 Every call to \texttt{generate\_environment()} follows the same skeleton:
 
@@ -744,25 +745,70 @@ No perturbation.
 Covariate shift changes $P(X)$ while the labelling rule $P(y \mid x)$ stays
 fixed \citep{shimodaira2000improving,morenotorres2012unifying}. Transformers
 trained to learn linear functions in context are brittle under it
-\citep{zhang2024trained}, which motivates testing it here.
-A shift vector is added to 3 features from $\{0,\ldots,7\}$, with
-$\delta_j \sim \text{U}(1,2)\times$Rademacher. The shift is found by
-rejection sampling (up to 50 draws): each candidate's label-1 rate is
-estimated on a 2048-row probe and accepted if it is within 0.03 of the
-unshifted rate, also estimated on 2048 rows. Holding the label rate fixed
-keeps covariate shift from being confounded with prior-probability (label)
-shift \citep{morenotorres2012unifying}.
+\citep{zhang2024trained}, which motivates testing it here. The shift should
+move the rule's own inputs, so that queries fall where the demonstrations
+are sparse, without changing the label rate: a change of $P(y)$ would add
+prior-probability (label) shift \citep{morenotorres2012unifying}.
 
-\begin{proposition}[Base-rate control]
-Each probe estimate has standard error at most $\sqrt{0.25/2048} = 0.011$,
-and the difference of two independent estimates at most $0.0156$. An
-accepted shift therefore changes the true base rate by at most about
-$0.03 + 2 \times 0.0156 \approx 0.06$ with roughly 95\% confidence. If no
-draw is accepted within 50 tries the last draw is used and a warning is
-logged; the manifest records the achieved probe difference.
-\end{proposition}
+The shift vector moves three features: two load-bearing features in
+opposite label directions and one distractor. Draw two distinct
+load-bearing features $i, j$ at random, with directions $s_i, s_j$, and a
+distractor $d$ from the features in $\{0,\ldots,7\}$ outside $C$ (features 8
+and 9 are overwritten in step 4, so shifting them would do nothing). With a push
+$m$,
+\[
+  \delta_i = s_i\, m / |c_i|, \qquad
+  \delta_j = -s_j\, m / |c_j|, \qquad
+  \delta_d \sim \text{U}(1,2) \times \text{Rademacher}.
+\]
+For linear tasks $m \sim \text{U}\big(\max(|c_i|,|c_j|),\ 2\min(|c_i|,|c_j|)\big)$,
+which puts both $|\delta_i|$ and $|\delta_j|$ in $[1, 2]$ (the interval is
+never empty, because $|c| \in [1,2]$). Tree rules read only signs, so
+$|c_i| = |c_j| = 1$ and $m \sim \text{U}(1,2)$. Every shifted feature
+therefore moves by 1--2 standard deviations: feature $i$ towards label 1,
+feature $j$ towards label 0, and the distractor up or down at random.
 
-Features 8 and 9 are excluded because they are overwritten in step 4.
+\begin{lemma}[The label rate is unchanged]
+\label{lem:covariate-neutral}
+\begin{enumerate}[nosep,label=(\alph*)]
+  \item Linear: $\mathbf{c}^\top(x + \delta) = \mathbf{c}^\top x$ for every
+        row, so every row's label distribution, and hence $P(y=1)$, is
+        unchanged.
+  \item Tree: $P(y_{\mathrm{clean}} = 1)$ stays $1/2$.
+\end{enumerate}
+\end{lemma}
+\begin{proof}
+(a) $c_i\delta_i = s_i|c_i| \cdot s_i m/|c_i| = m$ and $c_j\delta_j = -m$,
+and $d \notin C$ contributes nothing. (b) Let $v_k$ be feature $k$'s vote,
+$\1[s_k x_k > 0]$ (Section~\ref{sec:tree}); the votes are independent, and
+each is 1 with probability $1/2$ before the shift. After it,
+$s_i(x_i + s_i m) > 0$ with probability $p_i = \Phi(m)$ and
+$s_j(x_j - s_j m) > 0$ with probability $p_j = 1 - \Phi(m)$; the third vote
+is unchanged. The majority is 1 when both shifted votes are 1, or exactly
+one of them is and the third vote is 1:
+$p_i p_j + \tfrac12[p_i(1-p_j) + (1-p_i)p_j] = \tfrac12(p_i + p_j) = \tfrac12$.
+\end{proof}
+
+The manifest records each shifted feature's role (\texttt{towards\_1},
+\texttt{towards\_0}, \texttt{distractor}), the push $m$, and a check (not a
+filter): the MAP label-1 rate of the same 20{,}000 fresh rows before and
+after the shift. Over the 24 evaluation tasks the difference is exactly 0
+for the linear tasks and at most 0.009 for the tree tasks.
+
+\paragraph{Why not rejection sampling.} Until 30 September 2026 the shift
+moved 3 features drawn at random from $\{0,\ldots,7\}$ and was redrawn (up
+to 50 times) until the label-1 rate, estimated on a 2048-row probe, was
+within 0.03 of the ID rate. That filter selects distractors: a shift of
+distractors cannot change any label and always passed, while a shift of
+exactly one load-bearing feature moved the rate by a median of 0.23 and
+never passed. In the evaluation suite 21 of 24 tasks shifted distractors
+only, so for most tasks the environment tested sensitivity to irrelevant
+features rather than a shift of the rule's inputs. The rejection sampler is
+kept only for the families that are not evaluated (threshold, sparse
+interaction). The redesign changed only the covariate rows: the pool, the
+ID and spurious-reversal rows and every query id outside the covariate
+environment are identical (checked file by file).
+
 
 %----------------------------------------------------------------------
 \subsection{\texorpdfstring{\texttt{spurious\_reversal}}{spurious-reversal}}
@@ -1051,8 +1097,9 @@ the construction sets to $s$ exactly.
         omitted coefficients, thresholds and leaf tables.)
 \end{itemize}
 
-For the 24 evaluation tasks, every covariate draw was accepted (largest
-probe difference 0.028). The spurious column lands in 7 of the 10 display
+For the 24 evaluation tasks, every covariate shift moves two load-bearing
+features and one distractor, and the label rate is unchanged (probe
+difference 0 for linear and at most 0.009 for tree tasks). The spurious column lands in 7 of the 10 display
 positions, and the raw standard deviation of $f_8$ ranges from 1.29 to 1.61
 before z-scoring (mean 1.45), against about 1.00 for the other columns.
 
@@ -1117,7 +1164,7 @@ data-generating process.
 \section{Naming protocol}
 \label{sec:naming}
 %======================================================================
-\status{Planned (P3)}
+\status{Implemented (P3): \texttt{src/data/naming.py}, \texttt{configs/lexicons.yaml}}
 
 The naming factor carries the label manipulations of \citet{wei2023larger}
 over to feature names. Abstract names play the role of their semantically
@@ -1138,8 +1185,9 @@ $\mathcal{P}_D = \{(p_m, q_m)\}$, where $p_m$ is a name whose real-world
 association with label 1 is positive and $q_m$ one whose association is
 negative, and a set $\mathcal{N}_D$ of plausible names with weak priors. Two
 domains are used: loan approval (1 = approved) and medical risk
-(1 = high risk). Domain is a between-task factor. Draft lexicons are in
-Appendix~\ref{app:lexicon}; final lexicons are fixed by the P3 screening.
+(1 = high risk). Domain is a between-task factor. The candidate and final
+lexicons are in Appendix~\ref{app:lexicon}; the final names come from the P3
+screening (Section~\ref{sec:priors}).
 \end{definition}
 
 \begin{definition}[Namings]
@@ -1160,10 +1208,21 @@ feature a distinct pair $m(j)$ at random (seeded). Then:
 Directions come from ground truth: $s_j = \sign(c_j)$ for linear tasks
 (Lemma~\ref{lem:linear-direction}) and the literal signs for tree tasks
 (Theorem~\ref{thm:tree}). The pool correlation of each feature with the label
-is computed only as a check. Pairs are admitted only if their two members
-have opposite measured prior slopes of similar magnitude
-(Section~\ref{sec:priors}), so flipping changes the direction of the prior
-but not its strength.
+is computed only as a check. A task's pairs and weak names are drawn from
+a stream seeded by the task alone (\texttt{naming\_seed}), so the aligned
+and flipped namings share them.
+
+The design intended pairs whose members have opposite measured prior slopes
+of similar magnitude, so that flipping changes the direction of the prior but
+not its strength. Qwen2.5-7B-Instruct's priors are not symmetric
+(Section~\ref{sec:priors}): a numeric prior makes almost every slope
+positive, and names that should lower $P(1)$ mostly lower the slope without
+reversing it. The final pairs are therefore those with the largest measured
+contrast $\beta_p - \beta_q$. Flipping then weakens the prior on
+positive-direction features and turns it against the rule on
+negative-direction features, where a positive name such as
+\emph{credit score} sits on a column whose larger values lower the label. The
+effect is strong in the loan domain and weak in the medical domain.
 
 \begin{proposition}[Identification]
 \label{prop:identification}
@@ -1315,7 +1374,7 @@ Llama prompts begin with exactly one BOS. (v2's \texttt{MLXRunner} produced
 \section{Selection engine}
 \label{sec:selection}
 %======================================================================
-\status{Implemented (P1); counter\_prior in P3, SATA in P5}
+\status{Implemented (P1, P3); SATA in P5}
 
 Selection is a \emph{mechanism} (which rows are preferred) crossed with a
 \emph{composition} (how many of each label):
@@ -1355,7 +1414,7 @@ feature\_range   & feature\_coverage, balanced & no & MI top-3 features of the p
 rule\_diversity  & gt\_regime, balanced & no & ground-truth regime \\
 counter\_spurious & gt\_counter\_spurious (magnitude-matched), balanced & no & ground-truth \texttt{agree\_obs} \\
 similarity       & feature\_knn, balanced & yes & z-scored features \\
-counter\_prior   & counter\_prior, balanced & no & prior surrogate (P3) \\
+counter\_prior   & counter\_prior, balanced & no & measured zero-shot prior (P3) \\
 SATA-v2, SATA-MI & learned scores, balanced top-$k$ & yes & Part~\ref{part:sata} \\
 \bottomrule
 \end{tabular}}
@@ -1370,7 +1429,7 @@ coverage-based selection \citep{levy2023diverse,gupta2023coverage}.
 %======================================================================
 \section{Mechanisms}
 %======================================================================
-\status{Implemented (P1); counter\_prior in P3}
+\status{Implemented (P1, P3)}
 
 \paragraph{random.} Uniform without replacement.
 
@@ -1404,14 +1463,21 @@ with the sentence-transformers model \texttt{all-MiniLM-L6-v2}
 with the display names and confound the naming factor.
 
 \paragraph{counter\_prior.} Score
-$\1[\sign \hat m_0(x_i) \neq 2y_i - 1]\cdot\1[y_i = y_{\mathrm{clean},i}]$:
-rows whose label contradicts the model's prior \emph{and} follows the rule
-(so label-noise rows are not rewarded). It is active only when the task's
-prior--data conflict (Section~\ref{sec:priors}) exceeds $1/2$; otherwise it
-reduces to balanced random. It is related to misconfidence-based selection
-\citep{xu2024misconfidence}, which prefers demonstrations on which the
-model's output departs from the true label; here the model's zero-shot
-prior, estimated by the surrogate, plays that role.
+$\1[\sign \tilde m_0(x_i; N) \neq 2y_i - 1]\cdot\1[y_i = y_{\mathrm{clean},i}]$,
+where $\tilde m_0$ is the model's measured zero-shot margin on pool row $i$
+under the unit's naming, centred on the pool median
+(Section~\ref{sec:priors}): rows whose label contradicts the model's prior
+\emph{and} follows the rule (so label-noise rows are not rewarded). Rows
+scoring 1 are taken in random order within each class. The strategy is
+active only when the task's prior--data conflict exceeds $1/2$; otherwise it
+shows label\_diversity's demonstration set (the same rows and order), so the
+two strategies coincide exactly. It is related to misconfidence-based
+selection \citep{xu2024misconfidence}, which prefers demonstrations on which
+the model's output departs from the true label; here the model's own
+zero-shot answer on each candidate plays that role. The design used the
+surrogate's prediction; the measured prior replaced it after the surrogate
+failed to fit (Section~\ref{sec:priors}). The code keeps the surrogate as a
+fallback (\texttt{prior\_slopes}).
 
 \subsection{Counter-spurious selection must match on \texorpdfstring{$|f_8|$}{|f8|}}
 
@@ -1526,8 +1592,9 @@ demonstration rows.
   \item \textbf{Query-agnostic strategies} draw one demonstration set per
         (task, strategy, seed). It is reused for every query of that task,
         in every environment, and under every naming for naming-blind
-        strategies. counter\_prior depends on the naming, so it is reused
-        across environments only.
+        strategies. counter\_prior depends on the model and the naming
+        (through the measured prior), so it is reused across environments
+        only; where it is inactive it shows label\_diversity's set.
   \item \textbf{Query-conditional strategies} (feature\_knn, SATA) select
         per query.
   \item \textbf{Order:} a seeded shuffle per demonstration set, so position
@@ -1561,9 +1628,9 @@ selector, standardisation statistic or prior estimate.
 \end{proposition}
 \begin{proof}
 Selectors receive only the pool; standardisation statistics are computed on
-the pool; prior surrogates are fitted on synthetic random profiles
-(Section~\ref{sec:priors}), not on task data; SATA is trained on separate
-training tasks.
+the pool; prior surrogates are fitted on synthetic random profiles, and
+the measured priors are zero-shot answers on pool rows
+(Section~\ref{sec:priors}); SATA is trained on separate training tasks.
 \end{proof}
 
 v2 violated this: its counter-spurious proxy search used \texttt{test\_ood}
@@ -1797,53 +1864,128 @@ content-free prompt measures the prior this thesis studies.
 \section{Measuring priors}
 \label{sec:priors}
 %======================================================================
-\status{Planned (P3)}
+\status{Implemented (P3); G3 failed on the surrogate's fit, naming kept with measured priors}
 
 \begin{definition}[Prior surrogate]
 For a model and domain, the zero-shot margin $m_0(x; N)$ is measured on
-about 400 random profiles $x \sim \mathcal{N}(0, I_{10})$ in z-units, with
-lexicon names assigned to random columns in each profile (so that name and
-position are uncorrelated). A ridge regression \citep{hoerl1970ridge} fits
+random profiles $x \sim \mathcal{N}(0, I_{10})$ in z-units, rounded to 2
+decimals as in every prompt. Each profile names 3 columns from 3 distinct
+pairs (a random member of each) and the other 7 with distinct weak names, in
+random positions, as in a named task prompt, so that name and position are
+uncorrelated. Every model scores the same profiles. A ridge regression
+\citep{hoerl1970ridge} with $\alpha = 1$ fits
 \[
   m_0(x; N) \approx \beta_0 + \sum_{j} \beta_{N(j)}\, x_j ,
 \]
 giving each name a prior slope $\beta_{\mathrm{name}}$: its direction is
-$\sign \beta$ and its strength $|\beta|$. Fit quality is the held-out $R^2$
-(5-fold).
+$\sign \beta$ and its strength $|\beta|$. Fit quality is the out-of-fold
+$R^2$ (5 folds); slope intervals come from 500 bootstrap resamples of the
+profiles. In the abstract condition the names are \texttt{f0}--\texttt{f9}
+in their own positions.
 \end{definition}
 The surrogate is a global surrogate model of the LLM's zero-shot behaviour:
 an interpretable model fitted to a black box's outputs on sampled inputs
 \citep{craven1996extracting}. LIME \citep{ribeiro2016why} fits such models
 locally.
 
-\paragraph{Screening.} An antonym pair is admitted if
-$\beta_p > 0 > \beta_q$ and $|\beta_p|$ and $|\beta_q|$ are within a set
-tolerance; a neutral name is admitted if $|\beta|$ is small.
+\paragraph{Screening (rules fixed before the run).} 800 profiles per domain
+cover every candidate name (8 pairs and 10 weak names per domain,
+Appendix~\ref{app:lexicon}); 400 profiles cover the abstract names. A pair
+$(p, q)$ is admitted if $\beta_p > 0 > \beta_q$, both 95\% intervals exclude
+0, and $\min(|\beta_p|, |\beta_q|) / \max(|\beta_p|, |\beta_q|) \geq 1/2$; a
+weak name is admitted if $|\beta|$ is at most a quarter of the median
+$|\beta|$ of the admitted pair members. The code is
+\texttt{scripts/p3\_prior\_screen.py}.
+
+\paragraph{Result (Qwen2.5-7B-Instruct).}
+\begin{center}
+{\small
+\begin{tabular}{lccL{8.2cm}}
+\toprule
+\textbf{Condition} & \textbf{Out-of-fold $R^2$} & \textbf{Intercept} & \textbf{Slopes} \\
+\midrule
+abstract & 0.51 & $+0.00$ & all positive, 0.22 to 0.89 \\
+loan & 0.20 & $-2.33$ & weak names $+0.29$ on average; 1 of 8 pairs has $\beta_q < 0$ with an interval below 0 \\
+medical & 0.28 & $+1.41$ & weak names $+0.48$ on average; no negative slope below $-0.05$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+\begin{itemize}[nosep]
+  \item A numeric prior dominates: under any name, a larger value makes
+        label 1 more likely. This is the prior found in P2
+        (Section~\ref{sec:spurious}).
+  \item Names that should lower $P(1)$ mostly weaken the slope instead of
+        reversing it. Only \emph{missed payments} reverses clearly
+        ($-0.79$); in the medical domain, \emph{daily step count} ($+0.74$)
+        and \emph{HDL cholesterol} ($+0.35$) push towards high risk.
+  \item The named fits are poor, and flexible models do not rescue them:
+        gradient boosting over names, values and positions reaches 0.29
+        (loan) and 0.44 (medical).
+  \item One pair of 16 passes the screening rule, so the rule cannot supply
+        3 pairs per domain.
+\end{itemize}
+
+\paragraph{Final names.} By the user's decision (30 September 2026), the 5
+pairs per domain with the largest measured contrast $\beta_p - \beta_q$ and
+the 7 weak names with the smallest $|\beta|$ (Appendix~\ref{app:lexicon}).
+In loan every kept contrast has an interval above 0 (the smallest is 1.34,
+$[0.66, 2.17]$). In medical only \emph{systolic blood pressure} /
+\emph{weekly exercise hours} is clear (1.62, $[0.92, 2.32]$); the other
+four lie between 0.29 and 0.67, and two intervals include 0.
+
+\begin{definition}[Measured prior]
+For task $t$, naming $N$ and pool row $i$, the measured prior
+$\tilde m_0(x_i; N)$ is the model's zero-shot margin on that row, under the
+same system message and names as the grid, minus its median over the pool.
+\end{definition}
+Centring removes the model's label bias (the intercept), as contextual
+calibration and AUROC remove it elsewhere, so the prior predicts label 1 for
+half of the pool. The measured prior is exact on the rows it is used on and
+costs 256 zero-shot queries per (task, naming)
+(\texttt{scripts/p3\_pool\_priors.py}, \texttt{PoolPrior}). It replaces the
+surrogate in counter\_prior and in the conflict statistic below; the
+surrogate is kept as a description of the name priors.
 
 \begin{definition}[Prior--data conflict]
-For task $t$ under naming $N$, with the surrogate prediction
-$\hat y_0(x) = \1[\hat m_0(x; N) > 0]$,
+For task $t$ under naming $N$, with $\hat y_0(x) = \1[\tilde m_0(x; N) > 0]$,
 \[
   C_t(N) = 1 - \frac{1}{|\text{pool}|} \sum_{i \in \text{pool}}
   \1[\hat y_0(x_i) = y_i].
 \]
 \end{definition}
 Aligned tasks should have $C_t < 1/2$ and flipped tasks $C_t > 1/2$; this
-is checked. The name follows prior--data conflict in Bayesian model checking
-\citep{evans2006checking}. For language models, context that contradicts
-parametric knowledge is studied as knowledge conflict
-\citep{longpre2021entity,xie2024adaptive}; here the conflict is between the
-rule the names imply and the rule the demonstrations show.
+is checked on the evaluation tasks once the pool priors are measured
+(\texttt{results/v3/synthetic/p3/naming\_gate.json}). The name follows
+prior--data conflict in Bayesian model checking \citep{evans2006checking}.
+For language models, context that contradicts parametric knowledge is
+studied as knowledge conflict \citep{longpre2021entity,xie2024adaptive};
+here the conflict is between the rule the names imply and the rule the
+demonstrations show.
 
 \paragraph{Random-label control.} Demonstrations with shuffled labels keep
 the label marginals and format but break the input--label mapping
 \citep{min2022rethinking}, separating what the model takes from the mapping
-from what it takes from format and prior.
+from what it takes from format and prior. In P4 it is run for
+label\_diversity under every naming.
 
-\paragraph{Gate G3.} Held-out $R^2 \geq 0.5$, and zero-shot accuracy under
-aligned minus flipped naming $\geq 0.15$ (the names really carry priors).
-Names that fail are replaced; if the gate cannot be met, the naming factor
-is dropped and this is documented.
+\paragraph{Gate G3.} Pre-registered: out-of-fold $R^2 \geq 0.5$ in every
+domain, and zero-shot AUROC under aligned minus flipped naming $\geq 0.15$ on
+the pilot's ID queries (the names really carry priors). The draft stated the
+second criterion in accuracy; AUROC was fixed before the check ran, because
+zero-shot predictions are uncalibrated and raw accuracy mixes the model's
+label bias into the contrast.
+\begin{itemize}[nosep]
+  \item $R^2$: 0.20 (loan) and 0.28 (medical), so the criterion fails.
+  \item Separation, on the 12 pilot tasks with the final names: zero-shot
+        AUROC 0.499 abstract, 0.594 aligned and 0.430 flipped; the
+        difference is 0.164, 95\% interval $[0.053, 0.287]$, positive on 10
+        of 12 tasks (raw accuracy: 0.113). By domain it is 0.278 (loan) and
+        0.050 (medical).
+  \item Decision (the user's, 30 September 2026): keep the naming factor.
+        counter\_prior and $C_t$ use the measured prior, so the surrogate's
+        fit no longer matters for any result; medical is reported as a
+        weak-prior domain.
+\end{itemize}
 
 %======================================================================
 \newpage
@@ -1919,29 +2061,55 @@ sign test; \citealp{dixon1946statistical}), guarding against a few tasks
 driving the mean.
 
 \paragraph{Multiplicity.} Holm correction \citep{holm1979simple} over a
-pre-registered contrast family \citep{nosek2018preregistration}, frozen
-before P4. Draft:
+pre-registered contrast family \citep{nosek2018preregistration}, frozen on
+30 September 2026 before any P4 result existed (\texttt{CONTRASTS} in
+\texttt{src/evaluation/analysis.py}). All ten contrasts are one-sided (the
+direction below is the alternative), paired by task and query, and tested
+with the hierarchical bootstrap (\texttt{hierarchical\_contrast}, $B = 2000$);
+their p-values are Holm-adjusted together. The statistic for C1 and C2 is
+AUROC, computed within a cell from the calibrated $p_1$ (for a query-agnostic
+strategy this equals the AUROC of the raw $p_1$; for similarity it removes
+each query's own prompt bias). Calibrated balanced accuracy is reported
+alongside and is not part of the family. The family was first frozen with
+calibrated balanced accuracy; on the same day, after the first 11 tasks
+(seed 0, abstract names) showed that contextual calibration often leaves every
+query of a plain-random cell on one side of the threshold (36\% of cells),
+which pins balanced accuracy at 0.5 and forces those cells' shift gaps to 0,
+the user chose AUROC, the study's primary metric and the metric of the P2
+and G3 gates (\texttt{hiccups/15}).
 \begin{enumerate}[nosep,label=C\arabic*.]
-  \item RQ1: $\mathrm{BA}_{\mathrm{ID}} - \mathrm{BA}_{\mathrm{OOD}} > 0$ for random
-        demonstrations, for each shift type (3 contrasts).
-  \item RQ2: counter\_spurious $-$ random $> 0$ under spurious reversal;
-        feature\_knn and feature\_range $-$ random $> 0$ under covariate
-        shift; counter\_prior $-$ random $> 0$ under concept shift; and the
-        interaction (counter\_spurious $-$ random) under spurious reversal
-        minus the same under covariate shift $> 0$.
-  \item RQ3: DFI under flipped $<$ DFI under abstract naming;
-        $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$ under flipped $<$
-        under abstract.
-  \item RQ4: SATA-v2 $-$ best hand-designed strategy $\geq 0$ on
-        worst-environment calibrated BA; SATA-MI $-$ SATA-v2 $> 0$ and
-        SATA-MI $-$ SATA-names $> 0$ under flipped naming.
+  \item RQ1, random demonstrations. (a) ID minus covariate and (b) ID minus
+        spurious reversal, both under abstract names, $> 0$; (c) aligned
+        minus flipped names on ID queries (concept shift) $> 0$.
+  \item RQ2. (a) counter\_spurious minus label\_diversity under spurious
+        reversal; (b) similarity (feature\_knn) and (c) feature\_range minus
+        label\_diversity under covariate shift; (d) counter\_prior minus
+        label\_diversity under flipped names on ID queries; (e) the
+        interaction, (counter\_spurious minus label\_diversity) under spurious
+        reversal minus the same under covariate shift. All $> 0$; (a)--(c)
+        and (e) under abstract names.
+  \item RQ3. (a) DFI under abstract minus flipped names $> 0$; (b)
+        $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$ under abstract
+        minus flipped names $> 0$.
+  \item RQ4 (a separate family, fixed before P5): SATA-v2 $-$ best
+        hand-designed strategy $\geq 0$ on worst-environment calibrated BA;
+        SATA-MI $-$ SATA-v2 $> 0$ and SATA-MI $-$ SATA-names $> 0$ under
+        flipped naming.
 \end{enumerate}
+Two points were settled when the draft was frozen. Balanced strategies are
+compared with label\_diversity (random, balanced), not with free random, so
+each RQ2 contrast compares mechanisms at fixed label counts
+(Proposition~\ref{prop:balanced}); plain random remains the RQ1 baseline.
+For a query-agnostic strategy an environment gap is a within-prompt
+contrast, and the bootstrap resamples the ID and OOD queries of each task
+separately.
 
 %======================================================================
 \section{Faithfulness and reliance (RQ3)}
 \label{sec:faithfulness}
 %======================================================================
-\status{Planned (P4)}
+\status{Implemented (P4): \texttt{src/experiments/rq3.py},
+\texttt{scripts/run\_rq3.py}; analysis in \texttt{src/evaluation/analysis.py}}
 
 As in the project's literature review, the design follows STaDS
 \citep{li2025stads}, which measures decision faithfulness as the rank
@@ -1956,18 +2124,29 @@ importance has previously been compared with occlusion and LIME
         (positive for load-bearing features, zero otherwise;
         \texttt{true\_importance\_scores} from \texttt{main}), available
         because the data are synthetic \citep{liu2021synthetic}.
-  \item $\pi_{\mathrm{behav}}$: the drop in accuracy when feature $j$ of the
-        query is replaced by a donor row's value (hot-deck imputation,
-        \citealp{andridge2010review}; \texttt{hot\_deck\_impute\_feature}).
+  \item $\pi_{\mathrm{behav}}$: the mean drop in the correct-label margin
+        $(2y-1)(m - m_{\mathrm{cf}})$ when feature $j$ of the query is
+        replaced by a donor row's value (hot-deck imputation,
+        \citealp{andridge2010review}; \texttt{hot\_deck\_impute\_feature}:
+        one of the 5 nearest pool rows on the other 9 columns, at random).
+        The drop in calibrated accuracy is reported alongside; with 20
+        queries it moves in steps of 0.05, and its ties make the rank
+        correlation unstable, so the margin version is primary (fixed
+        before P4).
         Drawing the replacement from the data keeps the perturbed query in
         distribution, the principle \citet{zhu2026faithfulness} argue for
         image attribution. It is removal by marginal sampling in the
         framework of \citet{covert2021explaining}, and resembles permutation
         importance \citep{breiman2001random}.
-  \item $\pi_{\mathrm{self}}$: the model's own ranking from the
-        feature-ranking prompt.\newline
-        Code: \texttt{build\_feature\_ranking\_prompt} and
-        \texttt{parse\_feature\_ranking}.
+  \item $\pi_{\mathrm{self}}$: the model's own ranking. After the same
+        demonstrations, the ranking prompt asks: ``Rank all 10 measurements
+        from most to least important for predicting the label. Respond with
+        the measurement names only, separated by commas, most important
+        first.'' Its system message is the grid's without the answer-format
+        sentence. The greedy answer is matched against the display names
+        (\texttt{parse\_ranking}, which also accepts list markers and case
+        changes); unlisted columns go last, and the number listed is
+        recorded.
   \item Correctness $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$ and
         internal consistency $\rho(\pi_{\mathrm{self}}, \pi_{\mathrm{behav}})$,
         Spearman with bootstrap intervals, by naming.
@@ -1977,9 +2156,24 @@ importance has previously been compared with occlusion and LIME
 For query $x$ and load-bearing feature $j$, let
 $g_j = m(x + \delta e_j) - m(x - \delta e_j)$ with $\delta = 0.5$ z-units.
 The response follows the data if $\sign g_j = s_j$ and follows the name if
-$\sign g_j = \sign \beta_{N(j)}$. The demo-following index is the fraction
-of (query, load-bearing feature) pairs with $\sign g_j = s_j$.
+$\sign g_j$ equals the name's lexicon direction ($+1$ for a pair's first
+member, $-1$ for its second). The demo-following index is the fraction of
+(query, load-bearing feature) pairs with $\sign g_j = s_j$.
 \end{definition}
+The draft read the name's direction from the surrogate, $\sign \beta_{N(j)}$;
+with Qwen's numeric prior almost every $\beta$ is positive
+(Section~\ref{sec:priors}), so that version would test ``bigger values mean
+1'' rather than the name, and the lexicon direction is used instead.
+
+\paragraph{Implementation.} A unit is (model, naming, task, seed). It shows
+the grid's label\_diversity demonstration set for that task and seed (the
+same rows and order) and scores, against one cached prefix, every ID query,
+each query with each of its 10 columns replaced by its donor value, each
+query with each load-bearing column and $f_8$ moved by $\pm 0.5$ (so reliance
+on the shortcut is also read, in the task's direction $\sigma_t$), and the
+content-free query; 381 suffixes per unit. Donors depend only on the task
+and the column, so every naming and seed sees the same perturbed queries.
+The ranking prompt follows. Seed 0 runs first.
 Under flipped naming, following the data and following the name are
 mutually exclusive, so DFI measures, feature by feature, which side of the
 contest wins. It plays the role, for individual features, of the
@@ -2038,6 +2232,9 @@ SATA-MI & $[x,\ \beta \odot x,\ \hat m_0(x)]$, measured prior slopes and surroga
 \bottomrule
 \end{tabular}
 \end{center}
+Since P3 the surrogate is descriptive only (its fit failed G3,
+Section~\ref{sec:priors}); P5 may take $\hat m_0$ from the measured prior on
+the pool rows and the zero-shot margin of the query instead.
 
 %======================================================================
 \section{Training targets}
@@ -2299,6 +2496,29 @@ Qwen2.5-7B base (and on Llama-3.1-8B-Instruct if it is resumed with a fixed
 answer format): abstract and flipped namings;
 zero\_shot, random, counter\_spurious, counter\_prior and SATA variants.
 
+\paragraph{P4 runs.} \texttt{scripts/run\_p4.sh} runs resumable stages, in
+this order:
+\begin{enumerate}[nosep]
+  \item abstract names: zero-shot, random, label\_diversity, feature\_range,
+        rule\_diversity and counter\_spurious (3 seeds), the random-label
+        control (label\_diversity with shuffled labels), similarity, and the
+        measured pool priors;
+  \item the same strategies under aligned and flipped names, then their pool
+        priors;
+  \item counter\_prior under every naming;
+  \item RQ3 on seed 0;
+  \item the random-label control and similarity under aligned and flipped
+        names;
+  \item Qwen2.5-7B base: the P2 checks at $k = 8$ on the pilot (label mass,
+        learnability), then, if its median label mass is at least 0.9, its
+        pool priors and the reduced grid (\texttt{scripts/p4\_base\_check.py});
+  \item RQ3 on seeds 1 and 2.
+\end{enumerate}
+Similarity uses one seed: feature kNN selects the same rows for every seed,
+so extra seeds would only reorder them (decided before P4). Every stage
+writes to \texttt{results/v3/synthetic/p4/}; the names each task was shown
+under are recorded in \texttt{grid.names.json}.
+
 \paragraph{Compute (measured in P2).} On the M3 Max with PyTorch on MPS
 (bf16, batch size 1), a P4 unit (one demonstration set, 60 queries and the
 content-free query) takes 24, 26 and 32~s at $k = 8, 16, 32$ for
@@ -2329,8 +2549,12 @@ Probes & 3 & 4 \\
 \bottomrule
 \end{tabular}
 \end{center}
-The range reflects the number of similarity seeds, to be fixed before P4.
-Without prefix caching the total exceeds 150 GPU-hours.
+The range reflected the number of similarity seeds, fixed at one before
+P4. Named prompts are about 11\% longer (102 against 92 tokens per
+demonstration line), so named units take slightly longer. With the P3
+additions (measured pool priors, the random-label control under every naming
+and RQ3 on 3 seeds), P4 on the Mac is planned at about 30 hours. Without
+prefix caching the total would exceed 150 GPU-hours.
 
 %======================================================================
 \section{Gates}
@@ -2352,8 +2576,8 @@ above 0, at the smallest passing $k$; median label mass $\geq 0.9$; caching
 moves the mean AUROC by $\leq 0.005$ &
 retry with 6 visible features; else abstract names become the floor
 condition \\
-G3 & P3 & surrogate $R^2 \geq 0.5$; zero-shot aligned $-$ flipped accuracy
-$\geq 0.15$ & replace names; else drop naming \\
+G3 & P3 & surrogate $R^2 \geq 0.5$; zero-shot aligned $-$ flipped AUROC
+$\geq 0.15$ (stated in accuracy in the draft) & replace names; else drop naming \\
 5a & P5 & oracle targets beat strategies on the proxy; LLM validation run &
 RQ4 reported as a documented negative \\
 5b & P5 & proxy--LLM Spearman $\geq 0.5$; SATA-MI $\geq$ both controls &
@@ -2383,6 +2607,14 @@ P6 & P6 & $|m_L - m| \leq 10^{-3}$ & fix probe code \\
         (fixed spurious direction) is archived
         (Section~\ref{sec:spurious}). Llama-3.1-8B-Instruct's result is not
         valid (label mass 0.02) and Llama is paused. 80 tests pass.
+  \item G3, 30 September 2026, Qwen2.5-7B-Instruct: \textbf{fails as
+        pre-registered}. The surrogate's out-of-fold $R^2$ is 0.20 (loan)
+        and 0.28 (medical). The separation passes: zero-shot AUROC aligned
+        minus flipped is 0.164, $[0.053, 0.287]$, on the 12 pilot tasks
+        (0.278 loan, 0.050 medical). The user kept the naming factor, with
+        counter\_prior and $C_t$ computed from measured priors, so the
+        surrogate is descriptive only (Section~\ref{sec:priors};
+        \texttt{hiccups/14}). 100 tests pass.
 \end{itemize}
 
 %======================================================================
@@ -2459,6 +2691,11 @@ from the final hidden state (Section~\ref{sec:scoring}) & fixed (P2) \\
 ``bigger values mean 1'' backed the shortcut in every task (Qwen's zero-shot
 AUROC $0.633$, all of it from $f_8$) & per-task direction $\sigma_t$,
 balanced (Section~\ref{sec:spurious}) & fixed (P2) \\
+20 & the label-rate filter on the covariate shift accepted almost only
+shifts of distractors (21 of 24 evaluation tasks), so the environment mostly
+tested irrelevant features & two load-bearing features shifted in opposite
+label directions plus one distractor; label rate unchanged
+(Lemma~\ref{lem:covariate-neutral}) & fixed (P2) \\
 19 & Llama-3.1-8B-Instruct began to explain its reasoning (``To infer the
 rule\ldots''), putting about 2\% of its probability on the label tokens, so
 its scores carried almost no signal & label-mass rule ($\geq 0.9$) in the
@@ -2506,6 +2743,11 @@ the phase that needs them.
   \item \textbf{Counter-spurious decorrelation.} Pooled
         $|\corr(\sigma_t f_8, y)| \leq 0.1$ in counter-spurious sets; naive cell
         balancing would give about $0.33$ (tested).
+  \item \textbf{Covariate shift moves the rule's inputs.} Two
+        load-bearing features in opposite label directions and one
+        distractor, each by 1--2 standard deviations, with an unchanged
+        label rate (tested). Report which features moved; do not filter
+        shifts on the label rate.
   \item \textbf{Spurious direction.} $\sigma_t$ is balanced within each
         (family, domain) cell, and $\sigma_t = -1$ changes only the sign of
         $f_8$ (tested). Statistics of $f_8$ reliance read $f_8$ in the
@@ -2546,32 +2788,44 @@ the phase that needs them.
 \appendix
 %======================================================================
 
-\section{Draft lexicons}
+\section{Lexicons}
 \label{app:lexicon}
 
-Candidates only; the P3 screening measures each name's prior slope on each
-model and fixes the final lists.
+Candidates were screened on Qwen2.5-7B-Instruct
+(Section~\ref{sec:priors}); \texttt{configs/lexicons.yaml} holds both lists.
+Slopes $\beta$ are from the 800-profile screening run.
 
 \paragraph{Loan approval} (1 = approved, 0 = denied).
 \begin{itemize}[nosep]
-  \item Pairs (positive / negative): credit score / number of missed
-        payments; annual income / debt-to-income ratio; years at current
-        job / recent credit applications; savings balance / credit card
-        utilisation; on-time payment rate / number of defaults.
-  \item Weak-prior names: application day of month; branch number; form
-        version; pages in application; applicant ID last digit; hour of
-        submission; days since form printed.
+  \item Final pairs (raises / lowers approval; contrast $\beta_p - \beta_q$):
+        net worth / collection accounts (2.47); credit score / missed
+        payments (2.29); on-time payment rate / past defaults (1.79); years
+        at current job / recent credit applications (1.45); savings balance /
+        credit card utilisation (1.34).
+  \item Candidates not kept: credit history length / outstanding debt
+        (0.94); collateral value / loan-to-value ratio (0.86); annual income /
+        debt-to-income ratio (0.20).
+  \item Final weak names: form version; mailing batch number; office floor
+        number; loan officer ID; days since form printed; applicant ID last
+        digit; hour of submission ($|\beta| \leq 0.32$).
+  \item Weak candidates not kept: branch number; application day of month;
+        pages in application ($\beta$ 0.36 to 0.71).
 \end{itemize}
 
 \paragraph{Medical risk} (1 = high risk, 0 = low risk).
 \begin{itemize}[nosep]
-  \item Pairs (increases risk / decreases risk): systolic blood pressure /
-        weekly exercise hours; LDL cholesterol / HDL cholesterol; body mass
-        index / daily vegetable servings; smoking pack-years / nightly hours
-        of sleep; resting heart rate / fitness test score.
-  \item Weak-prior names: clinic room number; appointment weekday; chart
-        version; referral code digit; form page count; staff ID digit;
-        minutes since check-in.
+  \item Final pairs (raises / lowers risk): systolic blood pressure / weekly
+        exercise hours (1.62); waist circumference / grip strength (0.67);
+        resting heart rate / fitness test score (0.65); LDL / HDL cholesterol
+        (0.65); smoking pack-years / nightly hours of sleep (0.29).
+  \item Candidates not kept: body mass index / daily vegetable servings
+        (0.21); fasting blood glucose / daily step count ($-0.07$); alcohol
+        drinks per week / lung function score ($-0.28$).
+  \item Final weak names: printer tray number; staff ID digit; clinic room
+        number; form page count; chart version; waiting room seat number;
+        minutes since check-in ($\beta$ 0.06 to 0.52).
+  \item Weak candidates not kept: appointment weekday; referral code digit;
+        record batch number ($\beta$ 0.72 to 0.76).
 \end{itemize}
 
 \section{The eight admissible tree tables}

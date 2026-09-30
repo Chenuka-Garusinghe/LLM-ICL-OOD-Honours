@@ -1,32 +1,62 @@
-"""System instruction and prompt templates for the classifier LLM."""
+"""Prompt templates (generator_spec.pdf, prompt templates).
+
+One template serves every condition. The system message states the task as
+rule induction over standardised measurements; under naming it adds what the
+two labels mean in the task's domain. The aligned and flipped namings share
+a domain, so their system messages are byte-identical, and the label tokens
+are `0`/`1` everywhere.
+
+The user message is the newline-joined demonstrations followed by the query
+line (serialisation.py); a zero-shot prompt holds only the query.
+
+- Instruct models: the (system, user) pair goes through the tokenizer's chat
+  template with the assistant generation prompt, so the next token is the
+  answer.
+- Base model: a raw completion prompt, the system text, a blank line, the
+  demonstrations, then the query ending in "-> " with a trailing space.
+  Demonstrations end in "-> 1", which tokenises as "->", " ", "1" (" 1" is
+  not a single token), so the trailing space makes the answer token "0" or
+  "1", as in the demonstrations.
+
+v2's template ("Given the features of an individual, predict Classify the
+input ...") was ungrammatical and a leftover from the real-data arm.
+"""
 
 from __future__ import annotations
 
-# v1's synthetic task_description ("the label of a synthetic binary
-# classification task", set in Notebook 06) told the model nothing about
-# *what kind* of task this is -- there is no statement that a rule over the
-# features exists and should be induced from the labelled examples. Under
-# the Bayesian view of ICL (lit review ref [14]), the prompt is the evidence
-# the model uses to infer the latent task; v1's prompt didn't identify the
-# task as rule induction at all. This description states that plainly while
-# deliberately keeping abstract `feature_N` names (no real-world priors
-# injected into the synthetic arm). See REDESIGN_RATIONALE.md §4.1/§5.1.
-SYNTHETIC_TASK_DESCRIPTION = (
-    "each example lists 10 numeric measurements and whether it satisfies an "
-    "unknown condition; the condition is determined by a rule over some of the "
-    "measurements; infer the rule from the labelled examples and classify the "
-    "final one"
-)
-
 SYSTEM_TEMPLATE = (
-    "You are a classifier. Given the features of an individual, predict {task_description}.\n"
-    "Respond with exactly one word: {label_0} or {label_1}."
+    "You are a classifier. {subject} All measurements are standardised "
+    "(0 = average, 1 = one standard deviation above average). The label follows "
+    "an unknown rule over some of the measurements. Infer the rule from the "
+    "labelled examples, then classify the final example. Respond with exactly "
+    "one character: 0 or 1."
 )
 
-SYSTEM_TEMPLATE_WITH_MEANINGS = (
-    "You are a classifier. Given the features of an individual, predict {task_description}.\n"
-    "Respond with exactly one word, {label_0} or {label_1}, where "
-    "{label_0} = {label_0_meaning} and {label_1} = {label_1_meaning}."
+ABSTRACT_SUBJECT = "Each example lists {n} numeric measurements and a label (0 or 1)."
+
+# Named conditions (P3). The sentence depends only on the domain, never on the naming.
+DOMAIN_SUBJECTS = {
+    "loan": (
+        "Each example describes a loan applicant with {n} measurements and a label: "
+        "1 means the loan was approved, 0 means it was denied."
+    ),
+    "medical": (
+        "Each example describes a patient with {n} measurements and a label: "
+        "1 means the patient is at high risk, 0 means low risk."
+    ),
+}
+
+# RQ3 self-report (pi_self): the same framing without the answer-format line,
+# then the demonstrations and a ranking request instead of a query.
+RANKING_SYSTEM_TEMPLATE = (
+    "You are a classifier. {subject} All measurements are standardised "
+    "(0 = average, 1 = one standard deviation above average). The label follows "
+    "an unknown rule over some of the measurements. Infer the rule from the "
+    "labelled examples."
+)
+RANKING_REQUEST = (
+    "Rank all {n} measurements from most to least important for predicting the label. "
+    "Respond with the measurement names only, separated by commas, most important first."
 )
 
 FEATURE_RANKING_TEMPLATE = (
@@ -37,66 +67,47 @@ FEATURE_RANKING_TEMPLATE = (
 )
 
 
-def build_classification_prompt(
-    task_description: str,
-    label_tokens: tuple[str, str],
+def system_message(domain: str | None = None, n_features: int = 10) -> str:
+    """System message; `domain=None` is the abstract condition."""
+    subject = ABSTRACT_SUBJECT if domain is None else DOMAIN_SUBJECTS[domain]
+    return SYSTEM_TEMPLATE.format(subject=subject.format(n=n_features))
+
+
+def ranking_system_message(domain: str | None = None, n_features: int = 10) -> str:
+    """System message of the RQ3 feature-ranking prompt; `domain=None` is abstract."""
+    subject = ABSTRACT_SUBJECT if domain is None else DOMAIN_SUBJECTS[domain]
+    return RANKING_SYSTEM_TEMPLATE.format(subject=subject.format(n=n_features))
+
+
+def ranking_request(n_features: int = 10) -> str:
+    """The ranking request, placed after a blank line below the demonstrations."""
+    return "\n" + RANKING_REQUEST.format(n=n_features)
+
+
+def user_message(demo_lines: list[str], query_line: str) -> str:
+    return "\n".join([*demo_lines, query_line])
+
+
+def completion_prompt(system: str, demo_lines: list[str], query_line: str) -> str:
+    """Raw completion prompt for base models (no chat template)."""
+    return f"{system}\n\n" + "\n".join([*demo_lines, f"{query_line} "])
+
+
+def render_prompt(
+    tokenizer,
+    system: str,
     demo_lines: list[str],
     query_line: str,
-    label_meanings: tuple[str, str] | None = None,
+    use_chat_template: bool = True,
 ) -> str:
-    """Assemble the full classification prompt: system instruction + demos + query.
-
-    `demo_lines` are already-serialised demo rows (see src/data/serialisation.py);
-    `query_line` is the serialised query row ending in "->".
-
-    `label_meanings` (real arm only): a ("meaning of label_0", "meaning of
-    label_1") pair, e.g. from tableshift_loader.TASK_DESCRIPTIONS. When given,
-    the instruction spells out what each label means. When omitted (synthetic
-    arm), the original bare "one word: 0 or 1" instruction is used unchanged.
-    """
-    if label_meanings is None:
-        system = SYSTEM_TEMPLATE.format(
-            task_description=task_description, label_0=label_tokens[0], label_1=label_tokens[1]
-        )
-    else:
-        system = SYSTEM_TEMPLATE_WITH_MEANINGS.format(
-            task_description=task_description,
-            label_0=label_tokens[0], label_1=label_tokens[1],
-            label_0_meaning=label_meanings[0], label_1_meaning=label_meanings[1],
-        )
-    body = "\n".join(demo_lines)
-    return f"{system}\n\n{body}\n\n{query_line}"
-
-
-def build_chat_messages(
-    task_description: str,
-    label_tokens: tuple[str, str],
-    demo_lines: list[str],
-    query_line: str,
-    label_meanings: tuple[str, str] | None = None,
-) -> list[dict[str, str]]:
-    """Same content as `build_classification_prompt`, split into a
-    (system, user) message pair for src/inference/chat.py::ChatFormatter --
-    the v2 prompt path (Stage 1a). `build_classification_prompt` (the v1
-    raw-string builder) is kept unchanged for the `prompt_version`
-    comparability column.
-    """
-    if label_meanings is None:
-        system = SYSTEM_TEMPLATE.format(
-            task_description=task_description, label_0=label_tokens[0], label_1=label_tokens[1]
-        )
-    else:
-        system = SYSTEM_TEMPLATE_WITH_MEANINGS.format(
-            task_description=task_description,
-            label_0=label_tokens[0], label_1=label_tokens[1],
-            label_0_meaning=label_meanings[0], label_1_meaning=label_meanings[1],
-        )
-    body = "\n".join(demo_lines)
-    user = f"{body}\n\n{query_line}" if body else query_line
-    return [
+    """The full prompt string the model scores."""
+    if not use_chat_template:
+        return completion_prompt(system, demo_lines, query_line)
+    messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": user},
+        {"role": "user", "content": user_message(demo_lines, query_line)},
     ]
+    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
 def build_feature_ranking_prompt(

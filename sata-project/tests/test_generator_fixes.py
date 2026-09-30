@@ -17,6 +17,7 @@ from src.evaluation.generator_checks import (
     check_shift_preserves_base_rate,
     check_spurious_strength,
 )
+from src.utils.config import set_seed
 
 V2_GENERATOR_CONFIG = SimpleNamespace(
     n_features=10,
@@ -33,6 +34,10 @@ V2_GENERATOR_CONFIG = SimpleNamespace(
 
 @pytest.fixture(scope="module")
 def tasks():
+    # The older sampler draws from the global random state; seed it so the
+    # tests always see the same tasks (unseeded, this module failed about one
+    # run in six on sampling noise alone).
+    set_seed(0)
     _, test_tasks = generate_val_test_tasks(V2_GENERATOR_CONFIG)
     si_tasks = _sample_tasks(V2_GENERATOR_CONFIG, 15, "si", ["sparse_interaction"])
     return test_tasks + si_tasks

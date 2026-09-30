@@ -24,20 +24,15 @@ from src.models.sata_targets import compute_target_scores
 from src.models.standardise import standardise
 from src.models.xgb_proxy import fit_predict_one
 from src.selection.balanced_topk import balanced_top_k
+from src.utils.device import resolve_device
 
 
-def _resolve_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    # CPU fallback: this training loop issues hundreds of thousands of tiny,
-    # sequential forward/backward calls (n_train_tasks x 6 environments x
-    # epochs). PyTorch's intra-op thread-pool dispatch overhead per call
-    # outweighs any benefit from multiple threads at this batch size, so keep
-    # it single-threaded here specifically -- unlike XGBoost/sklearn/numpy
-    # elsewhere in this project, which do benefit from the multi-core
-    # OMP_NUM_THREADS set in src/utils/config.py.
-    torch.set_num_threads(1)
-    return torch.device("cpu")
+def _resolve_device(preference: str = "auto") -> torch.device:
+    device = resolve_device(preference)
+    if device.type == "cpu":
+        # Tiny sequential batches: thread-pool dispatch overhead outweighs multi-threading.
+        torch.set_num_threads(1)
+    return device
 
 
 def _default_n_jobs() -> int:
@@ -132,7 +127,7 @@ def train_sata(
     to restore for exact reproducibility across a resume, only genuinely
     fresh (if statistically equivalent) synthetic batches.
     """
-    device = _resolve_device()
+    device = _resolve_device(getattr(config, "device", "auto"))
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
@@ -274,7 +269,7 @@ def evaluate_sata_proxy(model, val_tasks: list, config: Any, k: int = 8, n_jobs:
     Gate 2/Gate S3a — compare against random/protocol selection baselines
     computed the same way in Notebook 05/06.
     """
-    device = _resolve_device()
+    device = _resolve_device(getattr(config, "device", "auto"))
     model.to(device)
     model.eval()
 
