@@ -811,6 +811,44 @@ environment are identical (checked file by file).
 
 
 %----------------------------------------------------------------------
+\subsection{Covariate probes (exploratory, added after P4)}
+\label{sec:covariate-probes}
+
+The pre-registered covariate contrast C1a found no harm (AUROC $+0.024$).
+Two properties of the \texttt{covariate} design explain much of this
+(\texttt{hiccups/18}). Every covariate row receives the same shift vector, so
+for a scorer roughly linear in the features the shift cannot reorder rows
+within the environment, which is what within-environment AUROC measures; and
+$f_8$ is regenerated from the label in every environment, so the shortcut
+stays valid. Qwen's scores do move: for the same prompt, covariate queries
+score 0.44 to 1.21 logits higher than ID queries (with demonstrations only),
+and ranking ID positives against covariate negatives gives AUROC 0.46--0.54
+under abstract names. Three probe splits, appended after the standard ones
+so that every existing row, value and query id is unchanged, test the
+covariate question further:
+\begin{itemize}[nosep]
+  \item \texttt{covariate\_scale}: every covariate except $f_8$ is
+        multiplied by its own factor $a_j \sim \mathcal{U}(1.5, 3)$, fixed
+        per task, before the rule is applied. Each row moves in proportion to
+        its own values, so rows can be reordered for a scorer whose weights
+        differ from the rule's, and values reach about 6 SD. $P(y \mid x)$ is
+        unchanged, the label rate stays $1/2$ (every feature is symmetric),
+        and $f_8$ is generated from the labels as usual.
+  \item \texttt{<env>\_f8neutral} for \texttt{id}, \texttt{covariate} and
+        \texttt{covariate\_scale}: the same queries with $f_8$ replaced by
+        pool $f_8$ values drawn at random, so it no longer carries the label;
+        query ids match the source, so the pairs are matched query by query.
+\end{itemize}
+On Qwen2.5-7B-Instruct (24 tasks, 3 seeds), the variance shift lowers AUROC
+only under flipped names (by 0.09--0.13; intervals above 0 for random,
+label\_diversity and rule\_diversity), where stretching the rule features
+amplifies a reading of them in the wrong direction. Making $f_8$
+uninformative lowers ID AUROC by 0.05--0.08 (not under counter\_spurious
+demonstrations, which never teach it), but does not widen the covariate gap
+(about 0), so shortcut reliance does not hide covariate harm here. These
+contrasts are exploratory and not part of the frozen family
+(\texttt{EXPLORATORY\_CONTRASTS} in \texttt{src/evaluation/analysis.py}).
+
 \subsection{\texorpdfstring{\texttt{spurious\_reversal}}{spurious-reversal}}
 \label{sec:spurious-reversal}
 %----------------------------------------------------------------------
@@ -1415,6 +1453,7 @@ rule\_diversity  & gt\_regime, balanced & no & ground-truth regime \\
 counter\_spurious & gt\_counter\_spurious (magnitude-matched), balanced & no & ground-truth \texttt{agree\_obs} \\
 similarity       & feature\_knn, balanced & yes & z-scored features \\
 counter\_prior   & counter\_prior, balanced & no & measured zero-shot prior (P3) \\
+counter\_prior\_\allowbreak matched & counter\_prior in label\_diversity's (label, $f_8$) cells & no & prior, \texttt{agree\_obs} (exploratory) \\
 SATA-v2, SATA-MI & learned scores, balanced top-$k$ & yes & Part~\ref{part:sata} \\
 \bottomrule
 \end{tabular}}
@@ -1478,6 +1517,18 @@ zero-shot answer on each candidate plays that role. The design used the
 surrogate's prediction; the measured prior replaced it after the surrogate
 failed to fit (Section~\ref{sec:priors}). The code keeps the surrogate as a
 fallback (\texttt{prior\_slopes}).
+
+\paragraph{counter\_prior\_matched (exploratory, added during P4).} Qwen's
+zero-shot answers rise with every value, including $f_8$'s, so where
+$\sigma_t = -1$ the rows that contradict the prior are mostly rows on which
+the shortcut is right: counter\_prior's sets held 91\% shortcut-agreeing rows
+there, against 84\% for label\_diversity (\texttt{hiccups/16}). The matched
+variant takes label\_diversity's set for the same seed as a reference and
+keeps its number of rows in each (label, $f_8$ agrees) cell, so label counts
+and the shortcut's apparent reliability match label\_diversity's exactly;
+within each cell it prefers clean prior-contradicting rows, then other clean
+rows, then label-noise rows. Where counter\_prior is inactive it is
+label\_diversity's set. It is not part of the contrast family.
 
 \subsection{Counter-spurious selection must match on \texorpdfstring{$|f_8|$}{|f8|}}
 
@@ -2515,9 +2566,24 @@ this order:
   \item RQ3 on seeds 1 and 2.
 \end{enumerate}
 Similarity uses one seed: feature kNN selects the same rows for every seed,
-so extra seeds would only reorder them (decided before P4). Every stage
-writes to \texttt{results/v3/synthetic/p4/}; the names each task was shown
-under are recorded in \texttt{grid.names.json}.
+so extra seeds would only reorder them (decided before P4). The names each
+task was shown under are recorded with the results (\texttt{*.names.json}).
+
+\paragraph{Where P4 ran (1 October 2026).} The Mac chain finished the
+abstract-name grid and stopped partway through the named grid. P4 was then run
+in full on one Runpod H200 (141 GB, CUDA 13), so every P4 comparison is within
+one device (\texttt{scripts/run\_p4\_pod.sh}). At batch size 1 one process
+leaves the GPU mostly idle, so 8 worker processes, each with its own copy of
+the model and its own shard of units (\texttt{--shard i/N}), shared the GPU as
+clients of NVIDIA MPS: about 160 forward passes per second in total, against
+about 84 with plain time-slicing and 3.4 on the Mac. The whole of P4 (about
+255,000 passes) took 42 minutes. On the H200 the cache check passes (mean
+AUROC 0.5783 cached against 0.5825 full, difference 0.0042), and Qwen2.5-7B
+base passes the P2 checks at $k = 8$ (label mass 1.0; $\Delta = 0.103$,
+$[0.023, 0.186]$). On the 718 units the Mac also ran, prompts are identical,
+margins correlate at 0.996 and mean AUROC agrees within 0.001, while calibrated
+predictions agree on only 87\% of queries. Results:
+\texttt{results/v3/synthetic/h200/}.
 
 \paragraph{Compute (measured in P2).} On the M3 Max with PyTorch on MPS
 (bf16, batch size 1), a P4 unit (one demonstration set, 60 queries and the
@@ -2615,6 +2681,10 @@ P6 & P6 & $|m_L - m| \leq 10^{-3}$ & fix probe code \\
         counter\_prior and $C_t$ computed from measured priors, so the
         surrogate is descriptive only (Section~\ref{sec:priors};
         \texttt{hiccups/14}). 100 tests pass.
+  \item P4 instrument checks, 1 October 2026, on the Runpod H200: the cache
+        check passes (0.0042), Qwen2.5-7B base passes the P2 checks at
+        $k = 8$, and the H200 reproduces the Mac's AUROC (within 0.001 on
+        718 shared units). 104 tests pass.
 \end{itemize}
 
 %======================================================================

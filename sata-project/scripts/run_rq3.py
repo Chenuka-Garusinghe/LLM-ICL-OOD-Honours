@@ -25,6 +25,7 @@ from src.data.suites import load_suite, suite_dir  # noqa: E402
 from src.experiments.rq3 import RQ3Runner, enumerate_rq3_units  # noqa: E402
 from src.experiments.synth_grid import GridRunner  # noqa: E402
 from src.inference.hf_runner import runner_from_config  # noqa: E402
+from src.utils.shard import take_shard  # noqa: E402
 
 
 def _csv(value: str) -> list[str]:
@@ -43,13 +44,14 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=config.selection.n_demo_seeds)
     parser.add_argument("--k", type=int, default=config.selection.k)
     parser.add_argument("--no-rank", action="store_true", help="skip the self-reported ranking")
+    parser.add_argument("--shard", default=None, help="i/N: run every N-th unit starting at i (parallel workers)")
     args = parser.parse_args()
 
     manifest = load_suite(args.suite, config)
     task_ids = [t["task_id"] for t in manifest["tasks"]][: args.tasks]
     namings = _csv(args.namings)
     models = {m.name: m for m in config.models}
-    units = enumerate_rq3_units(_csv(args.models), namings, task_ids, args.seeds, args.k)
+    units = take_shard(enumerate_rq3_units(_csv(args.models), namings, task_ids, args.seeds, args.k), args.shard)
     out = resolve_path(config.paths.results) / f"{args.run}.parquet"
     print(f"{len(units)} RQ3 units -> {out}")
     lexicons = load_lexicons("final") if any(n != "abstract" for n in namings) else {}

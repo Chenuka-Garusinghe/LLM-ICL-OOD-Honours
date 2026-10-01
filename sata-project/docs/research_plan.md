@@ -312,15 +312,44 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
     - **C3b:** ρ(π_true, π_behav), abstract minus flipped.
     - **Comparator.** Balanced strategies are compared with label_diversity (random, balanced), not free random, so the contrast compares mechanisms at fixed label counts. The spec's draft said "random".
     - **Deferred.** RQ4 contrasts go to P5.
-- **Status: running since 30 September 2026, 15:30** (`scripts/run_p4.sh`, resumable stages; logs in `results/v3/synthetic/p4/logs/`). The stages, in order:
-  - abstract grid;
-  - aligned and flipped grid;
-  - pool priors;
-  - counter_prior;
-  - RQ3 on seed 0;
-  - random-label control and similarity under names;
-  - Qwen-base;
-  - RQ3 on seeds 1–2.
+- **Status: done 1 October 2026 on a Runpod H200** (`hiccups/` 17). All P4 results are in `results/v3/synthetic/h200/`; the analysis is in notebooks 05 and 06.
+  - **Where it ran.** The Mac chain (30 September) finished the abstract-name grid and stopped partway through the named grid when its session ended; projected at about 30 h.
+    - P4 was rerun in full on one device: one H200, 8 worker processes sharing the GPU through NVIDIA MPS (`scripts/run_p4_pod.sh`).
+    - About 255,000 forward passes in 42 min (about $3.30 of GPU time).
+  - **Instrument checks on the H200.**
+    - Cache check passes: mean AUROC 0.5783 cached against 0.5825 full, difference 0.0042 ≤ 0.005.
+    - Qwen-base answers in format (label mass 1.0) and passes learnability at k = 8: Δ = 0.103, 95% CI [0.023, 0.186].
+    - The Mac and H200 agree on the 718 units both ran: identical prompts, margin correlation 0.996, mean AUROC within 0.001. Calibrated predictions agree on only 87%.
+  - **Added during the run (the user's decision; `hiccups/` 16):** `counter_prior_matched`, an exploratory variant that holds the shortcut's reliability at label_diversity's level, set by set. counter_prior itself showed shortcut-agreeing rows 91% of the time where the shortcut opposes Qwen's prior, against 84%.
+  - **Contrast family** (AUROC for C1–C2; one-sided hierarchical bootstrap, B = 2000; Holm over 10; 24 tasks):
+
+    | Contrast | Estimate [95% CI] | Holm p | Tasks in direction |
+    | --- | --- | --- | --- |
+    | C1a ID − covariate (random) | +0.024 [−0.044, 0.093] | 0.95 | 15/24 |
+    | C1b ID − spurious reversal (random) | +0.115 [0.017, 0.218] | 0.063 | 16/24 |
+    | C1c aligned − flipped (random, ID) | **+0.204** [0.131, 0.280] | **0.005** | 22/24 |
+    | C2a counter_spurious − label_diversity, spurious reversal | +0.035 [−0.019, 0.086] | 0.59 | 16/24 |
+    | C2b similarity − label_diversity, covariate | −0.029 [−0.110, 0.048] | 1.00 | 11/24 |
+    | C2c feature_range − label_diversity, covariate | −0.078 [−0.141, −0.018] | 1.00 | 6/24 |
+    | C2d counter_prior − label_diversity, flipped, ID | +0.023 [−0.015, 0.064] | 0.70 | 7/24 (9 tasks inactive) |
+    | C2e (counter_spurious − label_diversity), reversal − covariate | **+0.111** [0.033, 0.196] | **0.024** | 17/24 |
+    | C3a DFI, abstract − flipped | **+0.123** [0.079, 0.175] | **0.005** | 23/24 |
+    | C3b ρ(π_true, π_behav), abstract − flipped | +0.026 [−0.141, 0.174] | 1.00 | 13/24 |
+
+  - **Descriptive findings** (not part of the family):
+    - **Names win the tug-of-war.** Under flipped names every strategy stays near chance on ID queries (AUROC 0.44–0.54); aligned names lift every strategy to 0.66–0.71.
+    - **Demonstration labels are still used.** label_diversity with gold minus shuffled labels, ID AUROC: abstract +0.064, aligned +0.113, flipped +0.098.
+    - **With abstract names Qwen relies on the shortcut, not the rule.** Replacing f8 costs 0.141 of correct-label margin; the three rule features cost 0.009. With aligned names the rule features dominate (0.241). With flipped names Qwen uses them in the names' direction (−0.047).
+    - **Self-reports are unfaithful.** All 216 rankings parsed. With names, Qwen ranks the named rule features in its top 3 (0.64–0.69) even under flipped names. ρ(π_self, π_behav) is −0.02 (abstract), 0.12 (aligned) and −0.02 (flipped).
+    - **Qwen-base** loses less to flipped names than the instruct model: random demonstrations, ID AUROC 0.625 → 0.560, against 0.603 → 0.484.
+    - **counter_prior_matched.** With f8 held fixed it still beats label_diversity on ID under abstract names (0.641 against 0.593), and still loses under spurious reversal (0.480 against 0.520). The counter_prior effect is therefore not only the shortcut.
+  - **Covariate follow-up** (exploratory, the user's request; `hiccups/` 18). C1a's null is a measurement limit, not evidence that covariate shift is harmless:
+    - The uniform shift raises every covariate score together: +0.44 to +1.21 logits for the same prompt, with demonstrations only. ID positives against covariate negatives fall to AUROC 0.46–0.54 under abstract names. Within-environment AUROC cannot see this.
+    - New probe splits, appended so existing rows are unchanged, were scored on a second H200 for every existing demonstration set (`grid_probe.parquet`):
+      - a variance shift (`covariate_scale`: every covariate but f8 stretched 1.5–3×);
+      - f8-neutral copies of the ID, covariate and covariate_scale queries.
+    - The variance shift hurts only under flipped names: AUROC −0.09 to −0.13, intervals above 0 for random, label_diversity and rule_diversity.
+    - Qwen uses the shortcut (removing it costs 0.05–0.08 ID AUROC), but it does not hide covariate harm: without it the covariate gap does not grow (about 0).
 
 ### P5 — SATA (2 weeks; CPU training overlaps P4)
 

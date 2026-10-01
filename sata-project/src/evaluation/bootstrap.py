@@ -140,6 +140,10 @@ def hierarchical_contrast(
     and the per-task values (for sign tests).
     """
     stat = COLUMN_STATISTICS[statistic]
+    if not tasks:
+        nan = float("nan")
+        return {"estimate": nan, "ci_low": nan, "ci_high": nan, "p_greater": nan, "p_less": nan,
+                "n_tasks": 0, "per_task": []}
     idx = [[(np.flatnonzero(y == 1), np.flatnonzero(y == 0)) for y, _ in task] for task in tasks]
     per_task = np.array([sum(_block_value(b, stat, p, n) for b, (p, n) in zip(task, ix))
                          for task, ix in zip(tasks, idx)])

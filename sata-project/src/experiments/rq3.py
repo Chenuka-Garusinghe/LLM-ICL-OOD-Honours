@@ -73,18 +73,30 @@ def hotdeck_seed(base_seed: int, task_id: str, column: str) -> int:
 
 
 def _normalise(text: str) -> str:
+    """Lower case, list markers and quotes removed, underscores and hyphens read as spaces."""
     text = text.lower().strip()
     text = re.sub(r"^[\s\-\*\d\.\)]+", "", text)      # list markers such as "1." or "- "
-    return text.strip(" .\"'`*")
+    text = re.sub(r"[_\-]+", " ", text)                    # "waist_circumference", "on-time"
+    return re.sub(r"\s+", " ", text).strip(" .\"'`*")
 
 
 def parse_ranking(response: str, names: dict[str, str]) -> tuple[list[str], int]:
     """Columns in the order the model listed their display names, then the
-    unlisted columns in displayed order; also returns how many it listed."""
+    unlisted columns in displayed order; also returns how many it listed.
+
+    A token matches a name after normalisation, or failing that the closest
+    name with a similarity of at least 0.85 (difflib), which absorbs small
+    variants such as "hours of submission" for "hour of submission"."""
+    import difflib
+
     lookup = {_normalise(n): c for c, n in names.items()}
     ranked = []
     for token in re.split(r"[,\n;]", response):
-        col = lookup.get(_normalise(token))
+        key = _normalise(token)
+        col = lookup.get(key)
+        if col is None and key:
+            close = difflib.get_close_matches(key, list(lookup), n=1, cutoff=0.85)
+            col = lookup[close[0]] if close else None
         if col is not None and col not in ranked:
             ranked.append(col)
     n_listed = len(ranked)

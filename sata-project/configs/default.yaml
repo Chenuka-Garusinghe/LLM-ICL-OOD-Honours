@@ -26,6 +26,10 @@ evaluation:
   n_eval_tasks: 24
   queries_per_class: 10      # 20 queries per task and environment
   environments: ["id", "covariate", "spurious_reversal"]
+  # Probe splits added after P4 (hiccups/18), appended after the standard ones so
+  # existing rows are unchanged: a variance shift, and f8-neutral copies of queries.
+  probe_environments: ["covariate_scale"]
+  f8_neutral_environments: ["id", "covariate", "covariate_scale"]
 
 sata:
   d_model: 128

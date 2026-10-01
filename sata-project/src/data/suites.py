@@ -41,8 +41,9 @@ def make_suite(name: str, config: SimpleNamespace) -> dict:
         n_pool=g.demos_per_task,
         n_test_id=g.n_test_id,
         n_test_ood=g.n_test_ood,
-        ood_envs=tuple(e for e in ev.environments if e != "id"),
+        ood_envs=tuple(e for e in ev.environments if e != "id") + tuple(getattr(ev, "probe_environments", [])),
         queries_per_class=ev.queries_per_class,
+        f8_neutral_from=tuple(getattr(ev, "f8_neutral_environments", [])),
     )
 
 

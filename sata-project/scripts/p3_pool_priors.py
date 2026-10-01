@@ -29,6 +29,7 @@ from src.experiments.synth_grid import GridRunner  # noqa: E402
 from src.inference.hf_runner import runner_from_config  # noqa: E402
 from src.inference.priors import measure_pool_prior  # noqa: E402
 from src.utils.results_schema import append_results  # noqa: E402
+from src.utils.shard import take_shard  # noqa: E402
 
 
 def main() -> None:
@@ -39,6 +40,8 @@ def main() -> None:
     parser.add_argument("--suite", default="eval")
     parser.add_argument("--lexicon-stage", default="final")
     parser.add_argument("--tasks", type=int, default=None)
+    parser.add_argument("--shard", default=None, help="i/N: score every N-th (task, naming) pool starting at i")
+    parser.add_argument("--out", default=None, help="output parquet (default p3/pool_prior_<model>.parquet)")
     args = parser.parse_args()
 
     manifest = load_suite(args.suite, config)
@@ -47,11 +50,12 @@ def main() -> None:
     lexicons = load_lexicons(args.lexicon_stage) if any(n != "abstract" for n in namings) else {}
     models = {m.name: m for m in config.models}
     for name in args.models.split(","):
-        out = resolve_path(config.paths.results) / "p3" / f"pool_prior_{name}.parquet"
+        out = Path(args.out) if args.out else resolve_path(config.paths.results) / "p3" / f"pool_prior_{name}.parquet"
         done = set()
         if out.exists():
             done = set(map(tuple, pd.read_parquet(out, columns=["task_id", "naming"]).drop_duplicates().to_numpy()))
-        todo = [(t, n) for n in namings for t in task_ids if (t, n) not in done]
+        mine = take_shard([(t, n) for n in namings for t in task_ids], args.shard)   # fixed before resuming
+        todo = [pair for pair in mine if pair not in done]
         print(f"{name}: {len(todo)} (task, naming) pools to score ({len(done)} saved) -> {out}")
         if not todo:
             continue

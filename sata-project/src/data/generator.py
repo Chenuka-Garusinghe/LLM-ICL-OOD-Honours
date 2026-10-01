@@ -385,6 +385,22 @@ class SyntheticTask:
             )
         elif env_type == "spurious_reversal":
             spurious_strength = 1.0 - spurious_strength
+        elif env_type == "covariate_scale":
+            # Variance shift (exploratory, added after P4; hiccups/18). Every
+            # covariate except the spurious feature is stretched by its own
+            # factor in U(1.5, 3), so each row moves in proportion to its own
+            # values: unlike the uniform `covariate` shift this can reorder rows
+            # for a scorer whose weights differ from the rule's, and many values
+            # leave the demonstrated range. The rule is applied to the stretched
+            # values, so P(y | x) is unchanged and the label rate stays 1/2
+            # (every feature is symmetric about 0). The spurious feature is
+            # generated from the labels as usual, so the shortcut is intact;
+            # the noise feature, redrawn below, is stretched there.
+            scale_feats = [j for j in range(self.n_features) if j != self.spurious_idx]
+            scale = rng.uniform(1.5, 3.0, size=len(scale_feats))
+            X[:, scale_feats] *= scale
+            self.last_env_info.update(scale_features=[int(j) for j in scale_feats],
+                                      scale=[float(a) for a in scale])
         elif env_type == "extrapolation":
             # Per-feature range extension: push 2-3 causal features genuinely
             # outside a 64-row standard-normal pool's support (|x| in [2,4]),
@@ -465,6 +481,8 @@ class SyntheticTask:
         agree_clean = np.sign(f8_task_direction) == np.sign(2 * y_clean - 1)
         # Pure noise feature.
         X[:, self.noise_idx] = rng.normal(size=n_samples)
+        if env_type == "covariate_scale":
+            X[:, self.noise_idx] *= scale[scale_feats.index(self.noise_idx)]
 
         # Label noise, applied after f8 is generated from the clean label.
         flip = rng.random(n_samples) < self.label_noise

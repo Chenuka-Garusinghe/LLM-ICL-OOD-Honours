@@ -15,6 +15,12 @@ split and one OOD test split per evaluated environment
   so the spurious and noise features are not always f8 and f9. Downstream
   code reads column roles from the manifest, never from position.
 - Queries are 10 per class per test split, drawn with a fixed seed.
+- Optional probe splits (added after P4, hiccups/18) are appended after the
+  standard ones, so every existing row, value and query id is unchanged:
+  `covariate_scale` (a variance shift of every covariate but f8) and, for
+  chosen source environments, `<env>_f8neutral` copies of that environment's
+  queries with f8 replaced by pool f8 values drawn independently of the label
+  (the same rows otherwise, and the same query ids, so they pair with the source).
 
 v2 merged five tasks into one pool per shift type; that module is gone.
 """
@@ -73,6 +79,7 @@ def build_task_frame(
     n_test_ood: int = 100,
     ood_envs: tuple[str, ...] = EVAL_OOD_ENVS,
     queries_per_class: int = 10,
+    f8_neutral_from: tuple[str, ...] = (),
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Generate one task's long-format frame and its manifest entry."""
     if task.data_seed is None:
@@ -100,7 +107,7 @@ def build_task_frame(
     display = [f"f{perm[g]}" for g in range(n_feat)]
     q_rng = np.random.default_rng(_seed(task.data_seed, "queries"))
 
-    frames, row_start = [], 0
+    frames, row_start, test_blocks = [], 0, {}
     for split, env, X, y, meta in blocks:
         Z = (X - mean) / std
         df = pd.DataFrame({display[g]: Z[:, g] for g in range(n_feat)})
@@ -119,9 +126,38 @@ def build_task_frame(
             df["query_id"] = -1
         else:
             df["query_id"] = _sample_queries(df["label"].to_numpy(), queries_per_class, q_rng)
+            test_blocks[env] = (X, y, meta, df["query_id"].to_numpy())
         df["is_query"] = df["query_id"] >= 0
         frames.append(df)
         row_start += len(X)
+
+    # f8-neutral copies of chosen environments' queries: f8 is replaced by pool
+    # f8 values drawn at random, so it no longer carries the label; every other
+    # value, the label and the query id are those of the source query.
+    for src in f8_neutral_from:
+        X_s, y_s, meta_s, qid_s = test_blocks[src]
+        keep = np.flatnonzero(qid_s >= 0)
+        X_n = X_s[keep].copy()
+        f8_rng = np.random.default_rng(_seed(task.data_seed, f"f8_neutral_{src}"))
+        X_n[:, task.spurious_idx] = f8_rng.choice(pool_X[:, task.spurious_idx], size=len(keep), replace=False)
+        y_n = y_s[keep]
+        f8_dir = task.spurious_sign * X_n[:, task.spurious_idx]
+        Z = (X_n - mean) / std
+        df = pd.DataFrame({display[g]: Z[:, g] for g in range(n_feat)})[[f"f{j}" for j in range(n_feat)]]
+        df.insert(0, "row_id", np.arange(row_start, row_start + len(keep)))
+        df.insert(0, "env", f"{src}_f8neutral")
+        df.insert(0, "split", "test_ood")
+        df.insert(0, "task_id", task.task_id)
+        df["label"] = y_n.astype(int)
+        df["y_clean"] = [meta_s[i]["y_clean"] for i in keep]
+        df["regime"] = [meta_s[i]["regime"] for i in keep]
+        df["agree_clean"] = np.sign(f8_dir) == np.sign(2 * df["y_clean"].to_numpy() - 1)
+        df["agree_obs"] = np.sign(f8_dir) == np.sign(2 * y_n - 1)
+        df["spurious_raw"] = X_n[:, task.spurious_idx]
+        df["query_id"] = qid_s[keep]
+        df["is_query"] = True
+        frames.append(df)
+        row_start += len(keep)
     frame = pd.concat(frames, ignore_index=True)
 
     load_bearing = task.load_bearing_features()
@@ -150,6 +186,12 @@ def build_task_frame(
         "seeds": {purpose: _seed(task.data_seed, purpose)
                   for purpose in ("id", *ood_envs, "permutation", "queries")},
         "covariate_shift": _covariate_entry(env_info.get("covariate"), display),
+        **({"covariate_scale": {**env_info["covariate_scale"],
+                                "scale_features_displayed": [display[g] for g in env_info["covariate_scale"]["scale_features"]]}}
+           if "covariate_scale" in env_info else {}),
+        **({"f8_neutral": {"sources": list(f8_neutral_from),
+                           "method": "f8 replaced by pool f8 values drawn at random, independent of the label"}}
+           if f8_neutral_from else {}),
         "n_rows": {f"{s}/{e}": int(((frame["split"] == s) & (frame["env"] == e)).sum())
                    for s, e in frame[["split", "env"]].drop_duplicates().itertuples(index=False)},
         "pool_label_rate": float(pool["label"].mean()),

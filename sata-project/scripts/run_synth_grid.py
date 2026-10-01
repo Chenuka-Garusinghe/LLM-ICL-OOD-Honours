@@ -44,6 +44,7 @@ from src.data.suites import load_suite, suite_dir  # noqa: E402
 from src.experiments.synth_grid import UNIT_ORDERS, GridRunner, completed_units, enumerate_units, order_units  # noqa: E402
 from src.inference.hf_runner import runner_from_config  # noqa: E402
 from src.inference.priors import PoolPrior  # noqa: E402
+from src.utils.shard import take_shard  # noqa: E402
 
 
 def pool_prior_path(config, model: str) -> Path:
@@ -72,6 +73,7 @@ def main() -> None:
     parser.add_argument("--lexicon-stage", default="final", help="block of configs/lexicons.yaml to name with")
     parser.add_argument("--order", default="grid", choices=UNIT_ORDERS,
                         help="grid: as enumerated; seed: all of seed 0 first, then seed 1, ...")
+    parser.add_argument("--shard", default=None, help="i/N: run every N-th unit starting at i (parallel workers)")
     parser.add_argument("--out", default=None)
     parser.add_argument("--dry-run", action="store_true", help="list the units and exit")
     args = parser.parse_args()
@@ -88,6 +90,7 @@ def main() -> None:
         model_names, namings, task_ids, _csv(args.strategies),
         _csv(args.label_modes), [int(k) for k in _csv(args.k)], args.seeds,
     ), args.order)
+    units = take_shard(units, args.shard)
     out = Path(args.out) if args.out else resolve_path(config.paths.results) / f"{args.run}.parquet"
     print(f"{len(units)} units -> {out}")
     lexicons = {}
@@ -103,7 +106,7 @@ def main() -> None:
         for task_id, by_naming in naming_table(tasks, lexicons, config.selection.base_seed, tuple(namings)).items():
             table.setdefault(task_id, {}).update(by_naming)
         names_path.write_text(json.dumps(table, indent=1))
-    needs_prior = "counter_prior" in _csv(args.strategies)
+    needs_prior = any(s.startswith("counter_prior") for s in _csv(args.strategies))
     priors = {}
     for name in model_names:
         if not needs_prior:

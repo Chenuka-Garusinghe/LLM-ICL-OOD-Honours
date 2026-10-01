@@ -32,6 +32,9 @@ The "How to tell it" paragraphs are drafts in your voice to adapt, not final tex
    - A filter on the covariate shift that quietly selected shifts of irrelevant features ([13](13-covariate-shift-mostly-moves-distractors.md)).
    - The name priors the naming factor relies on turned out to be mostly a numeric prior, so the prior is now measured directly ([14](14-name-priors-dominated-by-numeric-prior.md)).
    - Contextual calibration left whole prompts predicting one class, which would have hidden shift effects in balanced accuracy, so the tests use AUROC ([15](15-calibration-collapses-random-demos.md)).
+   - Counter-prior demonstrations also advertised the shortcut, because the model's prior includes the spurious feature, so a matched variant holds the shortcut fixed ([16](16-counter-prior-reinforces-the-shortcut.md)).
+   - P4 moved to a cloud H200: eight copies of the model shared one GPU, so all of P4 ran on one device in 42 minutes and replicated the Mac ([17](17-p4-moved-to-a-cloud-h200.md)).
+   - The covariate null turned out to be about the metric: a uniform shift moves Qwen's scores together, which within-environment AUROC cannot see, and the shortcut stays valid under that shift ([18](18-covariate-harm-invisible-to-within-environment-auroc.md)).
 
 ## Timeline
 
@@ -52,6 +55,9 @@ The "How to tell it" paragraphs are drafts in your voice to adapt, not final tex
 | 30 Sep | spec review | The label-rate filter on the covariate shift accepts almost only shifts of distractors (21 of 24 tasks) | two load-bearing features shifted in opposite label directions plus a distractor; label rate unchanged by construction | [13](13-covariate-shift-mostly-moves-distractors.md) |
 | 30 Sep | P3 | Qwen's name priors are mostly "bigger value means 1": 1 of 16 pairs passes the symmetry rule; surrogate R² 0.20/0.28 (G3 needs 0.5); aligned − flipped zero-shot AUROC still 0.164 (loan 0.28, medical 0.05) | naming kept (the user's decision); pairs chosen by measured contrast; counter_prior uses measured zero-shot priors on the pool rows | [14](14-name-priors-dominated-by-numeric-prior.md) |
 | 30 Sep | P4 | Calibration with a content-free query left 36% of plain-random cells predicting one class (balanced accuracy pinned at 0.5; shift gaps forced to 0) | AUROC made the confirmatory statistic (the user's decision); calibrated BA reported alongside | [15](15-calibration-collapses-random-demos.md) |
+| 1 Oct | P4 (H200) | counter_prior over-selected shortcut-agreeing rows where the shortcut opposes Qwen's "bigger = 1" prior (91% against 84%) | kept as pre-registered; exploratory `counter_prior_matched` added and run (the user's decision) | [16](16-counter-prior-reinforces-the-shortcut.md) |
+| 1 Oct | P4 | The Mac chain was projected at about 30 h and stopped partway when its session ended | all of P4 rerun on one Runpod H200 with 8 MPS workers: 42 min, about $3.30; replicates the Mac (mean AUROC within 0.001) | [17](17-p4-moved-to-a-cloud-h200.md) |
+| 1 Oct | P4 analysis | Covariate shift showed no harm (C1a +0.024); the user asked whether shortcut learning explains it | not the shortcut (removing it opens no covariate gap) but the metric: the uniform shift raises scores by 0.44–1.21 logits without reordering; a variance shift (new probe) hurts only under flipped names (−0.09 to −0.13); all three follow-ups done (the user's decision) | [18](18-covariate-harm-invisible-to-within-environment-auroc.md) |
 
 ## Keeping it up to date
 

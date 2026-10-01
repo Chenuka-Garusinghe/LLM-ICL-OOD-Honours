@@ -345,3 +345,42 @@ def test_grid_runs_resumes_and_pairs(small_suite, tmp_path):
     assert all(sorted(a) == sorted(b) for a, b in zip(joined["demo_labels"], joined["demo_labels_s"]))
     # Every calibrated prefix was also scored on the content-free query.
     assert all(any("N/A" in s for s in suffixes) for prefix, suffixes in runner.calls if "->" in prefix)
+
+
+# ---------------------------------------------------------------- probe splits (hiccups/18)
+PROBE_KW = dict(ood_envs=("covariate", "spurious_reversal", "covariate_scale"),
+                f8_neutral_from=("id", "covariate", "covariate_scale"))
+
+
+def test_probe_splits_leave_existing_rows_unchanged(tasks):
+    for t in tasks[::6]:
+        base, _ = build_task_frame(t)
+        probed, entry = build_task_frame(t, **PROBE_KW)
+        assert probed.iloc[:len(base)].reset_index(drop=True).equals(base.reset_index(drop=True))
+        assert set(probed.env) - set(base.env) == {"covariate_scale", "id_f8neutral", "covariate_f8neutral",
+                                                   "covariate_scale_f8neutral"}
+        assert len(entry["covariate_scale"]["scale"]) == 9
+
+
+def test_covariate_scale_stretches_everything_but_the_shortcut(tasks):
+    for t in tasks[::4]:
+        frame, entry = build_task_frame(t, **PROBE_KW)
+        cs, ident = frame[frame.env == "covariate_scale"], frame[frame.split == "test_id"]
+        others = [c for c in FEATURE_NAMES if c != entry["roles"]["spurious"]]
+        assert (cs[others].std() > 1.3 * ident[others].std()).mean() > 0.8
+        q = cs[cs.is_query]
+        assert q.label.value_counts().to_dict() == {0: 10, 1: 10}
+        assert 0.6 < cs.agree_obs.mean()                     # the shortcut is intact
+
+
+def test_f8_neutral_copies_differ_only_in_the_shortcut(tasks):
+    for t in tasks[::4]:
+        frame, entry = build_task_frame(t, **PROBE_KW)
+        f8 = entry["roles"]["spurious"]
+        others = [c for c in FEATURE_NAMES if c != f8]
+        for src in ("id", "covariate", "covariate_scale"):
+            a = queries_of(frame, src).sort_values("query_id")
+            b = queries_of(frame, f"{src}_f8neutral").sort_values("query_id")
+            assert np.allclose(a[others].to_numpy(), b[others].to_numpy())
+            assert (a.label.to_numpy() == b.label.to_numpy()).all() and (a.query_id.to_numpy() == b.query_id.to_numpy()).all()
+            assert not np.allclose(a[f8].to_numpy(), b[f8].to_numpy())

@@ -211,7 +211,7 @@ def run_contrasts(grid: pd.DataFrame, rq3: pd.DataFrame | None = None, true_scor
             res = hierarchical_contrast(grid_blocks(df, spec, "auroc"), "auroc", n_bootstrap=n_bootstrap, seed=seed)
             res["statistic"] = "auroc"
             secondary = hierarchical_contrast(grid_blocks(df, spec, "ba"), "ba", n_bootstrap=n_bootstrap, seed=seed)
-        per_task = np.array(res["per_task"])
+        per_task = np.array(res["per_task"], dtype=float)
         sign = per_task > 0 if spec["direction"] == "greater" else per_task < 0
         n_nonzero = int(np.sum(per_task != 0))
         rows.append({
@@ -226,7 +226,9 @@ def run_contrasts(grid: pd.DataFrame, rq3: pd.DataFrame | None = None, true_scor
         })
     out = pd.DataFrame(rows)
     if len(out):
-        out["p_holm"] = holm(out["p_one_sided"].tolist())
+        ok = out["n_tasks"] > 0                          # a contrast without data is reported, not tested
+        out["p_holm"] = float("nan")
+        out.loc[ok, "p_holm"] = holm(out.loc[ok, "p_one_sided"].tolist())
         out["significant"] = out["p_holm"] < 0.05
     return out
 
@@ -379,4 +381,110 @@ def self_report_rho(rankings: pd.DataFrame, rq3: pd.DataFrame, value: str = "mar
         self_score = np.array([-position[c] for c in g["feature"]], dtype=float)   # listed first = most important
         rows.append({"model": r["model"], "naming": r["naming"], "task_id": r["task_id"], "seed": r["seed"],
                      "n_listed": r["n_listed"], "rho": _rho(self_score, g[value].to_numpy())})
+    return pd.DataFrame(rows)
+
+
+# --------------------------------------------------------------------------- #
+# covariate shift beyond within-environment AUROC (hiccups/18; exploratory)
+# --------------------------------------------------------------------------- #
+def cross_environment_auroc(grid: pd.DataFrame, env_a: str = "id", env_b: str = "covariate") -> pd.DataFrame:
+    """Per (strategy, naming, task, seed) cell pair: AUROC within each environment,
+    and across them, ranking one environment's positives against the other's
+    negatives. A shift that moves every query's score together leaves the
+    within-environment AUROCs unchanged but shows up across environments.
+    Also the mean score shift (calibrated margin, env_b minus env_a) and the
+    shares predicted 1."""
+    d = prepare(grid[grid["label_mode"] == "gold"])
+    d = d.assign(cal_margin=np.log(d["score"].clip(1e-9, 1 - 1e-9)) - np.log1p(-d["score"].clip(1e-9, 1 - 1e-9)))
+    rows = []
+    for (s, n, t, seed), u in d.groupby(["strategy", "naming", "task_id", "seed"]):
+        a, b = u[u["env"] == env_a], u[u["env"] == env_b]
+        if a.empty or b.empty:
+            continue
+        ap, an, bp, bn = (a[a.y == 1].score, a[a.y == 0].score, b[b.y == 1].score, b[b.y == 0].score)
+        cross = lambda pos, neg: auroc(np.r_[np.ones(len(pos)), np.zeros(len(neg))], np.r_[pos, neg])
+        rows.append({"strategy": s, "naming": n, "task_id": t, "seed": seed,
+                     f"auroc_{env_a}": auroc(a.y, a.score), f"auroc_{env_b}": auroc(b.y, b.score),
+                     f"{env_a}_pos_vs_{env_b}_neg": cross(ap, bn), f"{env_b}_pos_vs_{env_a}_neg": cross(bp, an),
+                     "pooled_auroc": auroc(np.r_[a.y, b.y], np.r_[a.score, b.score]),
+                     "score_shift": float(b.cal_margin.mean() - a.cal_margin.mean()),
+                     f"share_1_{env_a}": float(a.pred.mean()), f"share_1_{env_b}": float(b.pred.mean())})
+    return pd.DataFrame(rows)
+
+
+def task_level_interval(values: pd.Series, n_bootstrap: int = 2000, seed: int = 0) -> tuple[float, float, float]:
+    """Mean over tasks of per-task means, with a percentile bootstrap interval over tasks."""
+    per_task = values.groupby(level="task_id").mean().to_numpy()
+    rng = np.random.default_rng(seed)
+    boots = [per_task[rng.integers(0, len(per_task), len(per_task))].mean() for _ in range(n_bootstrap)]
+    return float(per_task.mean()), float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))
+
+
+# Exploratory covariate probes (hiccups/18; not part of the frozen family). Gaps
+# use the same hierarchical bootstrap as the family. f8-neutral copies share
+# query ids with their source environment, so those pairs are matched query by
+# query; other environment pairs are resampled separately.
+EXPLORATORY_CONTRASTS = [
+    {"id": "E1", "kind": "env_gap", "envs": ("id", "covariate"),
+     "label": "ID minus covariate (the pre-registered C1a shift, all strategies)"},
+    {"id": "E2", "kind": "env_gap", "envs": ("id", "covariate_scale"),
+     "label": "ID minus covariate_scale (variance shift, shortcut intact)"},
+    {"id": "E3a", "kind": "env_gap", "envs": ("id", "id_f8neutral"),
+     "label": "what the shortcut adds on ID queries: ID minus ID with f8 neutralised"},
+    {"id": "E3b", "kind": "protection", "envs": ("id", "covariate"),
+     "label": "shortcut protection, uniform shift: (ID - covariate) with f8 neutralised minus with f8 intact"},
+    {"id": "E3c", "kind": "protection", "envs": ("id", "covariate_scale"),
+     "label": "shortcut protection, variance shift: (ID - covariate_scale) with f8 neutralised minus with f8 intact"},
+]
+
+
+def _by_query(g: pd.DataFrame, value: str) -> tuple[np.ndarray, np.ndarray, pd.Index]:
+    piv = g.pivot_table(index="query_id", columns="seed", values=value)
+    y = g.drop_duplicates("query_id").set_index("query_id").loc[piv.index, "y"].to_numpy()
+    return y, piv.to_numpy(dtype=float), piv.index
+
+
+def _env_block(s: pd.DataFrame, env_a: str, env_b: str, w: float, value: str):
+    """Row blocks for w * (stat(env_a) - stat(env_b)); paired when env_b is env_a's f8-neutral copy."""
+    a, b = s[s["env"] == env_a], s[s["env"] == env_b]
+    if a.empty or b.empty:
+        return None
+    ya, A, ia = _by_query(a, value)
+    yb, B, ib = _by_query(b, value)
+    if env_b == f"{env_a}_f8neutral" or env_a == f"{env_b}_f8neutral":
+        rows = ia.intersection(ib)
+        A = pd.DataFrame(A, index=ia).loc[rows].to_numpy(); B = pd.DataFrame(B, index=ib).loc[rows].to_numpy()
+        return [(ya[ia.get_indexer(rows)], [(A, w), (B, -w)])]
+    return [(ya, [(A, w)]), (yb, [(B, -w)])]
+
+
+def exploratory_contrasts(grid: pd.DataFrame, strategies=("random", "label_diversity", "counter_spurious"),
+                          namings=("abstract", "aligned", "flipped"), n_bootstrap: int = 2000, seed: int = 0,
+                          specs: list[dict] = EXPLORATORY_CONTRASTS) -> pd.DataFrame:
+    """Every exploratory probe for every (strategy, naming): AUROC estimate,
+    hierarchical-bootstrap interval and tasks in the positive direction."""
+    df = prepare(grid[grid["label_mode"] == "gold"])
+    rows = []
+    for spec in specs:
+        env_a, env_b = spec["envs"]
+        for strategy in strategies:
+            for naming in namings:
+                s0 = _select(df, strategy=strategy, naming=naming)
+                tasks = []
+                for _, s in s0.groupby("task_id"):
+                    if spec["kind"] == "env_gap":
+                        blocks = _env_block(s, env_a, env_b, 1.0, "score")
+                    else:                       # (a_n - b_n) - (a - b) = (a_n - a) - (b_n - b)
+                        x = _env_block(s, f"{env_a}_f8neutral", env_a, 1.0, "score")
+                        z = _env_block(s, f"{env_b}_f8neutral", env_b, -1.0, "score")
+                        blocks = None if x is None or z is None else x + z
+                    if blocks:
+                        tasks.append(blocks)
+                if not tasks:
+                    continue
+                res = hierarchical_contrast(tasks, "auroc", n_bootstrap=n_bootstrap, seed=seed)
+                per_task = np.array(res["per_task"])
+                rows.append({"id": spec["id"], "label": spec["label"], "strategy": strategy, "naming": naming,
+                             "estimate": res["estimate"], "ci_low": res["ci_low"], "ci_high": res["ci_high"],
+                             "tasks_positive": int((per_task > 0).sum()), "n_tasks": res["n_tasks"]})
     return pd.DataFrame(rows)

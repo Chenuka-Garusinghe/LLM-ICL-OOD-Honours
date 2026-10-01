@@ -51,6 +51,7 @@ from src.selection.protocols import (
     counter_prior_active,
     demo_seed,
     select,
+    select_counter_prior_matched,
 )
 from src.utils.results_schema import RESULTS_COLUMNS_V3, append_results
 
@@ -190,7 +191,7 @@ class GridRunner:
     def context(self, unit: Unit, pool: pd.DataFrame) -> ProtocolContext:
         """The selection context; counter_prior adds the model's prior slopes for the unit's naming."""
         ctx = ProtocolContext(feature_cols=FEATURE_NAMES, kinds={f: "numeric" for f in FEATURE_NAMES}, train_ref=pool)
-        if unit.strategy == "counter_prior":
+        if unit.strategy.startswith("counter_prior"):
             if self.pool_prior is not None:
                 ctx.prior_margin = self.pool_prior.centred(unit.task_id, unit.naming)
             elif self.surrogate is not None:
@@ -207,17 +208,24 @@ class GridRunner:
         extra = () if query is None else (int(query["row_id"]),)
         ctx = self.context(unit, pool)
         strategy, note = unit.strategy, {}
-        if strategy == "counter_prior":
+        if strategy.startswith("counter_prior"):
             active, conflict = counter_prior_active(pool, ctx)
             note = {"counter_prior_active": active, "prior_data_conflict": conflict}
             if not active:
                 strategy = COUNTER_PRIOR_FALLBACK     # the same rows and order as that strategy
                 note["fallback"] = strategy
-        mechanism, composition = SYNTHETIC_STRATEGIES[strategy]
-        ids, meta = select(
-            mechanism, composition, pool, query, unit.k,
-            demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "select", *extra), ctx,
-        )
+        if strategy == "counter_prior_matched":
+            ref_mech, ref_comp = SYNTHETIC_STRATEGIES[COUNTER_PRIOR_FALLBACK]
+            ref_ids, _ = select(ref_mech, ref_comp, pool, query, unit.k,
+                                demo_seed(self.base_seed, unit.task_id, COUNTER_PRIOR_FALLBACK, unit.seed, "select", *extra), ctx)
+            ids, meta = select_counter_prior_matched(
+                pool, ctx, ref_ids, demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "select", *extra))
+        else:
+            mechanism, composition = SYNTHETIC_STRATEGIES[strategy]
+            ids, meta = select(
+                mechanism, composition, pool, query, unit.k,
+                demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "select", *extra), ctx,
+            )
         meta.update(note)
         order_seed = demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "order", *extra)
         ordered = [int(i) for i in shuffle_order(ids, seed=order_seed)]

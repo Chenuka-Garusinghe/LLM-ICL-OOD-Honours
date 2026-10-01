@@ -310,3 +310,50 @@ def test_contrast_family_runs_on_a_stub_grid(small_suite, tmp_path):
     assert len(correctness_rho(rq3, truth)) == 2 * 2 * 2
     ranks = pd.read_parquet(tmp_path / "rq3_rankings.parquet")
     assert len(self_report_rho(ranks, rq3)) == len(ranks)
+
+
+def test_counter_prior_matched_keeps_the_shortcut_fixed(small_suite, tmp_path):
+    manifest = load_manifest(small_suite)
+    task_ids = [t["task_id"] for t in manifest["tasks"]]
+    units = enumerate_units(["stub"], ["abstract", "flipped"], task_ids,
+                            ["label_diversity", "counter_prior", "counter_prior_matched"], ["gold"], [8], 3)
+    grid = GridRunner(StubRunner(), "stub", small_suite, manifest, base_seed=42, envs=["id"],
+                      queries_per_env=4, lexicons=LEX, surrogate=_true_surrogate())
+    grid.run(units, tmp_path / "g.parquet", log=lambda *_: None)
+    df = pd.read_parquet(tmp_path / "g.parquet").drop_duplicates("unit_key")
+    for (naming, task, seed), g in df.groupby(["naming", "task_id", "seed"]):
+        pool = pool_of(grid.frame(task))
+        sets = {r.strategy: list(r.demo_ids) for r in g.itertuples()}
+        cell = lambda ids: sorted(zip(pool.loc[ids, "label"], pool.loc[ids, "agree_obs"]))
+        assert cell(sets["counter_prior_matched"]) == cell(sets["label_diversity"])   # same label x f8-agreement counts
+        meta = json.loads(g.set_index("strategy").loc["counter_prior_matched", "selection_meta"])
+        if meta["counter_prior_active"]:
+            plain = json.loads(g.set_index("strategy").loc["counter_prior", "selection_meta"])
+            assert plain["counter_prior_active"] and meta["matched"]
+        else:
+            assert sets["counter_prior_matched"] == sets["label_diversity"]
+
+
+def test_probe_environments_run_and_pair(tmp_path):
+    from src.evaluation.analysis import cross_environment_auroc, exploratory_contrasts
+
+    out = tmp_path / "suite"
+    write_suite(sample_eval_tasks(2, id_prefix="p"), out, suite="p",
+                ood_envs=("covariate", "spurious_reversal", "covariate_scale"),
+                f8_neutral_from=("id", "covariate", "covariate_scale"))
+    manifest = load_manifest(out)
+    task_ids = [t["task_id"] for t in manifest["tasks"]]
+    envs = ["id", "covariate", "covariate_scale", "id_f8neutral", "covariate_f8neutral", "covariate_scale_f8neutral"]
+    units = enumerate_units(["stub"], ["abstract"], task_ids, ["random"], ["gold"], [8], 2)
+    grid = GridRunner(StubRunner(), "stub", out, manifest, base_seed=42, envs=envs, queries_per_env=4)
+    grid.run(units, tmp_path / "g.parquet", log=lambda *_: None)
+    df = pd.read_parquet(tmp_path / "g.parquet")
+    assert set(df.env) == set(envs) and len(df) == len(units) * 4 * len(envs)
+    # f8-neutral queries are the source queries with the same ids
+    a = df[df.env == "covariate"].sort_values(["unit_key", "query_id"])
+    b = df[df.env == "covariate_f8neutral"].sort_values(["unit_key", "query_id"])
+    assert (a.query_id.to_numpy() == b.query_id.to_numpy()).all() and (a.label.to_numpy() == b.label.to_numpy()).all()
+    r = exploratory_contrasts(df, strategies=("random",), namings=("abstract",), n_bootstrap=20)
+    assert set(r.id) == {"E1", "E2", "E3a", "E3b", "E3c"} and (r.n_tasks == 2).all()
+    ce = cross_environment_auroc(df)
+    assert {"id_pos_vs_covariate_neg", "score_shift"} <= set(ce.columns)

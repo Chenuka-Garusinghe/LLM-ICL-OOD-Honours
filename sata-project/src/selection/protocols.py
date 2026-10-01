@@ -237,6 +237,43 @@ def counter_prior_active(pool: pd.DataFrame, ctx: ProtocolContext) -> tuple[bool
     return c > 0.5, c
 
 
+def select_counter_prior_matched(pool: pd.DataFrame, ctx: ProtocolContext, reference_ids: list,
+                                 seed: int) -> tuple[list, dict]:
+    """counter_prior with the shortcut held fixed (exploratory; hiccups/16).
+
+    Takes the same number of rows in each (label, f8 agrees with label) cell as
+    the reference set (label_diversity's set for the same seed), so label
+    counts and the shortcut's apparent reliability match label_diversity's.
+    Within each cell it prefers clean rows whose label contradicts the model's
+    measured prior, then other clean rows, then label-noise rows, in random
+    order. Plain counter_prior over-selects shortcut-agreeing rows where the
+    model's numeric prior opposes the shortcut's direction.
+    """
+    rng = np.random.default_rng(seed)
+    labels = pool[ctx.label_col].to_numpy()
+    agree = pool["agree_obs"].to_numpy().astype(bool)
+    clean = labels == pool["y_clean"].to_numpy()
+    contra = (prior_scores(pool, ctx) > 0) != (labels == 1)
+    score = 2.0 * (contra & clean) + 1.0 * (clean & ~contra)
+    ref = pool.loc[reference_ids]
+    picked: list[int] = []
+    for cls in (0, 1):
+        for ag in (True, False):
+            n = int(((ref[ctx.label_col] == cls).to_numpy() & (ref["agree_obs"].to_numpy().astype(bool) == ag)).sum())
+            cell = np.flatnonzero((labels == cls) & (agree == ag))
+            got = _choose(cell, n, "score", score, rng)
+            picked.extend(got)
+            if len(got) < n:                      # a cell ran short: fill from the class
+                rest = np.setdiff1d(np.flatnonzero(labels == cls), np.array(picked, dtype=int))
+                picked.extend(_choose(rest, n - len(got), "score", score, rng))
+    picked = [int(p) for p in picked]
+    meta = {"mechanism": "counter_prior", "matched": True, "composition": "balanced", "k": len(reference_ids),
+            "seed": seed, "kind": "matched", "n_selected": len(picked),
+            "n_contradicting_clean": int(np.sum((contra & clean)[picked])),
+            "f8_agreeing": int(np.sum(agree[picked]))}
+    return list(pool.index[picked]), meta
+
+
 _MECH: dict[str, Callable] = {
     "random": _m_random,
     "similarity": _m_similarity,
@@ -433,13 +470,14 @@ SYNTHETIC_STRATEGIES = {
     "counter_spurious": ("gt_counter_spurious", "balanced"),
     "similarity": ("feature_knn", "balanced"),
     "counter_prior": ("counter_prior", "balanced"),
+    "counter_prior_matched": ("counter_prior", "balanced"),   # exploratory (hiccups/16)
 }
 # Where counter_prior is inactive (prior-data conflict <= 1/2) it shows this
 # strategy's demonstration set.
 COUNTER_PRIOR_FALLBACK = "label_diversity"
 
 # The v1 strategy names, kept as the names of the synthetic strategies above.
-V1_EQUIVALENTS = {k: v for k, v in SYNTHETIC_STRATEGIES.items() if k != "counter_prior"}
+V1_EQUIVALENTS = {k: v for k, v in SYNTHETIC_STRATEGIES.items() if not k.startswith("counter_prior")}
 
 
 def demo_seed(base_seed: int, task_id: str, strategy: str, seed: int, purpose: str = "select", *extra: int) -> int:
