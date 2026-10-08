@@ -229,16 +229,17 @@ def task_conflicts(entries: list[dict], frames: dict, surrogate: PriorSurrogate,
 # --------------------------------------------------------------------------- #
 def measure_pool_prior(grid, task_id: str, naming: str) -> pd.DataFrame:
     """Zero-shot label log-probabilities of every pool row of a task under a
-    naming (the same system message and names as the grid's prompts)."""
+    naming (the same system message and names as the grid's prompts). Each
+    row is shown as it would appear as a demonstration, so under a demo mask
+    (notebook 03.1) without the hidden features."""
     from src.data.naming import codebook
-    from src.data.synthetic_bridge import FEATURE_NAMES, pool_of
-    from src.inference.prompts import system_message
+    from src.data.synthetic_bridge import pool_of
 
-    entry = grid.entries[task_id]
     pool = pool_of(grid.frame(task_id))
     cb = codebook(grid.names(task_id, naming))
-    system = system_message(None if naming == "abstract" else entry["domain"])
-    lines = [serialise_row({f: r[f] for f in FEATURE_NAMES}, codebook=cb) for _, r in pool.iterrows()]
+    system = grid.system_text(task_id, naming)
+    shown = grid.visible(task_id)
+    lines = [serialise_row({f: r[f] for f in shown}, codebook=cb) for _, r in pool.iterrows()]
     full0 = grid.runner.render(system, [], lines[0])
     prefix = full0[: full0.rfind(lines[0])]
     suffixes = []

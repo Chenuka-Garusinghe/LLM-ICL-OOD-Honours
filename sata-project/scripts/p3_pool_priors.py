@@ -8,6 +8,10 @@ as the grid. counter_prior and the prior-data conflict read these margins
 Resumable per (task, naming). Output: results/v3/synthetic/p3/pool_prior_<model>.parquet.
 
   python scripts/p3_pool_priors.py --models qwen2.5-7b-instruct --namings abstract,aligned,flipped
+
+For notebook 03.1, --demo-mask shows each pool row without the hidden features
+and --count-free-system drops the measurement count from the system message,
+as the masked grid does.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from src.utils.config import load_config, resolve_path  # noqa: E402  (first: se
 
 import pandas as pd  # noqa: E402
 
+from src.data.demo_mask import DEMO_MASKS  # noqa: E402
 from src.data.naming import load_lexicons  # noqa: E402
 from src.data.suites import load_suite, suite_dir  # noqa: E402
 from src.experiments.synth_grid import GridRunner  # noqa: E402
@@ -41,6 +46,10 @@ def main() -> None:
     parser.add_argument("--lexicon-stage", default="final")
     parser.add_argument("--tasks", type=int, default=None)
     parser.add_argument("--shard", default=None, help="i/N: score every N-th (task, naming) pool starting at i")
+    parser.add_argument("--demo-mask", default="none", choices=tuple(DEMO_MASKS),
+                        help="features hidden from the pool rows, as in the masked grid (notebook 03.1)")
+    parser.add_argument("--count-free-system", action="store_true",
+                        help="system message without the measurement count")
     parser.add_argument("--out", default=None, help="output parquet (default p3/pool_prior_<model>.parquet)")
     args = parser.parse_args()
 
@@ -61,7 +70,8 @@ def main() -> None:
             continue
         runner = runner_from_config(models[name], config.inference)
         grid = GridRunner(runner, name, suite_dir(args.suite, config), manifest,
-                          base_seed=config.selection.base_seed, envs=["id"], lexicons=lexicons)
+                          base_seed=config.selection.base_seed, envs=["id"], lexicons=lexicons,
+                          demo_mask=args.demo_mask, system_n_features=None if args.count_free_system else 10)
         t_start = time.perf_counter()
         for i, (task_id, naming) in enumerate(todo, 1):
             t0 = time.perf_counter()

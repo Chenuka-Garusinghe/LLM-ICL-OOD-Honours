@@ -23,6 +23,13 @@ f0 to f9, aligned and flipped use the P3 lexicons. counter_prior reads the
 loaded model's prior surrogate (src/inference/priors.py), so its sets depend
 on the model and the naming; where a task's prior-data conflict is at most
 1/2 it shows label_diversity's set instead.
+
+`demo_mask` (notebook 03.1, src/data/demo_mask.py) hides the shortcut
+feature, or the shortcut and the noise feature, from every demonstration
+line and from selection; queries and the content-free query keep all ten
+features. `system_n_features=None` drops the measurement count from the
+system message, since masked demonstrations and queries show different
+numbers of measurements.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.data.demo_mask import DEMO_MASKS, check_strategies, hidden_features, visible_features
 from src.data.naming import NAMINGS, Lexicon, assign_names, codebook
 from src.data.serialisation import serialise_row
 from src.data.synthetic_bridge import FEATURE_NAMES, LABEL_TOKENS, load_task_frame, pool_of, queries_of
@@ -132,8 +140,8 @@ def take_queries(queries: pd.DataFrame, n: int | None) -> pd.DataFrame:
     return pd.concat(parts).sort_values("query_id")
 
 
-def _features(row: pd.Series) -> dict[str, Any]:
-    return {f: row[f] for f in FEATURE_NAMES}
+def _features(row: pd.Series, cols: list[str] = FEATURE_NAMES) -> dict[str, Any]:
+    return {f: row[f] for f in cols}
 
 
 def _split(full: str, query_line: str) -> tuple[str, str]:
@@ -160,7 +168,11 @@ class GridRunner:
         lexicons: dict[str, Lexicon] | None = None,
         surrogate=None,
         pool_prior=None,
+        demo_mask: str = "none",
+        system_n_features: int | None = 10,
     ):
+        if demo_mask not in DEMO_MASKS:
+            raise ValueError(f"unknown demo mask {demo_mask!r}; expected one of {tuple(DEMO_MASKS)}")
         self.runner = runner
         self.model_name = model_name
         self.suite_dir = Path(suite_dir)
@@ -172,6 +184,8 @@ class GridRunner:
         self.lexicons = lexicons or {}
         self.surrogate = surrogate            # PriorSurrogate of this model (counter_prior fallback)
         self.pool_prior = pool_prior          # PoolPrior of this model: measured zero-shot margins (preferred)
+        self.demo_mask = demo_mask            # features hidden from demonstrations and selection (notebook 03.1)
+        self.system_n_features = system_n_features
         self._frames: dict[str, pd.DataFrame] = {}
         self._names: dict[tuple[str, str], dict[str, str]] = {}
 
@@ -188,9 +202,20 @@ class GridRunner:
             self._names[key] = assign_names(entry, naming, self.lexicons.get(entry["domain"]), self.base_seed)
         return self._names[key]
 
+    def system_text(self, task_id: str, naming: str) -> str:
+        """The system message: abstract, or the task's domain sentence under aligned and flipped names."""
+        domain = None if naming == "abstract" else self.entries[task_id]["domain"]
+        return system_message(domain, n_features=self.system_n_features)
+
+    def visible(self, task_id: str) -> list[str]:
+        """The features a demonstration shows, and selection may read: all ten unless the demo mask hides some."""
+        return visible_features(self.entries[task_id], self.demo_mask)
+
     def context(self, unit: Unit, pool: pd.DataFrame) -> ProtocolContext:
-        """The selection context; counter_prior adds the model's prior slopes for the unit's naming."""
-        ctx = ProtocolContext(feature_cols=FEATURE_NAMES, kinds={f: "numeric" for f in FEATURE_NAMES}, train_ref=pool)
+        """The selection context; counter_prior adds the model's prior slopes for the unit's naming.
+        Selection reads only the features the demonstrations show."""
+        cols = self.visible(unit.task_id)
+        ctx = ProtocolContext(feature_cols=cols, kinds={f: "numeric" for f in cols}, train_ref=pool)
         if unit.strategy.startswith("counter_prior"):
             if self.pool_prior is not None:
                 ctx.prior_margin = self.pool_prior.centred(unit.task_id, unit.naming)
@@ -205,6 +230,7 @@ class GridRunner:
     # -------------------------------------------------------------- #
     def _demo_set(self, unit: Unit, pool: pd.DataFrame, query: pd.Series | None, cb: dict | None = None) -> dict:
         """Select, order and label one demonstration set."""
+        check_strategies([unit.strategy], self.demo_mask)
         extra = () if query is None else (int(query["row_id"]),)
         ctx = self.context(unit, pool)
         strategy, note = unit.strategy, {}
@@ -235,8 +261,12 @@ class GridRunner:
             labels = rng.permutation(labels)
         elif unit.label_mode != "gold":
             raise ValueError(f"unknown label mode {unit.label_mode!r}")
-        lines = [serialise_row(_features(pool.loc[i]), label=str(int(lab)), codebook=cb)
+        shown = self.visible(unit.task_id)
+        lines = [serialise_row(_features(pool.loc[i], shown), label=str(int(lab)), codebook=cb)
                  for i, lab in zip(ordered, labels)]
+        if self.demo_mask != "none":
+            meta = dict(meta, demo_mask=self.demo_mask,
+                        hidden_features=list(hidden_features(self.entries[unit.task_id], self.demo_mask)))
         return {"ids": ordered, "labels": [int(x) for x in labels], "lines": lines,
                 "order_seed": order_seed, "meta": meta}
 
@@ -247,11 +277,10 @@ class GridRunner:
         prefix and one suffix per query, followed by the content-free suffix
         when the group is calibrated (every strategy except zero-shot).
         """
-        entry = self.entries[unit.task_id]
         frame = self.frame(unit.task_id)
         pool = pool_of(frame)
         queries = pd.concat([take_queries(queries_of(frame, env), self.queries_per_env) for env in self.envs])
-        system = system_message(None if unit.naming == "abstract" else entry["domain"])
+        system = self.system_text(unit.task_id, unit.naming)
         cb = codebook(self.names(unit.task_id, unit.naming))
         cf_line = serialise_row(content_free_features(_features(queries.iloc[0])), codebook=cb)
 

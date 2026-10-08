@@ -122,6 +122,13 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
 - ★ Minder et al. ICLR 2025, arXiv:2411.07404
 - Hendel et al. 2023, arXiv:2310.15916; Todd et al. 2024, arXiv:2310.15213
 
+**Demonstrations without the shortcut (notebook 03.1)**
+
+- ★ Arjovsky et al. 2019, _Invariant Risk Minimization_, arXiv:1907.02893. Colored MNIST's "ERM, grayscale model (oracle)" (73.5% train, 73.0% test) is the classic reference trained without the spurious feature. Here only the demonstrations lose it; the query keeps it.
+- ★ Nastl & Hardt, NeurIPS 2024, _Do Causal Predictors Generalize Better to New Domains?_, arXiv:2402.09891. On 16 tabular tasks, predictors using all features beat causal-feature predictors in and out of domain. A caution against expecting removal to help.
+- Si et al., ACL 2023, _Measuring Inductive Biases of In-Context Learning with Underspecified Demonstrations_. When two features predict the label equally well, models follow their inductive biases, and interventions struggle against strong biases. Removing the shortcut from the demonstrations removes that underspecification.
+- Min et al. 2022 (above): ablating parts of the demonstrations while keeping the test input.
+
 **RQ1 background**
 
 - Garg et al. 2022, arXiv:2208.01066
@@ -341,8 +348,14 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
     - **Demonstration labels are still used.** label_diversity with gold minus shuffled labels, ID AUROC: abstract +0.064, aligned +0.113, flipped +0.098.
     - **With abstract names Qwen relies on the shortcut, not the rule.** Replacing f8 costs 0.141 of correct-label margin; the three rule features cost 0.009. With aligned names the rule features dominate (0.241). With flipped names Qwen uses them in the names' direction (−0.047).
     - **Self-reports are unfaithful.** All 216 rankings parsed. With names, Qwen ranks the named rule features in its top 3 (0.64–0.69) even under flipped names. ρ(π_self, π_behav) is −0.02 (abstract), 0.12 (aligned) and −0.02 (flipped).
+    - **The spurious-reversal cost follows the prior's direction** (found 7 October in the notebook 05 charts, section 3).
+      - Where Qwen's "bigger → 1" habit agrees with the shortcut (σ = +1), reversal costs every strategy 0.04–0.21 AUROC.
+      - Where it opposes the shortcut (σ = −1), most gaps are near 0 or negative. The exceptions are similarity, and counter_prior under abstract names.
+      - Zero-shot splits the same way with no demonstrations: +0.07 to +0.13 against −0.09 to −0.15.
+      - So much of C1b's gap is the prior reading the shortcut in the query. Notebook 03.1 tests this directly.
     - **Qwen-base** loses less to flipped names than the instruct model: random demonstrations, ID AUROC 0.625 → 0.560, against 0.603 → 0.484.
     - **counter_prior_matched.** With f8 held fixed it still beats label_diversity on ID under abstract names (0.641 against 0.593), and still loses under spurious reversal (0.480 against 0.520). The counter_prior effect is therefore not only the shortcut.
+    - **feature_range always covers the shortcut** (`hiccups/` 19, found in the 5 October spec review). Its 3 coverage features include the shortcut in all 24 tasks, so its sets show the shortcut agreeing in 66% of rows, against 84% for label_diversity. C2c therefore tests coverage over the most label-related features, not coverage of the rule. Open: keep, or add a rule-feature coverage variant.
   - **Covariate follow-up** (exploratory, the user's request; `hiccups/` 18). C1a's null is a measurement limit, not evidence that covariate shift is harmless:
     - The uniform shift raises every covariate score together: +0.44 to +1.21 logits for the same prompt, with demonstrations only. ID positives against covariate negatives fall to AUROC 0.46–0.54 under abstract names. Within-environment AUROC cannot see this.
     - New probe splits, appended so existing rows are unchanged, were scored on a second H200 for every existing demonstration set (`grid_probe.parquet`):
@@ -350,6 +363,29 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
       - f8-neutral copies of the ID, covariate and covariate_scale queries.
     - The variance shift hurts only under flipped names: AUROC −0.09 to −0.13, intervals above 0 for random, label_diversity and rule_diversity.
     - Qwen uses the shortcut (removing it costs 0.05–0.08 ID AUROC), but it does not hide covariate harm: without it the covariate gap does not grow (about 0).
+  - **Demonstrations without the shortcut** (exploratory; the user's decision on 5 October; `hiccups/` 20; notebook `03.1_demos_without_spurious_feats`). The user's argument: demonstrations should hint at the causal signal, so they should not show the shortcut feature, or the noise feature.
+    - **Three arms of the same grid.**
+      - `none`: full demonstrations, rerun as the baseline.
+      - `spurious` (Part 1): the shortcut feature removed from every demonstration line.
+      - `spurious_noise` (Part 2): the shortcut and the noise feature removed.
+      - Queries and the content-free query always show all ten features.
+    - **Ground truth, never estimated.** The hidden features are the generator's columns 8 (shortcut) and 9 (noise), mapped through each task's recorded column-role permutation (`src/data/demo_mask.py`).
+    - **Selection is blind to hidden features.**
+      - feature_range ranks, and similarity measures distance, on the visible features only.
+      - counter_prior uses Qwen's zero-shot prior re-measured on the masked pool rows.
+      - random, label_diversity and rule_diversity pick the same rows in every arm.
+      - counter_spurious needs the shortcut, so it runs only in the full arm, as the "neutralise instead of remove" reference.
+    - **System message without a count** ("Each example lists numeric measurements …") in all three arms, because demonstrations and queries now show different numbers of measurements.
+    - **Scope.** Qwen2.5-7B-Instruct; 24 tasks; 3 namings; 3 seeds (similarity 1); id, covariate and spurious reversal, 20 queries each.
+    - **Compute.** One H200, stage E of `scripts/run_p4_pod.sh`: pool priors for the 3 arms, then the 3 grids. About 45 min.
+    - **Analysis** (`demo_mask_contrasts` in `src/evaluation/analysis.py`): paired by task, seed and query, with the hierarchical bootstrap.
+      - M1: no shortcut − full.
+      - M2: no shortcut or noise − full.
+      - M3: what removing the noise feature adds.
+      - M4: change in the ID − spurious-reversal gap.
+      - M5: removing the shortcut against neutralising it (label_diversity without the shortcut − counter_spurious with it).
+      - Also: the residual gap by spurious direction σ_t, since the query still shows the shortcut and Qwen's numeric prior can read it.
+    - Not part of the frozen contrast family.
 
 ### P5 — SATA (2 weeks; CPU training overlaps P4)
 
@@ -403,6 +439,7 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
 | `01_synthetic_data`          | (updated, P1 ✓)                  | Per-task generation             |
 | `02_pilot_and_priors`        | new (P2 ✓; P3 part later)        | Pilot and prior screening       |
 | `03_grid_run`                | `02_synthetic_baselines` (P1 ✓)  | Driver over `run_synth_grid.py` |
+| `03.1_demos_without_spurious_feats` | new (exploratory, 5 Oct)  | Demonstrations without the shortcut (and noise) feature |
 | `04_sata_train`              | port of main's `05_sata_train`   | SATA training                   |
 | `05_analysis`                | `03_synthetic_analysis`          | RQ1, RQ2, RQ4                   |
 | `06_faithfulness_and_probes` | new                              | RQ3                             |

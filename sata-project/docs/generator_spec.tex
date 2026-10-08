@@ -221,6 +221,7 @@ Inference & \texttt{MLXRunner}; double BOS on Llama & \texttt{HFRunner}
 Device selection & CUDA-or-CPU in two places; SATA selection assumed CPU &
 shared auto-detection: CUDA, then MPS, then CPU & done (P0) \\
 Calibration & none & contextual calibration & done (P1) \\
+Demo masks & none & shortcut (and noise) feature hidden from demonstrations and selection; queries complete & built (5 Oct); run pending \\
 Priors & none & measured zero-shot priors on the pool; surrogate (descriptive); conflict statistic & done (P3) \\
 SATA & not on this branch & ported (v2) + MI + MI-mech & P5 \\
 Probes & none & logit lens, probes, steering & P6 \\
@@ -335,6 +336,15 @@ and shortcuts in in-context learning
 \citep{si2023measuring,tang2023large,harutyunyan2026incontext,chen2026incontext}.
 The
 magnitude-matching rule and its analysis are this project's. \\
+Demonstrations without the shortcut &
+A reference model trained without the spurious feature, as Colored MNIST's
+grayscale oracle \citep{arjovsky2019invariant}; ablating parts of the
+demonstrations while the test input is kept \citep{min2022rethinking};
+removing the competing feature removes the underspecification studied by
+\citet{si2023measuring}. On tabular shifts, predictors restricted to causal
+features did not generalise better than predictors using all features
+\citep{nastl2024causal}. Hiding features from demonstrations but not from
+queries is this project's (Section~\ref{sec:demo-mask}). \\
 Inference &
 Contextual calibration \citep{zhao2021calibrate}; key--value and prefix
 caching \citep{pope2023efficiently,gim2024prompt,zheng2024sglang}; causal
@@ -1480,8 +1490,15 @@ information is estimated with scikit-learn's nearest-neighbour estimator
 \citep{pedregosa2011scikit,kraskov2004estimating,ross2014mutual}. The version
 ported from \texttt{main} assigned rows feature by feature: the top feature's
 three bins absorbed every row, so the other two features never formed a
-stratum. The top-3 features often include the spurious column, which the
-pool's mutual information cannot tell apart from a causal one.
+stratum. On all 24 evaluation tasks the top-3 features include the spurious
+feature (with two rule features in 23 of them, and never the noise feature).
+With $s \in [0.80, 0.90]$ it is more predictive than any single rule feature
+(its AUROC alone is $\Phi(\sqrt 2\, d) \approx 0.93$,
+Section~\ref{sec:spurious}), and the pool's mutual information cannot tell it
+apart from a causal one. Covering its bins within each class over-samples the
+rows on which it disagrees with the label, so feature\_range's sets show it
+agreeing in 0.66 of rows, against 0.84 for label\_diversity
+(\texttt{hiccups/19}).
 
 \paragraph{gt\_regime.} Rows are grouped by ground-truth regime; within each
 class, regimes are visited in random order, one row each. A row is eligible
@@ -1686,6 +1703,98 @@ the measured priors are zero-shot answers on pool rows
 
 v2 violated this: its counter-spurious proxy search used \texttt{test\_ood}
 rows and labels.
+
+%======================================================================
+\section{Demonstrations without the shortcut (exploratory, added 5 October 2026)}
+\label{sec:demo-mask}
+%======================================================================
+\status{Implemented and tested (\texttt{src/data/demo\_mask.py}); run pending
+(stage E; notebook \texttt{03.1}); \texttt{hiccups/20}}
+
+\paragraph{Motivation.} Demonstrations are examples meant to point the model
+to the signal that causes the label. The user's argument is that they should
+therefore not show the shortcut feature, or the noise feature. The P4 design
+shows every feature because, in real data, no one knows which feature is
+spurious. This experiment asks how much of the shortcut problem disappears
+when the demonstrations never show the shortcut, while a query, as a new case
+would, still does. It does not replace the P4 design, and it is not part of
+the frozen contrast family.
+
+\begin{definition}[Demo masks]
+A mask $M \subseteq \{\text{spurious}, \text{noise}\}$ hides features from
+every demonstration line. Three arms of the grid are run: \texttt{none}
+($M = \emptyset$, full demonstrations), \texttt{spurious} (Part 1) and
+\texttt{spurious\_noise} (Part 2). The hidden displayed features are
+$f_{\pi_t(8)}$ for the shortcut and $f_{\pi_t(9)}$ for the noise feature: the
+generator's columns 8 and 9 under the task's recorded column-role
+permutation $\pi_t$ (Section~\ref{sec:roles}). They are looked up, never
+estimated, and checked against the roles in the manifest.
+\end{definition}
+
+\begin{itemize}[nosep]
+  \item \textbf{Queries are complete.} Every query and the content-free query
+        show all ten features.
+  \item \textbf{Selection is blind to hidden features.} The selection context
+        holds the visible features only: feature\_range ranks them by mutual
+        information, and similarity measures distance on them. counter\_prior
+        reads Qwen's zero-shot prior re-measured on the masked pool rows
+        (Section~\ref{sec:priors}).
+  \item \textbf{Strategies that select on the shortcut} (counter\_spurious,
+        counter\_prior\_matched) are refused under a mask that hides it.
+        counter\_spurious runs in the full arm, where it neutralises the shortcut
+        instead of removing it.
+  \item \textbf{System message.} Masked demonstrations show 9 or 8 measurements
+        and the query 10, so every arm uses the message without the count:
+        ``Each example lists numeric measurements and a label (0 or 1).''
+        The full arm is therefore rerun rather than taken from P4.
+  \item \textbf{Scope.} Qwen2.5-7B-Instruct, $k = 8$, the 24 evaluation
+        tasks, three namings, three seeds (similarity one), and the id,
+        covariate and spurious-reversal queries.
+\end{itemize}
+
+\begin{proposition}[Same rows]
+\label{prop:demo-mask-rows}
+For random, label\_diversity and rule\_diversity, the demonstration rows and
+their order are the same in every arm. The prompts of the three arms then
+differ only in the hidden features' name--value pairs on the demonstration
+lines and, against P4, in the system message's count.
+\end{proposition}
+\begin{proof}
+Seeds never include the mask (Section~\ref{sec:seeding}). The random
+mechanism reads no feature, and gt\_regime reads the regime, the label and
+the clean label only, so the selected rows and the seeded order do not
+depend on which features are visible. Queries are serialised from all ten
+features in every arm.
+\end{proof}
+
+\paragraph{Analysis} (\texttt{demo\_mask\_contrasts}). AUROC contrasts,
+paired by task, seed and query, with the hierarchical bootstrap, for every
+strategy, naming and environment:
+\begin{itemize}[nosep]
+  \item M1: no shortcut $-$ full;
+  \item M2: no shortcut or noise $-$ full;
+  \item M3: no shortcut or noise $-$ no shortcut (what removing the noise feature adds);
+  \item M4: the change in the ID $-$ spurious-reversal gap, no shortcut $-$ full;
+  \item M5: label\_diversity without the shortcut $-$ counter\_spurious with full
+        demonstrations (removing against neutralising).
+\end{itemize}
+
+\paragraph{Expectations, stated before the run.}
+\begin{itemize}[nosep]
+  \item If Qwen learns the shortcut from the demonstrations, hiding it lowers
+        ID AUROC and raises spurious-reversal AUROC (M4 $< 0$).
+  \item The query still shows the shortcut, and Qwen's zero-shot habit is
+        ``bigger value, label 1'' (Section~\ref{sec:spurious}). A gap that
+        remains, with opposite signs for $\sigma_t = \pm 1$, is shortcut use
+        through the prior.
+  \item The noise feature is unrelated to the label, so M3 should be close to 0.
+\end{itemize}
+
+\paragraph{Compute.} Stage E of \texttt{scripts/run\_p4\_pod.sh} on one H200,
+with 8 MPS workers: pool priors for the three arms ($3 \times 24 \times 3
+\times 256$ zero-shot rows), then the three grids. It is about 310{,}000 forward
+passes. A one-task smoke run on the Mac rendered all three arms
+through Qwen's chat template with label mass 1.0 and no prefix fallbacks.
 
 %======================================================================
 \newpage

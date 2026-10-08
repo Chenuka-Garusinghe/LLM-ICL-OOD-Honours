@@ -20,6 +20,12 @@ Examples:
       --namings abstract,aligned,flipped --order seed \
       --strategies zero_shot,random,label_diversity,feature_range,rule_diversity,counter_spurious,counter_prior
 
+  # Notebook 03.1: demonstrations without the shortcut feature (queries keep all ten)
+  python scripts/run_synth_grid.py --run demo_mask/grid_spurious --models qwen2.5-7b-instruct \
+      --namings abstract,aligned,flipped --demo-mask spurious --count-free-system \
+      --pool-prior results/v3/synthetic/demo_mask/pool_prior_qwen2.5-7b-instruct_spurious.parquet \
+      --strategies random,label_diversity,feature_range,rule_diversity,counter_prior
+
 Results go to results/v3/synthetic/<run>.parquet unless --out is given.
 The aligned and flipped namings use the final names in configs/lexicons.yaml,
 and counter_prior the model's measured zero-shot prior on the pool rows,
@@ -39,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.utils.config import load_config, resolve_path  # noqa: E402  (first: sets thread/MPS env vars)
 import json  # noqa: E402
 
+from src.data.demo_mask import DEMO_MASKS, check_strategies  # noqa: E402
 from src.data.naming import load_lexicons, naming_table  # noqa: E402
 from src.data.suites import load_suite, suite_dir  # noqa: E402
 from src.experiments.synth_grid import UNIT_ORDERS, GridRunner, completed_units, enumerate_units, order_units  # noqa: E402
@@ -74,6 +81,12 @@ def main() -> None:
     parser.add_argument("--order", default="grid", choices=UNIT_ORDERS,
                         help="grid: as enumerated; seed: all of seed 0 first, then seed 1, ...")
     parser.add_argument("--shard", default=None, help="i/N: run every N-th unit starting at i (parallel workers)")
+    parser.add_argument("--demo-mask", default="none", choices=tuple(DEMO_MASKS),
+                        help="features hidden from demonstrations and selection (notebook 03.1)")
+    parser.add_argument("--count-free-system", action="store_true",
+                        help="system message without the measurement count (for masked demonstrations)")
+    parser.add_argument("--pool-prior", default=None,
+                        help="measured pool prior for counter_prior (default p3/pool_prior_<model>.parquet)")
     parser.add_argument("--out", default=None)
     parser.add_argument("--dry-run", action="store_true", help="list the units and exit")
     args = parser.parse_args()
@@ -86,6 +99,10 @@ def main() -> None:
     if unknown:
         parser.error(f"unknown model(s) {unknown}; configured: {list(models)}")
     namings = _csv(args.namings)
+    try:
+        check_strategies(_csv(args.strategies), args.demo_mask)
+    except ValueError as err:
+        parser.error(str(err))
     units = order_units(enumerate_units(
         model_names, namings, task_ids, _csv(args.strategies),
         _csv(args.label_modes), [int(k) for k in _csv(args.k)], args.seeds,
@@ -111,7 +128,7 @@ def main() -> None:
     for name in model_names:
         if not needs_prior:
             continue
-        path = pool_prior_path(config, name)
+        path = Path(args.pool_prior) if args.pool_prior else pool_prior_path(config, name)
         if not path.exists():
             parser.error(f"counter_prior needs {path}; run scripts/p3_pool_priors.py first")
         priors[name] = PoolPrior.load(path)
@@ -136,7 +153,8 @@ def main() -> None:
             runner, name, suite_dir(args.suite, config), manifest,
             base_seed=config.selection.base_seed, envs=_csv(args.envs),
             queries_per_env=args.queries, run_name=args.run, lexicons=lexicons,
-            pool_prior=priors.get(name),
+            pool_prior=priors.get(name), demo_mask=args.demo_mask,
+            system_n_features=None if args.count_free_system else 10,
         )
         grid.run(units, out)
         if runner.n_prefix_fallbacks:

@@ -488,3 +488,95 @@ def exploratory_contrasts(grid: pd.DataFrame, strategies=("random", "label_diver
                              "estimate": res["estimate"], "ci_low": res["ci_low"], "ci_high": res["ci_high"],
                              "tasks_positive": int((per_task > 0).sum()), "n_tasks": res["n_tasks"]})
     return pd.DataFrame(rows)
+
+
+# --------------------------------------------------------------------------- #
+# demonstrations without the shortcut (exploratory, notebook 03.1; hiccups/20)
+# --------------------------------------------------------------------------- #
+# The same grid run three times: full demonstrations ("none"), demonstrations
+# without the shortcut feature ("spurious"), and without the shortcut and the
+# noise feature ("spurious_noise"). Queries keep all ten features. Contrasts
+# are paired by task, seed and query; random, label_diversity and
+# rule_diversity show the same rows in every arm.
+DEMO_MASK_ARMS = ("none", "spurious", "spurious_noise")
+DEMO_MASK_CONTRASTS = [
+    {"id": "M1", "kind": "arm", "a": "spurious", "b": "none",
+     "label": "demonstrations without the shortcut minus full demonstrations"},
+    {"id": "M2", "kind": "arm", "a": "spurious_noise", "b": "none",
+     "label": "demonstrations without the shortcut and the noise feature minus full demonstrations"},
+    {"id": "M3", "kind": "arm", "a": "spurious_noise", "b": "spurious",
+     "label": "what also removing the noise feature adds"},
+    {"id": "M4", "kind": "gap_change", "a": "spurious", "b": "none", "envs": ("id", "spurious_reversal"),
+     "label": "change in the ID minus spurious-reversal gap when the shortcut is removed"},
+    {"id": "M5", "kind": "cross", "a": ("label_diversity", "spurious"), "b": ("counter_spurious", "none"),
+     "label": "removing the shortcut (label_diversity, masked) minus neutralising it (counter_spurious, full)"},
+]
+
+
+def combine_arms(arms: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """One frame with an `arm` column, from each demo-mask arm's grid."""
+    return pd.concat([df.assign(arm=arm) for arm, df in arms.items()], ignore_index=True)
+
+
+def _arm_block(s: pd.DataFrame, a: dict, b: dict, w: float, value: str = "score"):
+    """Row block for w * (stat(a) - stat(b)) on the queries both scored, paired by seed."""
+    pair = _paired(_select(s, **a), _select(s, **b), value)
+    if pair is None:
+        return None
+    y, A, B = pair
+    return (y, [(A, w), (B, -w)])
+
+
+def demo_mask_contrasts(arms: dict[str, pd.DataFrame],
+                        strategies=("random", "label_diversity", "feature_range", "rule_diversity",
+                                    "similarity", "counter_prior"),
+                        namings=("abstract", "aligned", "flipped"),
+                        envs=("id", "covariate", "spurious_reversal"),
+                        n_bootstrap: int = 2000, seed: int = 0,
+                        specs: list[dict] = DEMO_MASK_CONTRASTS) -> pd.DataFrame:
+    """Every demo-mask contrast (M1-M5) for every strategy, naming and
+    environment: AUROC estimate, hierarchical-bootstrap interval and tasks in
+    the positive direction. M4 spans two environments; M5 compares two fixed
+    strategies."""
+    df = prepare(combine_arms(arms))
+    df = df[df["label_mode"] == "gold"]
+    rows = []
+    for spec in specs:
+        kind = spec["kind"]
+        loop_strategies = [None] if kind == "cross" else strategies
+        loop_envs = [None] if kind == "gap_change" else envs
+        for strategy in loop_strategies:
+            for naming in namings:
+                for env in loop_envs:
+                    tasks = []
+                    for _, g in _select(df, naming=naming).groupby("task_id"):
+                        if kind == "arm":
+                            blk = _arm_block(g, dict(strategy=strategy, arm=spec["a"], env=env),
+                                             dict(strategy=strategy, arm=spec["b"], env=env), 1.0)
+                            blocks = None if blk is None else [blk]
+                        elif kind == "gap_change":       # (a_id - a_rev) - (b_id - b_rev)
+                            (ea, eb), parts = spec["envs"], []
+                            for e, w in ((ea, 1.0), (eb, -1.0)):
+                                parts.append(_arm_block(g, dict(strategy=strategy, arm=spec["a"], env=e),
+                                                        dict(strategy=strategy, arm=spec["b"], env=e), w))
+                            blocks = None if any(p is None for p in parts) else parts
+                        elif kind == "cross":
+                            (sa, aa), (sb, ab) = spec["a"], spec["b"]
+                            blk = _arm_block(g, dict(strategy=sa, arm=aa, env=env), dict(strategy=sb, arm=ab, env=env), 1.0)
+                            blocks = None if blk is None else [blk]
+                        else:
+                            raise ValueError(f"unknown demo-mask contrast kind {kind!r}")
+                        if blocks:
+                            tasks.append(blocks)
+                    if not tasks:
+                        continue
+                    res = hierarchical_contrast(tasks, "auroc", n_bootstrap=n_bootstrap, seed=seed)
+                    per_task = np.array(res["per_task"])
+                    rows.append({
+                        "id": spec["id"], "label": spec["label"],
+                        "strategy": strategy if kind != "cross" else f"{spec['a'][0]} vs {spec['b'][0]}",
+                        "naming": naming, "env": env if kind != "gap_change" else " - ".join(spec["envs"]),
+                        "estimate": res["estimate"], "ci_low": res["ci_low"], "ci_high": res["ci_high"],
+                        "tasks_positive": int((per_task > 0).sum()), "n_tasks": res["n_tasks"],
+                    })
+    return pd.DataFrame(rows)

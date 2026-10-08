@@ -1,6 +1,6 @@
 # 17 — P4 moved from the Mac to a cloud H200, and ran on one device in 42 minutes
 
-**When:** 1 October 2026 · **Status:** done; the Pod is stopped (its disk is kept until the user decides)
+**When:** 1 October 2026 · **Status:** done; both Pods (this one and the covariate-probe Pod of hiccups/18) were terminated on 1 October, after all results were copied to the Mac
 
 ## What happened
 

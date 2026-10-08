@@ -67,16 +67,24 @@ FEATURE_RANKING_TEMPLATE = (
 )
 
 
-def system_message(domain: str | None = None, n_features: int = 10) -> str:
+def _subject(domain: str | None, n_features: int | None) -> str:
+    """The sentence describing an example. `n_features=None` drops the count, for
+    prompts whose demonstrations and query show different numbers of
+    measurements (the demo-mask experiment, notebook 03.1)."""
+    subject = ABSTRACT_SUBJECT if domain is None else DOMAIN_SUBJECTS[domain]
+    if n_features is None:
+        return subject.replace("{n} ", "")
+    return subject.format(n=n_features)
+
+
+def system_message(domain: str | None = None, n_features: int | None = 10) -> str:
     """System message; `domain=None` is the abstract condition."""
-    subject = ABSTRACT_SUBJECT if domain is None else DOMAIN_SUBJECTS[domain]
-    return SYSTEM_TEMPLATE.format(subject=subject.format(n=n_features))
+    return SYSTEM_TEMPLATE.format(subject=_subject(domain, n_features))
 
 
-def ranking_system_message(domain: str | None = None, n_features: int = 10) -> str:
+def ranking_system_message(domain: str | None = None, n_features: int | None = 10) -> str:
     """System message of the RQ3 feature-ranking prompt; `domain=None` is abstract."""
-    subject = ABSTRACT_SUBJECT if domain is None else DOMAIN_SUBJECTS[domain]
-    return RANKING_SYSTEM_TEMPLATE.format(subject=subject.format(n=n_features))
+    return RANKING_SYSTEM_TEMPLATE.format(subject=_subject(domain, n_features))
 
 
 def ranking_request(n_features: int = 10) -> str:

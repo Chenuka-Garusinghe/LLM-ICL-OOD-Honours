@@ -16,10 +16,13 @@
 #   C  counter_prior_matched (exploratory, hiccups/16) for both models
 #   D  covariate probes (exploratory, hiccups/18): covariate_scale and the f8-neutral
 #      copies of the id, covariate and covariate_scale queries, on every demonstration set
+#   E  demonstrations without the shortcut (exploratory, hiccups/20, notebook 03.1): pool
+#      priors and the grid for three demo masks (none, spurious, spurious_noise), with the
+#      count-free system message
 #
 # Pod setup: the venv from requirements.txt (torch 2.14.0+cu130 needs a CUDA 13
 # host), both models downloaded to HF_HOME, no .env on the pod.
-# Usage on the pod:  bash scripts/run_p4_pod.sh A B C
+# Usage on the pod:  bash scripts/run_p4_pod.sh A B C   (stage E needs no earlier stage)
 set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-/root/venv/bin/python}
@@ -131,12 +134,53 @@ stage_D() {  # covariate probes (hiccups/18): the new query sets only, on every 
     step "stage D done"
 }
 
+DM=demo_mask
+MASKS="none spurious spurious_noise"
+FULL_STRATS=zero_shot,random,label_diversity,feature_range,rule_diversity,counter_spurious,counter_prior
+MASKED_STRATS=random,label_diversity,feature_range,rule_diversity,counter_prior   # no strategy that selects on the shortcut
+
+stage_E() {  # notebook 03.1: each of 8 workers runs its shard of every mask in turn, so no worker waits on a mask
+    start_mps
+    mkdir -p "$R/$DM"
+    step "stage E start (MPS): pool priors for the three demo masks"
+    for i in 0 1 2 3 4 5 6 7; do
+        (
+            for mask in $MASKS; do
+                "$PY" scripts/p3_pool_priors.py --models $QI --namings abstract,aligned,flipped --demo-mask $mask \
+                    --count-free-system --shard $i/8 --out $R/$DM/pool_prior_${QI}_$mask.s$i.parquet || exit 1
+            done
+        ) > "$LOGS/E_prior_$i.log" 2>&1 &
+        sleep 3
+    done
+    wait
+    for mask in $MASKS; do
+        merge $R/$DM/pool_prior_${QI}_$mask.parquet $R/$DM/pool_prior_${QI}_$mask.s{0,1,2,3,4,5,6,7}.parquet
+    done
+    step "stage E: grids for the three demo masks"
+    for i in 0 1 2 3 4 5 6 7; do
+        (
+            for mask in $MASKS; do
+                strats=$MASKED_STRATS; [ "$mask" = none ] && strats=$FULL_STRATS
+                G="scripts/run_synth_grid.py --run $DM/grid_$mask --models $QI --namings abstract,aligned,flipped --order seed --demo-mask $mask --count-free-system --pool-prior $R/$DM/pool_prior_${QI}_$mask.parquet --shard $i/8 --out $R/$DM/grid_$mask.s$i.parquet"
+                "$PY" $G --strategies $strats && "$PY" $G --strategies similarity --seeds 1 || exit 1
+            done
+        ) > "$LOGS/E_grid_$i.log" 2>&1 &
+        sleep 3
+    done
+    wait
+    for mask in $MASKS; do
+        merge $R/$DM/grid_$mask.parquet $R/$DM/grid_$mask.s{0,1,2,3,4,5,6,7}.parquet
+    done
+    step "stage E done"
+}
+
 for stage in "$@"; do
     case $stage in
         A) stage_A ;;
         B) stage_B ;;
         C) stage_C ;;
         D) stage_D ;;
-        *) echo "usage: $0 A|B|C|D ..."; exit 1 ;;
+        E) stage_E ;;
+        *) echo "usage: $0 A|B|C|D|E ..."; exit 1 ;;
     esac
 done
