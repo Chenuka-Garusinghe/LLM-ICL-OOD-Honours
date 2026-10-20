@@ -19,10 +19,15 @@
 #   E  demonstrations without the shortcut (exploratory, hiccups/20, notebook 03.1): pool
 #      priors and the grid for three demo masks (none, spurious, spurious_noise), with the
 #      count-free system message
+#   F  P5 SATA (needs models/sata_v2{,_agnostic,_designed}.pt, trained on the Mac):
+#      pool priors of the 8 sata_llmval tasks; the LLM validation on them (every strategy,
+#      3 namings); then the evaluation grid's sata, sata_agnostic and sata_designed units
+#      (Qwen-Instruct, 3 namings; Qwen-base, abstract and flipped). SATA draws its
+#      demonstrations in proportion to its scores (sata.selection), so 3 seeds.
 #
 # Pod setup: the venv from requirements.txt (torch 2.14.0+cu130 needs a CUDA 13
 # host), both models downloaded to HF_HOME, no .env on the pod.
-# Usage on the pod:  bash scripts/run_p4_pod.sh A B C   (stage E needs no earlier stage)
+# Usage on the pod:  bash scripts/run_p4_pod.sh A B C   (stages E and F need no earlier stage)
 set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-/root/venv/bin/python}
@@ -174,6 +179,42 @@ stage_E() {  # notebook 03.1: each of 8 workers runs its shard of every mask in 
     step "stage E done"
 }
 
+P5=p5
+SATA=sata,sata_agnostic,sata_designed
+
+stage_F() {  # P5: every worker runs its shard of the validation suite, then of the evaluation grid
+    start_mps
+    mkdir -p "$R/$P5"
+    for f in models/sata_v2.pt models/sata_v2_agnostic.pt models/sata_v2_designed.pt; do
+        [ -f "$f" ] || { step "stage F: missing $f"; exit 1; }
+    done
+    step "stage F start (MPS): pool priors of the sata_llmval suite"
+    for i in 0 1 2 3 4 5 6 7; do
+        "$PY" scripts/p3_pool_priors.py --suite sata_llmval --models $QI --namings abstract,aligned,flipped \
+            --shard $i/8 --out $R/$P5/pool_prior_${QI}_llmval.s$i.parquet > "$LOGS/F_prior_$i.log" 2>&1 &
+        sleep 3
+    done
+    wait
+    merge $R/$P5/pool_prior_${QI}_llmval.parquet $R/$P5/pool_prior_${QI}_llmval.s{0,1,2,3,4,5,6,7}.parquet
+    step "stage F: LLM validation, then the evaluation grid's SATA units"
+    for i in 0 1 2 3 4 5 6 7; do
+        (
+            V="scripts/run_synth_grid.py --run $P5/llmval --suite sata_llmval --models $QI --namings abstract,aligned,flipped --order seed --pool-prior $R/$P5/pool_prior_${QI}_llmval.parquet --shard $i/8 --out $R/$P5/llmval.s$i.parquet"
+            "$PY" $V --strategies $CORE,$SATA && "$PY" $V --strategies similarity --seeds 1 || exit 1
+            "$PY" scripts/run_synth_grid.py --run $P5/grid_sata --models $QI --namings abstract,aligned,flipped \
+                --order seed --strategies $SATA --shard $i/8 --out $R/$P5/grid_sata.s$i.parquet || exit 1
+            "$PY" scripts/run_synth_grid.py --run $P5/grid_sata_base --models $QB --namings abstract,flipped \
+                --order seed --strategies $SATA --shard $i/8 --out $R/$P5/grid_sata_base.s$i.parquet
+        ) > "$LOGS/F_sata_$i.log" 2>&1 &
+        sleep 3
+    done
+    wait
+    for run in llmval grid_sata grid_sata_base; do
+        merge $R/$P5/$run.parquet $R/$P5/$run.s{0,1,2,3,4,5,6,7}.parquet
+    done
+    step "stage F done"
+}
+
 for stage in "$@"; do
     case $stage in
         A) stage_A ;;
@@ -181,6 +222,7 @@ for stage in "$@"; do
         C) stage_C ;;
         D) stage_D ;;
         E) stage_E ;;
-        *) echo "usage: $0 A|B|C|D|E ..."; exit 1 ;;
+        F) stage_F ;;
+        *) echo "usage: $0 A|B|C|D|E|F ..."; exit 1 ;;
     esac
 done

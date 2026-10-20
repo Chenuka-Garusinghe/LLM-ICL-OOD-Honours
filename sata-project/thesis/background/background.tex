@@ -1,0 +1,89 @@
+\chapter{Background}
+\label{ch:background}
+
+This chapter reviews the five strands of work the thesis builds on: in-context learning and what it learns (\autoref{sec:bg-icl}), the contest between priors and demonstrations (\autoref{sec:bg-priors}), distribution shift and shortcuts (\autoref{sec:bg-shift}), demonstration selection (\autoref{sec:bg-selection}), and the tools for looking inside a model (\autoref{sec:bg-mech}).
+It closes with the gap this thesis addresses (\autoref{sec:bg-gap}).
+\todo{Fold in the strongest material from the earlier literature review (Lit-review.pdf), and check each claim against the paper itself.}
+
+\section{In-context learning}
+\label{sec:bg-icl}
+
+\citet{brown2020language} showed that a sufficiently large language model can perform a new task from a few demonstrations in its prompt, with no gradient updates; \citet{dong2024survey} survey the area since.
+What the model learns from the demonstrations is contested.
+\citet{min2022rethinking} found that replacing demonstration labels with random ones often costs surprisingly little, suggesting that demonstrations mainly convey the input distribution, the label space and the format.
+\citet{pan2023what} separate \emph{task recognition}, retrieving a task the model already knows, from \emph{task learning}, acquiring an input--label mapping from the demonstrations themselves.
+\citet{xie2022explanation} frame in-context learning as implicit Bayesian inference, in which demonstrations update a prior over latent concepts.
+These views matter here because a model that mostly recognises tasks will follow its priors whenever the demonstrations disagree with them.
+
+Controlled studies train or probe models on synthetic function classes.
+\citet{garg2022what} show that transformers trained from scratch can learn linear functions and decision trees in context, and \citet{zhang2024trained} find that such in-context learners of linear functions are brittle under covariate shift.
+Tabular foundation models are trained on synthetic task priors in the same spirit \citep{muller2022transformers,hollmann2023tabpfn,hollmann2025accurate}.
+For pretrained language models, tabular rows are serialised as text \citep{hegselmann2023tabllm,dinh2022lift}, and classification is read from the probabilities of the label tokens \citep{brown2020language}, which are affected by surface-form competition \citep{holtzman2021surface} and by a bias toward particular labels that contextual calibration corrects \citep{zhao2021calibrate}.
+Public tabular datasets can be memorised by large models \citep{bordt2024elephants}, one reason to prefer synthetic tasks.
+
+\section{Priors against demonstrations}
+\label{sec:bg-priors}
+
+A model's prior is what it would predict with no demonstrations.
+When feature names carry meaning, the prior is semantic: a feature called ``credit score'' suggests a direction before any example is seen.
+\citet{dinh2022lift} and \citet{choi2022lmpriors} show that feature names change what language models do with tabular data, and \citet{nafar2025learning} compare named and anonymised features in in-context regression.
+
+\citet{wei2023larger} tested what happens when the demonstrations contradict the prior, by flipping labels or replacing them with semantically unrelated ones: only large models follow the flipped labels, and smaller models stay with their priors.
+At the scale studied here the picture is graded rather than all-or-nothing.
+Llama-3.1-8B-Instruct agrees with fully flipped sentiment labels about half the time \citep{krishnakumar2025semantic}, and with flipped labels in-context accuracy plateaus below its level with the original labels \citep{kossen2024incontext}.
+Related work on knowledge conflicts studies when a model trusts its context over its parametric memory \citep{longpre2021entity,xie2024adaptive}; the statistical notion of prior--data conflict goes back further \citep{evans2006checking}.
+This thesis treats the question as a contest between prior and demonstrations whose outcome can be shifted, and asks whether the demonstrations themselves can be chosen to shift it.
+
+\section{Distribution shift and shortcuts}
+\label{sec:bg-shift}
+
+\paragraph{Kinds of shift.}
+Covariate shift changes the input distribution $P(X)$ while keeping $P(Y \mid X)$; label (prior-probability) shift changes $P(Y)$; concept shift changes $P(Y \mid X)$ itself \citep{shimodaira2000improving,quinonero2009dataset,morenotorres2012unifying}.
+On real tabular benchmarks, most of the large performance drops are dominated by concept shift \citep{liu2023need}.
+Benchmarks such as TableShift \citep{gardner2023tableshift} collect natural shifts, but each mixes several kinds, so the effect of one kind cannot be isolated.
+
+\paragraph{Spurious features and shortcuts.}
+A spurious feature predicts the label in the training environment for reasons that do not hold elsewhere.
+Colored MNIST pairs a noisy causal signal with a colour whose correlation with the label reverses at test time \citep{arjovsky2019invariant}, and \citet{rosenfeld2021risks} model environmental features as class-conditional Gaussians.
+Learners adopt such shortcuts readily \citep{geirhos2020shortcut,nagarajan2021understanding}.
+Worst-group robustness is measured over (label, spurious attribute) groups \citep{sagawa2020distributionally}, and simple group balancing is a strong baseline \citep{idrissi2022simple}.
+In-context learning inherits the problem: when demonstrations are consistent with several features, models show systematic preferences among them \citep{si2023measuring}, exploit shortcuts in the prompt \citep{tang2023large}, and in-context learners trained on tasks with spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}.
+Restricting a predictor to causal features is not automatically better: on tabular shifts, \citet{nastl2024causal} found predictors using all features generalised as well or better.
+
+\section{Demonstration selection}
+\label{sec:bg-selection}
+
+\paragraph{Heuristic selection.}
+The simplest heuristics retrieve the training examples nearest to the query \citep{liu2022what} or cover the input space with diverse examples \citep{levy2023diverse,gupta2023coverage}.
+Others target robustness: comparable demonstrations, minimally edited to flip the label, break spurious associations \citep{fan2024comparable}, and misconfidence-based selection prefers examples on which the model's output departs from the true label \citep{xu2024misconfidence}.
+Label balance and order are controlled because they bias predictions \citep{zhao2021calibrate,lu2022fantastically}.
+
+\paragraph{Learned selection.}
+Several methods train a selector from the language model's own feedback.
+EPR \citep{rubin2022learning} and UDR \citep{li2023unified} train retrievers on the model's scores of candidate demonstrations, CEIL \citep{ye2023compositional} learns to choose whole sets, and \citet{zhang2022active} learn a selection policy by reinforcement learning.
+Datamodels \citep{ilyas2022datamodels} regress a model's output on which training examples were present; \citet{chang2023data} fit them to in-context examples on the correct-class margin, and \citet{nguyen2023incontext} estimate influence from random subsets.
+Signals from model internals and learned judges have also been proposed \citep{kato2025affinity,wang2026disp}; \citet{kato2025affinity} show that scores computed from induction-head representations track in-context accuracy but leave selection with them to future work.
+
+\paragraph{Set-based architectures.}
+The selector built in this thesis reads the whole pool of candidates at once.
+It draws on In-Context Risk Minimization \citep{gupta2024context}, in which a transformer adapts to an environment by attending over other inputs from it, on the row tokens of TabPFN \citep{hollmann2023tabpfn}, and on attention over sets \citep{lee2019set}.
+
+\section{Looking inside the model}
+\label{sec:bg-mech}
+
+The residual stream of a transformer \citep{vaswani2017attention} carries a running representation that every layer reads from and writes to \citep{elhage2021mathematical}.
+The \emph{logit lens} reads an intermediate layer's prediction by applying the final normalisation and unembedding to it \citep{nostalgebraist2020logit}; its readings can be biased at early layers \citep{belrose2023eliciting}.
+\citet{halawi2024overthinking} used it to find a \emph{critical layer} after which models given false demonstrations switch to the demonstrated labels.
+Linear probes test whether information is linearly decodable from a layer \citep{alain2017understanding}, which shows that it is present, not that it is used \citep{belinkov2022probing}.
+Steering adds a direction to the residual stream to change behaviour: activation addition \citep{turner2023activation} and contrastive activation addition \citep{rimsky2024steering} take differences of mean activations.
+\citet{minder2025controllable} find a single direction that controls whether a model follows its context or its prior, and task and function vectors \citep{hendel2023incontext,todd2024function} compress an in-context task into one direction.
+
+\section{The gap}
+\label{sec:bg-gap}
+
+Three gaps meet in this thesis.
+First, selection methods are almost always evaluated in distribution, with no control over what kind of shift the queries undergo.
+Second, the conflict between semantic priors and demonstrations has been studied by flipping \emph{labels}, not by changing what the \emph{features} mean, and not under shift.
+Third, the learned selectors above are trained on the model's scores of whole prompts; none, as far as our search reached, uses the model's measured prior on each candidate, and none is tested on whether it helps a small model overcome that prior.
+The nearest work, \citet{kato2025affinity}, is correlational and builds no selector.
+This thesis builds the testbed that the first two gaps require, and uses it to test the third.

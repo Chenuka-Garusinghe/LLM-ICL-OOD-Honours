@@ -24,6 +24,10 @@ loaded model's prior surrogate (src/inference/priors.py), so its sets depend
 on the model and the naming; where a task's prior-data conflict is at most
 1/2 it shows label_diversity's set instead.
 
+The `sata` strategies (P5) score the pool with trained SATA models passed
+as `sata_models` (strategy name -> model; src/models/sata.py); the selection
+metadata records each checkpoint's hash.
+
 `demo_mask` (notebook 03.1, src/data/demo_mask.py) hides the shortcut
 feature, or the shortcut and the noise feature, from every demonstration
 line and from selection; queries and the content-free query keep all ten
@@ -51,6 +55,7 @@ from src.data.synthetic_bridge import FEATURE_NAMES, LABEL_TOKENS, load_task_fra
 from src.inference.calibration import calibrate, content_free_features
 from src.inference.prompts import system_message
 from src.selection.ordering import shuffle_order
+from src.selection.sata_select import scorer as sata_scorer
 from src.selection.protocols import (
     COUNTER_PRIOR_FALLBACK,
     QUERY_CONDITIONAL,
@@ -170,6 +175,10 @@ class GridRunner:
         pool_prior=None,
         demo_mask: str = "none",
         system_n_features: int | None = 10,
+        sata_models: dict | None = None,
+        sata_hashes: dict[str, str] | None = None,
+        sata_selection: str = "sample",
+        query_prior: pd.Series | None = None,
     ):
         if demo_mask not in DEMO_MASKS:
             raise ValueError(f"unknown demo mask {demo_mask!r}; expected one of {tuple(DEMO_MASKS)}")
@@ -186,6 +195,12 @@ class GridRunner:
         self.pool_prior = pool_prior          # PoolPrior of this model: measured zero-shot margins (preferred)
         self.demo_mask = demo_mask            # features hidden from demonstrations and selection (notebook 03.1)
         self.system_n_features = system_n_features
+        self.sata_models = sata_models or {}  # strategy name -> trained SATA (P5)
+        self.sata_hashes = sata_hashes or {}
+        if sata_selection not in ("sample", "topk"):
+            raise ValueError(f"unknown SATA selection {sata_selection!r}; expected 'sample' or 'topk'")
+        self.sata_selection = sata_selection
+        self.query_prior = query_prior    # raw zero-shot margins by (task, naming, row_id), for sata_mi (5b)
         self._frames: dict[str, pd.DataFrame] = {}
         self._names: dict[tuple[str, str], dict[str, str]] = {}
 
@@ -225,7 +240,40 @@ class GridRunner:
                                                                 self.names(unit.task_id, unit.naming))
             else:
                 raise ValueError("counter_prior needs the model's measured pool prior or its prior surrogate")
+        if unit.strategy.startswith("sata"):
+            if unit.strategy not in self.sata_models:
+                raise ValueError(f"strategy {unit.strategy!r} needs a trained SATA (sata_models)")
+            mechanism = SYNTHETIC_STRATEGIES[unit.strategy][0]       # sata_designed scores through "sata"
+            ctx.sata_scorers = {mechanism: sata_scorer(self.sata_models[unit.strategy], cols,
+                                                       extra=self._mi_extra(unit))}
+            ctx.sata_kind = "weight" if self.sata_selection == "sample" else "score"
         return ctx
+
+    def _mi_extra(self, unit: Unit):
+        """The 5b inputs: [x, m0] for sata_mi (measured pool prior and query zero-shot
+        margin, centred by the pool median), [x, s * x] for sata_names; None otherwise."""
+        if unit.strategy not in ("sata_mi", "sata_names"):
+            return None
+        from src.data.naming import name_directions
+        from src.models.sata_mi import mi_inputs
+        entry = self.entries[unit.task_id]
+        lex = None if unit.naming == "abstract" else self.lexicons.get(entry["domain"])
+        d = name_directions(self.names(unit.task_id, unit.naming), lex)
+        directions = np.array([d[c] for c in FEATURE_NAMES], dtype=float)
+        if unit.strategy == "sata_names":
+            return lambda pool, query, X, q: mi_inputs("sata_names", X, q, None, None, directions)
+        if self.pool_prior is None or self.query_prior is None:
+            raise ValueError("sata_mi needs the measured pool prior and the queries' zero-shot margins")
+        t = self.pool_prior.table
+        raw = (t[(t["task_id"] == unit.task_id) & (t["naming"] == unit.naming)]
+               .assign(m=lambda d_: d_["logprob_1"] - d_["logprob_0"]).set_index("row_id")["m"])
+        med = float(raw.median())
+
+        def extra(pool, query, X, q):
+            m0 = (raw - med).reindex(pool["row_id"]).to_numpy(float)
+            mq = float(self.query_prior.loc[(unit.task_id, unit.naming, int(query["row_id"]))]) - med
+            return mi_inputs("sata_mi", X, q, m0, np.array([mq]), directions)
+        return extra
 
     # -------------------------------------------------------------- #
     def _demo_set(self, unit: Unit, pool: pd.DataFrame, query: pd.Series | None, cb: dict | None = None) -> dict:
@@ -253,6 +301,9 @@ class GridRunner:
                 demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "select", *extra), ctx,
             )
         meta.update(note)
+        if strategy.startswith("sata"):
+            meta["sata_checkpoint"] = self.sata_hashes.get(strategy)
+            meta["sata_selection"] = self.sata_selection
         order_seed = demo_seed(self.base_seed, unit.task_id, strategy, unit.seed, "order", *extra)
         ordered = [int(i) for i in shuffle_order(ids, seed=order_seed)]
         labels = pool.loc[ordered, "label"].astype(int).to_numpy()

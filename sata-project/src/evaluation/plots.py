@@ -14,6 +14,10 @@ Colours follow the data's job:
 Marks are thin, gridlines are solid hairlines, filled dots carry a ring in the
 surface colour, and reference lines (chance, no difference) are labelled
 rather than dashed.
+
+Every figure reads top to bottom as title, key, then panels (`panels`, `key`).
+It is at most `MAX_WIDTH` wide, so a notebook shows it at full size instead of
+shrinking its text.
 """
 
 from __future__ import annotations
@@ -25,11 +29,13 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap, to_rgb
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 # ---------------------------------------------------------------- palette
 SURFACE = "#fcfcfb"
 INK, INK_2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS = "#e1e0d9", "#c3c2b7"
+BAND = "#f2f1ec"                       # alternate-row band that groups one row's dots
 BLUE, ORANGE, AQUA, RED = "#2a78d6", "#eb6834", "#1baf7a", "#e34948"
 SERIES = (BLUE, ORANGE, AQUA)          # categorical slots 1-3, in this order
 CONTEXT = "#c3c2b7"                    # de-emphasised marks
@@ -41,13 +47,16 @@ ENVS = ("id", "covariate", "spurious_reversal")
 NAMINGS = ("abstract", "aligned", "flipped")
 ARMS = ("none", "spurious", "spurious_noise")
 STRATEGIES = ("zero_shot", "random", "label_diversity", "feature_range", "rule_diversity",
-              "counter_spurious", "similarity", "counter_prior", "counter_prior_matched")
+              "counter_spurious", "similarity", "counter_prior", "counter_prior_matched", "sata", "sata_agnostic", "sata_designed",
+              "sata_mi", "sata_names", "sata_topk")
+
+MAX_WIDTH = 9.0          # inches; about 1000 px at 110 dpi, the width a notebook output shows unscaled
 
 LABELS = {
     "id": "ID", "covariate": "covariate", "spurious_reversal": "spurious reversal",
     "covariate_scale": "covariate (variance)",
     "none": "full demonstrations", "spurious": "no shortcut", "spurious_noise": "no shortcut or noise",
-    "zero_shot": "zero-shot", "load_bearing": "rule features", "spurious_feature": "shortcut",
+    "zero_shot": "zero-shot", "sata_topk": "sata (top-k)", "load_bearing": "rule features", "spurious_feature": "shortcut",
 }
 
 
@@ -63,23 +72,59 @@ def use_style() -> None:
         "figure.dpi": 110,
         # A family list, so glyphs missing from the first font (→, σ) fall back to the next.
         "font.family": ["Helvetica Neue", "Arial", "DejaVu Sans"],
-        "font.size": 10, "text.color": INK,
-        "axes.titlesize": 10.5, "axes.titleweight": "bold", "axes.titlecolor": INK, "axes.titlelocation": "left",
-        "axes.titlepad": 14,
-        "axes.labelsize": 9.5, "axes.labelcolor": INK_2,
+        "font.size": 11, "text.color": INK,
+        "axes.titlesize": 11.5, "axes.titleweight": "bold", "axes.titlecolor": INK, "axes.titlelocation": "left",
+        "axes.titlepad": 16,
+        "axes.labelsize": 10.5, "axes.labelcolor": INK_2,
         "axes.edgecolor": AXIS, "axes.linewidth": 1.0,
         "axes.spines.top": False, "axes.spines.right": False,
         "axes.grid": False, "grid.color": GRID, "grid.linewidth": 0.8, "grid.linestyle": "-",
         "xtick.color": AXIS, "ytick.color": AXIS, "xtick.labelcolor": INK_2, "ytick.labelcolor": INK_2,
-        "xtick.labelsize": 8.5, "ytick.labelsize": 8.5,
-        "legend.frameon": False, "legend.fontsize": 8.5, "legend.labelcolor": INK_2,
+        "xtick.labelsize": 10, "ytick.labelsize": 10,
+        "legend.frameon": False, "legend.fontsize": 10, "legend.labelcolor": INK_2,
         "lines.linewidth": 2.0, "lines.solid_capstyle": "round", "lines.solid_joinstyle": "round",
-        "figure.titlesize": 11.5, "figure.titleweight": "bold",
+        "figure.titlesize": 13, "figure.titleweight": "bold",
+        "figure.labelsize": 10.5, "figure.labelweight": "normal",
     })
 
 
+def panels(nrows: int = 1, ncols: int = 1, title: str | None = None, size: tuple = (MAX_WIDTH, 4.0),
+           sharex: bool = False, sharey: bool = False, **gridspec_kw):
+    """A figure laid out as title, key row, panels. Returns the figure and its panels as a flat list;
+    `key(fig, ...)` fills the key row (left empty, it takes no space). Width is capped at MAX_WIDTH."""
+    fig = plt.figure(figsize=(min(size[0], MAX_WIDTH), size[1]), layout="constrained")
+    ratios = gridspec_kw.pop("height_ratios", [1] * nrows)
+    gs = fig.add_gridspec(nrows + 1, ncols, height_ratios=[0.001, *ratios], **gridspec_kw)
+    fig.add_subplot(gs[0, :], label="key").axis("off")
+    axes = []
+    for i in range(nrows):
+        for j in range(ncols):
+            share = {"sharex": axes[0] if sharex and axes else None, "sharey": axes[0] if sharey and axes else None}
+            axes.append(fig.add_subplot(gs[i + 1, j], **share))
+    if title:
+        fig.suptitle(title, x=0.01, ha="left")
+    return fig, axes
+
+
+def key(target, handles_or_names, colours=None, hollow_note: bool = False, ncol: int | None = None) -> None:
+    """The chart's key, in the row under the title. `target` is a figure from `panels` or an axes to
+    draw it in. Takes legend handles, or category names with their colours."""
+    handles = list(legend_handles(handles_or_names, colours, hollow_note) if colours is not None
+                   else handles_or_names)
+    ax = target if isinstance(target, plt.Axes) else next(a for a in target.axes if a.get_label() == "key")
+    ax.axis("off")
+    if handles:
+        ax.legend(handles=handles, loc="center left", ncol=ncol or len(handles), borderaxespad=0,
+                  handletextpad=0.4, columnspacing=1.8)
+
+
+def dots_height(rows: int, hues: int = 1, intervals: bool = False) -> float:
+    """Height in inches of one dot-plot panel: enough per row that a row's dots sit apart."""
+    return 0.75 + rows * (0.24 + 0.12 * max(hues, 1) + (0.06 if intervals else 0))
+
+
 # ---------------------------------------------------------------- building blocks
-def _dot(ax, x, y, colour, filled=True, size=7.0, zorder=3):
+def _dot(ax, x, y, colour, filled=True, size=8.0, zorder=3):
     """Filled dots carry a surface-coloured ring; hollow dots mark 'interval includes the reference'."""
     ax.plot(x, y, linestyle="none", marker="o", markersize=size,
             markerfacecolor=colour if filled else SURFACE,
@@ -94,75 +139,72 @@ def reference(ax, value: float, text: str | None = None, axis: str = "x", where:
         ax.axvline(value, color=MUTED, linewidth=1.0, zorder=1)
         if text:
             y, va = (1.0, "bottom") if where == "top" else (0.0, "bottom")
-            ax.text(value, y, f" {text}", transform=ax.get_xaxis_transform(), color=MUTED,
-                    fontsize=7.5, ha="left", va=va)
+            ax.text(value, y, f" {text}", transform=ax.get_xaxis_transform(), color=INK_2,
+                    fontsize=9, ha="left", va=va)
     else:
         ax.axhline(value, color=MUTED, linewidth=1.0, zorder=1)
         if text:
             x, ha = (0.01, "left") if where == "left" else (0.99, "right")
-            ax.text(x, value, f" {text} ", transform=ax.get_yaxis_transform(), color=MUTED,
-                    fontsize=7.5, ha=ha, va="bottom")
+            ax.text(x, value, f" {text} ", transform=ax.get_yaxis_transform(), color=INK_2,
+                    fontsize=9, ha=ha, va="bottom")
 
 
-def _rows(ax, rows: Sequence) -> dict:
-    """Categorical y axis, first row at the top; vertical hairline grid."""
+def _rows(ax, rows: Sequence, bands: bool = False) -> dict:
+    """Categorical y axis, first row at the top; vertical hairline grid. `bands` shades every
+    other row, so the several dots of one row read as a group."""
     rows = list(rows)
     pos = dict(zip(rows, np.arange(len(rows))[::-1]))
     ax.set_yticks(list(pos.values()), [label(r) for r in rows])
     ax.tick_params(axis="y", length=0)
-    ax.set_ylim(-0.6, len(rows) - 0.4)
+    ax.set_ylim(-0.5, len(rows) - 0.5)
+    if bands:
+        for r in rows[::2]:
+            ax.axhspan(pos[r] - 0.5, pos[r] + 0.5, color=BAND, linewidth=0, zorder=0)
     ax.grid(axis="x")
     ax.set_axisbelow(True)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
     ax.spines["left"].set_visible(False)
     return pos
 
 
 def legend_handles(names: Sequence, colours: Sequence, hollow_note: bool = False) -> list:
-    handles = [Line2D([], [], linestyle="none", marker="o", markersize=7, markerfacecolor=c,
+    handles = [Line2D([], [], linestyle="none", marker="o", markersize=8, markerfacecolor=c,
                       markeredgecolor=SURFACE, label=label(n)) for n, c in zip(names, colours)]
     if hollow_note:
-        handles.append(Line2D([], [], linestyle="none", marker="o", markersize=7, markerfacecolor=SURFACE,
-                              markeredgecolor=MUTED, markeredgewidth=1.8, label="interval includes 0"))
+        handles.append(Line2D([], [], linestyle="none", marker="o", markersize=8, markerfacecolor=SURFACE,
+                              markeredgecolor=MUTED, markeredgewidth=1.8, label="hollow: interval includes 0"))
     return handles
-
-
-def legend_below(fig, handles_or_names, colours=None, hollow_note: bool = False, ncol: int | None = None) -> None:
-    """The figure's legend, centred below the plots so it never covers data. Takes handles,
-    or category names with their colours."""
-    if colours is not None:
-        handles_or_names = legend_handles(handles_or_names, colours, hollow_note)
-    _figure_legend(fig, list(handles_or_names), ncol)
-
-
-def _figure_legend(fig, handles, ncol=None) -> None:
-    if handles:
-        fig.legend(handles=handles, loc="outside lower center", ncol=ncol or len(handles), handletextpad=0.3,
-                   columnspacing=1.6)
 
 
 def dots(ax, df: pd.DataFrame, y: str, x: str, hue: str | None = None, y_order=None, hue_order=None,
          colours=None, lo: str | None = None, hi: str | None = None, filled: str | None = None,
-         connect: bool = False, spread: float = 0.24, xlabel: str | None = None,
+         connect: bool = False, spacing: float = 0.28, xlabel: str | None = None,
          ref: float | None = None, ref_label: str | None = None) -> dict:
     """Dot plot: one row per `y` category and one dot per `hue` series.
 
     Optional `lo`/`hi` columns draw intervals. A boolean `filled` column draws
     hollow dots where it is False. `connect` joins a row's dots with a thin
-    grey line (a dumbbell). Series are offset vertically within a row, so
-    equal values never hide each other.
+    grey line (a dumbbell), for when the distance between them is the point.
+    Otherwise series sit `spacing` rows apart within a banded row, so equal
+    values never hide each other.
     """
     y_order = list(y_order if y_order is not None else pd.unique(df[y]))
-    pos = _rows(ax, y_order)
     hues = [None] if hue is None else list(hue_order if hue_order is not None else pd.unique(df[hue]))
-    colours = list(colours if colours is not None else SERIES)
     n = len(hues)
-    offsets = np.zeros(n) if (n == 1 or connect) else np.linspace(spread / 2, -spread / 2, n)
+    pos = _rows(ax, y_order, bands=n > 1 and not connect)
+    colours = list(colours if colours is not None else SERIES)
+    offsets = np.zeros(n) if (n == 1 or connect) else spacing * (np.arange(n)[::-1] - (n - 1) / 2)
     if connect and hue is not None:
         wide = df.pivot_table(index=y, columns=hue, values=x)
         for row in wide.index.intersection(y_order):
             vals = wide.loc[row].dropna()
-            if len(vals) >= 2:
+            if len(vals) < 2:
+                continue
+            if vals.max() - vals.min() > 1e-9:
                 ax.hlines(pos[row], vals.min(), vals.max(), color=CONTEXT, linewidth=2, zorder=2)
+            else:                            # the dots coincide, so say so rather than let one vanish
+                ax.annotate("both the same" if len(vals) == 2 else "all the same", (vals.max(), pos[row]),
+                            xytext=(9, 0), textcoords="offset points", color=INK_2, fontsize=9, va="center")
     for i, h in enumerate(hues):
         d = df if h is None else df[df[hue] == h]
         d = d[d[y].isin(pos)]
@@ -188,29 +230,30 @@ def dots(ax, df: pd.DataFrame, y: str, x: str, hue: str | None = None, y_order=N
 def facet_dots(df: pd.DataFrame, facet: str, y: str, x: str, hue: str | None = None, facet_order=None,
                y_order=None, hue_order=None, colours=None, title: str | None = None, xlabel: str | None = None,
                ref: float | None = None, ref_label: str | None = None, lo=None, hi=None, filled=None,
-               connect=False, panel_width: float = 3.9, row_height: float = 0.34, sharex: bool = True,
-               hollow_note: bool = False, ncols: int | None = None):
-    """Small multiples of `dots`, one panel per `facet` value, sharing the row axis."""
+               connect=False, width: float = MAX_WIDTH, sharex: bool = True, hollow_note: bool = False,
+               ncols: int | None = None):
+    """Small multiples of `dots`, one panel per `facet` value, sharing the row axis.
+    The key sits under the title, the reference line is labelled in the first panel only,
+    and one x label serves every panel."""
     facets = list(facet_order if facet_order is not None else pd.unique(df[facet]))
     y_order = list(y_order if y_order is not None else pd.unique(df[y]))
     hues = [] if hue is None else list(hue_order if hue_order is not None else pd.unique(df[hue]))
     ncols = ncols or len(facets)
     nrows = int(np.ceil(len(facets) / ncols))
-    height = 0.9 + row_height * len(y_order) * (1 + 0.18 * max(len(hues) - 1, 0))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(panel_width * ncols + 1.4, height * nrows + 0.5),
-                             sharex=sharex, sharey=True, layout="constrained", squeeze=False)
-    for ax, f in zip(axes.flat, facets):
+    height = 0.8 + nrows * dots_height(len(y_order), len(hues), intervals=bool(lo and hi))
+    fig, axes = panels(nrows, ncols, title, size=(width, height), sharex=sharex, sharey=True)
+    for i, (ax, f) in enumerate(zip(axes, facets)):
         dots(ax, df[df[facet] == f], y, x, hue, y_order, hues or None, colours, lo, hi, filled, connect,
-             xlabel=xlabel, ref=ref, ref_label=ref_label)
+             ref=ref, ref_label=ref_label if i == 0 else None)
         ax.set_title(label(f))
-    for ax in list(axes.flat)[len(facets):]:
+    for ax in axes[len(facets):]:
         ax.set_visible(False)
-    for ax in axes.flat:                     # every panel keeps its own tick labels
-        ax.tick_params(labelbottom=True)
+    for i, ax in enumerate(axes):            # every panel keeps its own tick labels; row labels on the left only
+        ax.tick_params(labelbottom=True, labelleft=i % ncols == 0)
+    if xlabel:
+        fig.supxlabel(xlabel, color=INK_2)
     if len(hues) >= 2 or hollow_note:
-        _figure_legend(fig, legend_handles(hues, list(colours or SERIES), hollow_note))
-    if title:
-        fig.suptitle(title, x=0.01, ha="left")
+        key(fig, hues, list(colours or SERIES), hollow_note)
     return fig
 
 
@@ -224,7 +267,7 @@ def forest(ax, df: pd.DataFrame, row: str, est: str, lo: str, hi: str, emphasis:
         ax.hlines(pos[r[row]], r[lo], r[hi], color=c, linewidth=2, zorder=2)
         _dot(ax, r[est], pos[r[row]], c, size=7.5)
         if note:
-            ax.text(r[hi], pos[r[row]], f"  {r[note]}", color=INK_2, fontsize=7.5, va="center", ha="left")
+            ax.text(r[hi], pos[r[row]], f"  {r[note]}", color=INK_2, fontsize=9, va="center", ha="left")
     left, right = ax.get_xlim()
     left, right = min(left, ref), max(right, ref)          # the reference line stays in view
     pad = 0.05 * (right - left)
@@ -287,7 +330,7 @@ def diverging_heatmap(ax, mat: pd.DataFrame, vmax: float | None = None, annotate
         if np.isfinite(v) and abs(v) >= annotate_above:
             r, g, b = to_rgb(DIVERGING((v + vmax) / (2 * vmax)))
             dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
-            ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=7.5, color="white" if dark else INK)
+            ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=9, color="white" if dark else INK)
     cb = ax.figure.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
     cb.outline.set_visible(False)
     cb.ax.tick_params(length=0, labelsize=8)

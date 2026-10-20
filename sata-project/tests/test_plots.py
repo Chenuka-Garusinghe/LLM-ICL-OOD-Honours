@@ -31,7 +31,28 @@ def test_facet_dots_with_intervals_and_hollow_markers():
     fig = plots.facet_dots(d, facet="naming", y="strategy", x="auroc", hue="env", facet_order=plots.NAMINGS,
                            hue_order=plots.ENVS, lo="lo", hi="hi", filled="sig", ref=0.5, ref_label="chance",
                            hollow_note=True, ncols=2, title="t")
-    assert len([a for a in fig.axes if a.get_visible()]) == 3
+    panels = [a for a in fig.axes if a.get_visible() and a.get_label() != "key"]
+    assert len(panels) == 3
+    assert fig.get_size_inches()[0] <= plots.MAX_WIDTH          # a notebook shows it unscaled
+    assert next(a for a in fig.axes if a.get_label() == "key").get_legend() is not None
+    plt.close(fig)
+
+
+def test_panels_key_and_dumbbell():
+    fig, (ax,) = plots.panels(title="t", size=(14, 3))
+    assert fig.get_size_inches()[0] == plots.MAX_WIDTH
+    d = pd.DataFrame({"row": ["a", "a", "b", "b"], "side": ["x", "y", "x", "y"], "v": [0.2, 0.5, 0.4, 0.4]})
+    plots.dots(ax, d, y="row", x="v", hue="side", connect=True)
+    assert len(ax.patches) == 0                                 # dumbbells are joined by a line, not banded
+    plots.key(fig, ["x", "y"], plots.SERIES[:2])
+    plt.close(fig)
+
+
+def test_offset_dots_sit_in_bands():
+    fig, ax = plt.subplots()
+    plots.dots(ax, _tidy()[lambda x: x.naming == "abstract"], y="strategy", x="auroc", hue="env",
+               hue_order=plots.ENVS)
+    assert len(ax.patches) == 1                                 # one band, on every other of the two rows
     plt.close(fig)
 
 
@@ -56,5 +77,5 @@ def test_slopes_heatmap_density_and_strip():
     x = np.random.default_rng(1).normal(size=500)
     plots.density_identity(axes[1, 0], x, x + 0.1)
     plots.strip(axes[1, 1], pd.DataFrame({"g": ["a"] * 10 + ["b"] * 10, "v": np.arange(20.0)}), "g", "v", ref=0)
-    plots.legend_below(fig, ["a", "b"], plots.SERIES[:2])
+    plots.key(axes[1, 1], ["a", "b"], plots.SERIES[:2])
     plt.close(fig)

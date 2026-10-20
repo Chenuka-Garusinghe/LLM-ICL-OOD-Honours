@@ -1,0 +1,107 @@
+\chapter{Learning to select}
+\label{ch:sata}
+
+\emph{Research question: \RQ4 (does a learned selector beat the hand-designed strategies, and do signals measured from the model help it?).}
+
+\section{Motivation}
+
+\autoref{ch:shift} left an opening.
+Neutralising the shortcut helped under its reversal (C2e), but the strategies that did so were hand-built rules for one shift each.
+A learned selector could combine their ideas, choosing per query the rows that teach the rule rather than the shortcut, and could be trained on synthetic tasks where the best choices are known.
+This chapter builds one, \sata (\autoref{sec:sata}), and then gives it what the model itself believes about every row, \satami (\autoref{sec:satami}).
+Each was tested against a contrast family frozen before its first result on the model.
+
+\section{The selector}
+\label{sec:sata-arch}
+
+\sata scores every row of the 256-row pool given the whole pool and the query.
+Each candidate is one token: its feature vector plus a label embedding plus a ``demonstration'' type embedding; the query is a token with its feature vector and a ``query'' type embedding.
+A transformer encoder ($d = 128$, 4 heads, 4 layers, about 0.8M parameters) attends over all tokens, and a linear head gives one score per candidate, normalised by a softmax.
+There are no positional encodings, so the encoder is permutation-equivariant over candidates \citep{lee2019set}; the row encoding resembles TabPFN's \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
+Unlike EPR, UDR or CEIL \citep{rubin2022learning,li2023unified,ye2023compositional}, \sata is not trained on the language model's scores: it learns targets computed from the ground truth, so its training never touches the model it is evaluated on.
+
+\paragraph{Getting the targets right.}
+\label{sec:sata-targets}
+An oracle check required the targets' own choices to beat every strategy on a stand-in learner: gradient-boosted trees \citep{chen2016xgboost} fitted on the eight chosen rows and scored on the queries. The targets as first designed, which rewarded shortcut-breaking rows, failed: they favoured label-noise rows (whose shortcut follows the true label, so they look counter-spurious) and, without those, reversed the shortcut (it agreed in only 25\% of chosen rows).
+The target kept is each row's probability of appearing in a \strat{counter\_spurious}-style matched set: within each label, two clean rows that break the shortcut, each paired with the clean agreeing row nearest in $|x_8|$ (\autoref{app:design}).
+Its oracle reaches a worst environment of 0.640 against 0.555 for the best strategy.
+
+\paragraph{Drawing instead of ranking.}
+A learned score ranks shortcut-breaking rows first but cannot pin down which agreeing row is each one's partner, so taking the top $k$ reversed the shortcut again.
+Since the scores are trained as a distribution over rows (with a KL loss), \sata \emph{draws} $k/2$ rows of each label in proportion to them: 0.558 against 0.478 for top-$k$ on 50 validation tasks.
+
+\finding{A selector's training target can encode the very shortcut it is meant to avoid, and an oracle check on a stand-in learner catches it before any training.}
+
+\section{SATA on the model}
+\label{sec:sata}
+
+\sata was trained on 1,000 tasks from the evaluation distribution, regenerated every epoch with a fresh permutation of feature positions so that the shortcut's position carries no information, and validated on 100 more (Adam \citep{kingma2015adam} at learning rate $10^{-4}$, early stopping \citep{prechelt1998early}).
+On the stand-in learner its worst environment is 0.652, against 0.555 for the best hand-designed strategy, with no weak environment (\autoref{fig:sata-proxy}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\textwidth]{\figpath/fig_sata_proxy.pdf}
+\caption{The stand-in learner's accuracy for each selection method, per environment (100 validation tasks), ordered by worst environment. Trained \sata matches its oracle targets and has no weak environment; the hand-designed strategies trade one environment against another.}
+\label{fig:sata-proxy}
+\end{figure}
+
+\finding{On the stand-in learner, \sata beats every hand-designed strategy in every environment.}
+
+The \RQ4 family (R1--R6; \autoref{fig:rq4}, exact values in \autoref{tab:contrasts}) was frozen before any \sata result on the model.
+
+\finding{On Qwen2.5-7B-Instruct, \sata does not beat balanced random demonstrations: none of the six pre-registered contrasts favours it.}
+
+\sata flattens the environments rather than raising them.
+Under abstract names its ID, covariate and reversal \AUROC are 0.553, 0.556 and 0.552, the same pattern as \strat{counter\_spurious} (0.561, 0.575, 0.555): a gain under reversal paid for on ID and, significantly, under covariate shift (R2, $-0.096$ [$-0.154$, $-0.041$]).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_rq4.pdf}
+\caption{\sata on Qwen2.5-7B-Instruct: the pre-registered \RQ4 family (top) and the check of drawing against top-$k$ selection (bottom), with 95\% intervals over 24 tasks. No contrast survives correction (all hollow); R2's interval lies below zero.}
+\label{fig:rq4}
+\end{figure}
+
+\paragraph{Was it the drawing?}
+\label{sec:sata-topk}
+Running \sata's top-$k$ checkpoint with top-$k$ selection on the same tasks does no better: top-$k$ minus drawn \sata is $-0.005$, $-0.029$ and $-0.028$ under abstract, aligned and flipped names, every interval crossing zero (\autoref{fig:rq4}, bottom).
+
+\paragraph{The base model is different.}
+On Qwen2.5-7B (base), in an exploratory comparison without Holm correction, \sata has the best worst environment of any strategy under both namings: 0.589 under abstract names (\strat{counter\_spurious} 0.550, \strat{random} 0.504) and 0.551 under flipped names (0.471 and 0.461), gaining $+0.085$ and $+0.094$ over random demonstrations under spurious reversal, at no ID cost.
+
+\finding{The same selector that ties on the instruction-tuned model gives the base model, whose priors pull less, the best worst-case \AUROC of any strategy (exploratory).}
+
+\section{SATA-MI: telling the selector what the model believes}
+\label{sec:satami}
+
+\sata chose good rule evidence, but the stand-in learner that rewarded it ranks strategies like Qwen only moderately (Spearman 0.68 under abstract names, 0.46 under named ones), and \autoref{ch:shift} showed why: Qwen-Instruct reads the shortcut and its numeric prior.
+If the selector knew, for every candidate and for the query, what the model predicts without demonstrations, it could choose rows that work against that prediction where it is wrong.
+
+\paragraph{Design.}
+\satami reads, for every pool row and the query, its feature vector and Qwen's measured zero-shot margin $m_0$ under the task's naming, centred on the pool median.
+Its controls are \strat{sata\_names}, which reads $s^{\mathrm{lex}} \odot x$ (each name's dictionary direction, no model measurement) instead, and \strat{counter\_prior}; both selectors learn \sata's targets on 300 tasks.
+Because gradient-boosted trees cannot see names, a new stand-in, a \emph{reader}, scores a set by how Qwen combines evidence with its prior: $P(\text{Qwen says }1) = \sigma(a_1\, \hat w^\top x + a_2\, m_0 + a_0)$, with $\hat w$ a ridge logistic fit on the eight chosen rows and $a_0, a_1, a_2$ fitted once on Qwen's predictions.
+A gate required the reader to rank strategies like Qwen (Spearman $\ge 0.5$) and \satami to beat both controls; the family R7--R10, under flipped names, was written down before any result; training was capped at 30 epochs for budget.
+
+\paragraph{Results.}
+On the reader, \satami reached 0.620, its targets' own level, against 0.590 for \strat{sata\_names}, all of the gap under spurious reversal.
+But the gate failed: the reader agreed with Qwen at Spearman 0.60 under abstract names and only 0.48 and 0.47 under aligned and flipped names, and \satami was below \strat{sata\_names} on the validation tasks under named features.
+
+\finding{On Qwen2.5-7B-Instruct, reading the model's prior changes nothing: all four pre-registered contrasts are null (Holm $p = 1.00$).}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_mi.pdf}
+\caption{\satami under flipped names. Left: the pre-registered family R7--R10, with 95\% intervals; none is significant. Right: every strategy's \AUROC (mean of the three environments, 95\% interval over tasks), with \satami highlighted and zero-shot marked; every strategy sits near chance.}
+\label{fig:mi-flipped}
+\end{figure}
+
+Under flipped names every strategy stays near chance (means 0.44--0.52; zero-shot 0.454), \satami included (\autoref{fig:mi-flipped}).
+No choice of eight demonstrations moves the model far from its prior when the names point the wrong way.
+
+\section{What this chapter does not show, and the next question}
+
+Both stand-in learners tracked the model only moderately under named features, so both selectors were optimised for a learner that is not Qwen; and \satami's 30-epoch cap may have left a little on the table, though it had already matched its own targets.
+The larger limitation is that behaviour alone cannot say \emph{why} no choice of evidence works.
+Two selectors, one reading only the data and one reading the model's prior, both helped a stand-in and both failed on the instruction-tuned model.
+Either the demonstrated rule never reaches the computation that produces the answer, or it reaches it and loses there.
+\autoref{ch:mechanism} looks inside the model to tell these apart.

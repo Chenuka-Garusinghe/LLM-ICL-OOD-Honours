@@ -8,12 +8,13 @@ import numpy as np
 from src.models.sata_targets import compute_target_scores
 
 
-def _demo(regime, is_counter_spurious, spurious_consistent, label):
+def _demo(regime, is_counter_spurious, spurious_consistent, label, y_clean=None):
     return {
         "regime": regime,
         "is_counter_spurious": is_counter_spurious,
         "spurious_consistent": spurious_consistent,
         "label": label,
+        "y_clean": label if y_clean is None else y_clean,
     }
 
 
@@ -47,3 +48,51 @@ def test_scores_sum_to_one():
     demos = [_demo(r, r % 2 == 0, r % 3 == 0, r % 2) for r in range(10)]
     scores = compute_target_scores(query_metadata, demos)
     assert abs(scores.sum() - 1.0) < 1e-8
+
+
+def test_label_noise_rows_earn_no_bonus():
+    """hiccups/21: a label-noise row looks counter-spurious (its shortcut follows
+    the true label), so without the clean condition it scored the maximum."""
+    query_metadata = {"regime": 0}
+    demos = [
+        _demo(regime=0, is_counter_spurious=True, spurious_consistent=False, label=1, y_clean=0),  # noise row
+        _demo(regime=0, is_counter_spurious=False, spurious_consistent=True, label=1),              # clean, same regime
+        _demo(regime=1, is_counter_spurious=True, spurious_consistent=False, label=1),              # clean, counter
+    ]
+    scores = compute_target_scores(query_metadata, demos)
+    assert scores[0] < scores[2] < scores[1]
+
+
+def _pool(n=256, seed=0):
+    from src.data.generator import sample_eval_tasks
+    task = sample_eval_tasks(24)[12]                         # a tree task
+    X, y, meta = task.generate_environment("id", n, seed=seed)
+    return task, X, y, meta
+
+
+def test_matched_targets_are_neutral_on_the_shortcut():
+    """hiccups/21: the matched targets' top-k shows the shortcut agreeing in about
+    half the rows (the structural targets reverse it), and never a label-noise row."""
+    from src.models.sata_targets import matched_target_scores
+    from src.selection.balanced_topk import balanced_top_k
+    task, X, y, meta = _pool()
+    mq = _pool(64, seed=1)[3]                                # queries: a second draw from the same task
+    agree, agree_designed = [], []
+    for q in mq[:20]:
+        s = matched_target_scores(q, meta, X[:, task.spurious_idx])
+        assert abs(s.sum() - 1) < 1e-9 and (s >= 0).all()
+        assert all(s[i] == 0 for i, m in enumerate(meta) if m["label"] != m["y_clean"])
+        idx = balanced_top_k(s, y, 8)
+        assert y[idx].sum() == 4
+        agree.append(np.mean([meta[i]["agree_obs"] for i in idx]))
+        idx_d = balanced_top_k(compute_target_scores(q, meta), y, 8)
+        agree_designed.append(np.mean([meta[i]["agree_obs"] for i in idx_d]))
+    assert 0.4 <= np.mean(agree) <= 0.75
+    assert np.mean(agree_designed) < 0.2                     # the structural targets reverse it on tree tasks
+
+
+def test_matched_targets_never_read_the_query_label():
+    from src.models.sata_targets import matched_target_scores
+    task, X, y, meta = _pool()
+    q = {"regime": 3, "label": 1}
+    assert np.allclose(matched_target_scores(q, meta, X[:, 8]), matched_target_scores({"regime": 3}, meta, X[:, 8]))

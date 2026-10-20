@@ -33,6 +33,8 @@ GENERATOR_COLUMNS = {"spurious": _DEFAULTS["spurious_idx"], "noise": _DEFAULTS["
 
 # These strategies choose rows by the shortcut's agreement with the label.
 NEEDS_SHORTCUT = frozenset({"counter_spurious", "counter_prior_matched"})
+# SATA (P5) is trained on rows with all ten features, so no mask applies to it.
+NEEDS_ALL_FEATURES = frozenset({"sata", "sata_agnostic", "sata_designed", "sata_mi", "sata_names"})
 
 
 def hidden_features(entry: dict, mask: str) -> tuple[str, ...]:
@@ -62,7 +64,12 @@ def visible_features(entry: dict, mask: str) -> list[str]:
 
 
 def check_strategies(strategies, mask: str) -> None:
-    """Refuse strategies that select on the shortcut when the mask hides it."""
+    """Refuse strategies that select on the shortcut when the mask hides it,
+    and SATA under any mask."""
+    if DEMO_MASKS.get(mask):
+        bad = sorted(set(strategies) & NEEDS_ALL_FEATURES)
+        if bad:
+            raise ValueError(f"{bad} are trained on all ten features, so the {mask!r} mask does not apply")
     if "spurious" in DEMO_MASKS.get(mask, ()):
         bad = sorted(set(strategies) & NEEDS_SHORTCUT)
         if bad:

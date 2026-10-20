@@ -42,6 +42,13 @@ sata:
   batch_size: 64
   patience: 10
   device: "auto"             # P5 benchmarks this against "cpu" for SATA's tiny batches
+  selection: "sample"        # P5 (hiccups/21): k/2 per label drawn in proportion to SATA's scores; "topk" = the plan's rule
+  checkpoints:               # P5: the grid's sata strategies; scripts/p5_train_sata.py writes them
+    sata: "models/sata_v2.pt"                    # matched targets (hiccups/21)
+    sata_agnostic: "models/sata_v2_agnostic.pt"  # matched targets, blank query
+    sata_designed: "models/sata_v2_designed.pt"  # the planned targets, an ablation
+    sata_mi: "models/sata_mi.pt"                 # 5b: reads Qwen's measured prior
+    sata_names: "models/sata_names.pt"           # 5b control: reads the names' directions
 
 generator:
   n_features: 10
@@ -49,8 +56,8 @@ generator:
   rule_families: ["linear", "tree"]
   heldout_family: null
   n_heldout_family_tasks: 0
-  n_train_tasks: 1000        # SATA training
-  n_val_tasks: 100           # SATA validation
+  n_train_tasks: 1000        # SATA training (P5: sample_sata_tasks, the evaluation distribution)
+  n_val_tasks: 100           # SATA validation (proxy and early stopping)
   n_test_tasks: 24           # evaluation tasks
   spurious_strength_range: [0.80, 0.90]
   label_noise: 0.02
@@ -66,6 +73,12 @@ generator:
 suites:
   eval: 24                   # evaluation tasks: 12 linear then 12 tree, domains alternating
   pilot: 12                  # P2 pilot tasks, same distribution, disjoint task ids
+  sata_llmval: 8             # P5: SATA's LLM validation tasks, same distribution, disjoint task ids
+  sata_mi_train: 300         # 5b: SATA-MI training frames (priors measured by Qwen)
+  sata_mi_val: 60            # 5b: SATA-MI validation frames (gate S3a-MI, early stopping)
+suite_queries_per_class:     # suites with more queries than the evaluation's 10 per class
+  sata_mi_train: 16
+  sata_mi_val: 16
 
 paths:
   data_synthetic: "data/synthetic"

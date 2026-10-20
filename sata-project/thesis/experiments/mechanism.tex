@@ -1,0 +1,93 @@
+\chapter{Inside the model}
+\label{ch:mechanism}
+
+\emph{Research question: \RQ3, second half (why does the prior win?).}
+
+\section{Motivation}
+
+Three chapters of behaviour converge on one picture: Qwen2.5-7B-Instruct follows its prior and the feature names, and no selection strategy, hand-designed or learned, changes that.
+This chapter asks where in the model that happens.
+It asks at which layer the answer starts to depend on the names, whether any selection strategy moves that layer, whether the demonstrated rule is present in the model's internal state at all, and whether a single direction in that state makes the model follow the demonstrations.
+
+\section{Method}
+
+\paragraph{Logit lens.}
+At every layer $l$ of 28, the last-position residual state $h_l$ is passed through the model's final normalisation and the difference of the two label rows of the unembedding, $w = W_U[\texttt{1}] - W_U[\texttt{0}]$, giving a per-layer margin $m_l = w^\top \mathrm{norm}(h_l)$ \citep{nostalgebraist2020logit,elhage2021mathematical}.
+At the last layer this is exactly the margin of \autoref{sec:prompts}; this check holds within $8.6 \times 10^{-6}$ on all 25,920 rows, against a bar of $10^{-3}$.
+The probes reuse the demonstration sets and prompts of the earlier chapters unchanged: the 24 evaluation tasks under three namings, seed 0, for zero-shot, \strat{random}, \strat{label\_diversity}, \strat{counter\_prior}, \sata and \satami.
+
+\paragraph{Critical layer.}
+Following \citet{halawi2024overthinking}, the critical layer is the first layer at which $\AUROC_l(\text{aligned}) - \AUROC_l(\text{flipped})$ exceeds 0.1 with a task-bootstrap interval above zero.
+We define it with \AUROC rather than the accuracy of $\mathbb{1}[m_l > 0]$, because Qwen's bias toward label 1 would otherwise decide the accuracy (\autoref{sec:stats}); accuracy of the median-centred prediction is reported alongside.
+
+\paragraph{Probes.}
+Logistic probes on $h_l$ \citep{alain2017understanding}, trained on some tasks and tested on others (four folds by task), decode either the rule label or Qwen's own zero-shot prediction, with random demonstrations.
+
+\paragraph{Steering.}
+On queries where the rule label and Qwen's zero-shot prediction disagree, $v_l$ is the mean residual of predictions that follow the demonstrations minus the mean of those that follow the prior, averaged over the two rule labels, in the manner of activation addition \citep{turner2023activation,rimsky2024steering}.
+It is fitted on the 12 even-indexed tasks and applied, as $h_l \leftarrow h_l + \alpha v_l$ during the query only, on the 12 odd-indexed tasks at layers 8, 12, 16, 20 and 24, with $\alpha$ from 1 to 32 and a random direction of the same norm as a control.
+
+\section{Results}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_lens.pdf}
+\caption{Logit-lens \AUROC against the rule label at every layer (24 tasks, seed 0). Random demonstrations and zero-shot are highlighted; the four other strategies are in grey. The read-out is at chance for 20 layers and splits by naming after layer 22 (dotted line: the critical layer, 23).}
+\label{fig:lens}
+\end{figure}
+
+\finding{Qwen's answer forms in its last six of 28 layers; for the first 20 its label read-out is at chance under every naming and strategy.}
+
+From layer 22, the lines split by naming (\autoref{fig:lens}).
+With aligned names they rise to 0.63--0.67 with demonstrations and 0.59 zero-shot; with flipped names they end at 0.45--0.52 with demonstrations and 0.45 zero-shot.
+
+\finding{The critical layer is 23 of 28, and the names, not the demonstrations, drive it: zero-shot shows the same split.}
+
+The critical layer is 23 for random, \strat{label\_diversity}, \strat{counter\_prior} and \satami, 24 for zero-shot and 25 for \sata.
+Zero-shot already has a final gap of 0.141; random demonstrations widen it to 0.192.
+The strategies built to work against the prior do not move the critical layer earlier; they only narrow the final gap (\strat{counter\_prior} 0.174, \satami 0.119, \sata 0.104), which is the flattening seen in their behaviour (\autoref{fig:lens-gap}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\textwidth]{\figpath/fig_lens_gap.pdf}
+\caption{Aligned minus flipped \AUROC by layer, with a 95\% band over tasks for random demonstrations. The gap crosses the 0.1 threshold at layer 23 for every strategy, zero-shot included, so the names, not the demonstrations, drive it.}
+\label{fig:lens-gap}
+\end{figure}
+
+\finding{The model's prior is linearly decodable from layer 2; the demonstrated rule hardly at all.}
+
+Probes read Qwen's zero-shot prediction from layer 2 onward with \AUROC 0.80--0.87 under abstract names and 0.65--0.74 under named features (\autoref{fig:probes}).
+The rule label stays at 0.43--0.59, a little above chance only in the top layers under named features (0.59 at layer 28, aligned).
+A probe shows that information is present, not that it is used \citep{belinkov2022probing}, and each task has its own rule, so a probe across tasks is a hard test; but the asymmetry is stark.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_probes.pdf}
+\caption{Linear probes on the residual stream (random demonstrations, tested on held-out tasks). Qwen's zero-shot answer is decodable from layer 2; the rule label stays near chance.}
+\label{fig:probes}
+\end{figure}
+
+\finding{Within the steering we could test (one mean-difference direction, five layers, a 7B model with eight demonstrations), adding a ``follow the demonstrations'' direction moves the margins without making them more correct.}
+
+The steering vector is small, 1--2\% of the residual norm, which is why the planned strengths ($\alpha \le 4$) were extended to 32.
+For $\alpha \le 16$, \AUROC on the held-out tasks changes by at most $\pm 0.008$ under both namings.
+At $\alpha = 32$ a few cells move by 0.02--0.04 in both directions, as the random direction does: damage from a large push, not a correction (\autoref{fig:steer}, top).
+Yet the margins move a lot, by 9.4 logits on average at layer 24 and $\alpha = 32$ (\autoref{fig:steer}, bottom).
+The reason is in how the vector was built.
+On conflict queries whose rule label is 0, following the demonstrations means a lower margin (0.56 against 6.08); on those whose rule label is 1, a higher one (5.25 against 0.41).
+Averaged over the two labels these halves point in opposite directions and mostly cancel, leaving a push of all margins together.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_steering.pdf}
+\caption{Steering on the 12 held-out tasks: change in final \AUROC (top) and in the margin (bottom), with 95\% intervals over tasks. Blue shades are the ``follow the demonstrations'' direction at increasing strength $\alpha$; grey diamonds are a random direction of the same norm. Margins move by up to 9 logits while \AUROC stays at zero: the direction shifts every answer together.}
+\label{fig:steer}
+\end{figure}
+
+\section{What this chapter does not show}
+
+The logit lens can be biased at early layers \citep{belrose2023eliciting}; the probes avoid that bias and tell the same story, but neither is causal.
+Steering is the causal test, and it covers one family of directions only: a single mean difference, at five layers, applied to the query.
+\citet{minder2025controllable} find a context-versus-prior direction in Llama-3.1-8B; our result says that a direction built this way does not exist in a usable form for this task and model, not that none exists.
+A label-specific or learned direction, steering of the demonstration prefix, or a larger model could behave differently, and our budget did not reach them.
+The broader limitations of the study are the subject of \autoref{sec:limitations}.

@@ -34,6 +34,12 @@ def suite_tasks(name: str, config: SimpleNamespace):
 def make_suite(name: str, config: SimpleNamespace) -> dict:
     """Sample the suite's tasks and write their parquets and manifest."""
     g, ev = config.generator, config.evaluation
+    qpc = getattr(getattr(config, "suite_queries_per_class", None), name, None)
+    if qpc is not None:
+        # SATA-MI training and validation suites (5b): the evaluated environments only, more queries.
+        return write_suite(suite_tasks(name, config), suite_dir(name, config), suite=name,
+                           n_pool=g.demos_per_task, n_test_id=g.n_test_id, n_test_ood=g.n_test_ood,
+                           ood_envs=tuple(e for e in ev.environments if e != "id"), queries_per_class=qpc)
     return write_suite(
         suite_tasks(name, config),
         suite_dir(name, config),

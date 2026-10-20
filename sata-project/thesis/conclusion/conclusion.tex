@@ -1,0 +1,15 @@
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+This thesis asked whether choosing the demonstrations can help a 7B language model follow them over its own priors under controlled distribution shift.
+To answer it we built a synthetic tabular testbed in which covariate shift, spurious reversal and concept shift can each be switched on alone, set the model's semantic prior against the rule by naming the features, and tested every claim against a contrast family frozen before its data.
+
+The answer, for Qwen2.5-7B-Instruct with eight numeric demonstrations, is no.
+The feature names decide most of what the model predicts, more than any shift of the data.
+Hand-designed strategies help only where they neutralise a shortcut.
+A learned selector that beats every strategy on stand-in learners ties on the model, whether it reads only the data or also the model's measured prior, though it does help the base model, whose priors are weaker.
+Inside the model, the answer forms in its last few layers, the names decide it there, the prior is present from the start and the demonstrated rule hardly at all, and a single steering direction moves the answers without making them more correct.
+
+Selection chooses evidence; it cannot make a model read evidence it largely ignores.
+Within the scale we could study, that is the binding constraint.
+The testbed, the pre-registered families and the diagnosis give future work, at larger scale and with the model's own scores as training signal, a controlled place to find out when it stops binding.

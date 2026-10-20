@@ -1,6 +1,6 @@
 # 20 — Should demonstrations show the shortcut at all?
 
-**When:** 5 October 2026, spec review · **Status:** decided by the user the same day; built and tested, run pending (stage E, notebook 03.1)
+**When:** 5 October 2026, spec review · **Status:** decided by the user the same day; run on 11 October 2026 (stage E on a Runpod H200, 45 minutes; notebook 03.1, section 8)
 
 ## What happened
 
@@ -80,3 +80,20 @@ Implementation (`src/data/demo_mask.py`, `GridRunner(demo_mask=...)`, stage E of
 - **Figure idea:** ID and spurious-reversal AUROC for full, masked and counter-spurious demonstrations, side by side, with the gap split by spurious direction.
 - **Examiner question:** "Isn't hiding the shortcut cheating?"
   - Yes, deliberately. It is an oracle condition, like a grayscale Colored MNIST model, and it shows how much is at stake for a selector that has to find the shortcut on its own.
+
+
+## Result (11 October 2026)
+
+**Qwen learns the shortcut from its demonstrations, but removing it does not teach the rule, and the query still carries it.**
+- **M1, no shortcut − full** (mean over 6 strategies × 3 namings):
+  - ID −0.048 (interval below 0 in 10 of 18);
+  - covariate −0.040 (5 of 18);
+  - spurious reversal +0.049 (10 of 18).
+- **The ID − reversal gap shrinks (M4)** in all 18 cells, significantly in 14, by 0.07–0.19. feature_range is the exception, since it already under-represented the shortcut (hiccups/19).
+- **Removing the noise feature adds nothing (M3 ≈ 0).**
+- **Removing and neutralising (counter_spurious) do equally well (M5):** no interval excludes 0.
+- **Accuracy falls under abstract names:** label_diversity's ID AUROC drops from 0.589 to 0.528, because the shortcut was most of what Qwen used.
+- **The gap left over follows the shortcut's direction:** +0.04 to +0.11 for σ = +1 and −0.06 to −0.15 for σ = −1. Qwen's "bigger → 1" prior still reads the shortcut in the query.
+
+**How to tell it (addition).**
+> Hiding the shortcut from the demonstrations closed part of the gap between in-distribution and reversed-shortcut queries, confirming that the model learns the shortcut from what it is shown. It did not make the model learn the rule, and it could not stop the model reading the shortcut in the query itself through its numeric prior. Neutralising the shortcut in the demonstrations, which needs no knowledge of which feature is spurious once a selector can find it, did as well as removing it.

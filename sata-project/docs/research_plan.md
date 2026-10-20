@@ -386,6 +386,12 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
       - M5: removing the shortcut against neutralising it (label_diversity without the shortcut − counter_spurious with it).
       - Also: the residual gap by spurious direction σ_t, since the query still shows the shortcut and Qwen's numeric prior can read it.
     - Not part of the frozen contrast family.
+    - **Result (11 October 2026, stage E on a Runpod H200, 45 minutes).**
+      - M1 (no shortcut − full): ID −0.048, covariate −0.040, spurious reversal +0.049.
+      - M4: the gap shrinks in all 18 cells, significantly in 14.
+      - M3 ≈ 0; M5: removing equals neutralising.
+      - The remaining gap follows σ_t (+0.04 to +0.11 against −0.06 to −0.15): Qwen's prior reads the shortcut in the query.
+      - Notebook 03.1, section 8; `hiccups/` 20.
 
 ### P5 — SATA (2 weeks; CPU training overlaps P4)
 
@@ -403,14 +409,128 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
   - controls: **SATA-names** (lexicon directions ±1 instead of LLM-measured slopes) and the counter-prior heuristic;
   - validation reader: σ(α·prior(x) + w·x) in a new `src/models/prior_proxy.py`.
   - **Gate:** proxy–LLM Spearman ≥ 0.5, and SATA-MI ≥ both controls on validation.
+- **5b implementation (the user's go-ahead, 11 October 2026: "lets do 5b nothing else").**
+  - **What changes from 5a.** SATA also reads, for every pool row and the query, Qwen's *measured* zero-shot margin m₀ under the task's naming. The P3 surrogate failed G3, so its slopes are not used; the spec already allows this.
+    - m₀ comes from `PoolPrior.centred` for pool rows; the query's zero-shot margin is centred by the same pool median.
+    - Per-row input [x, m₀], width 11.
+  - **Controls** (as planned):
+    - **`sata_names`:** input [x, s⊙x], width 20, where s is the displayed name's lexicon direction (±1; 0 for neutral and abstract names). No LLM measurement.
+    - **counter_prior**, the heuristic that already sees the same prior.
+  - **Targets.** The matched targets (`hiccups/` 21) plus the planned conditional counter-prior term:
+    - q = normalise(π + λ·1[C_t > ½]·u), where u is uniform over clean pool rows whose label contradicts the prior.
+    - λ is chosen by the oracle check below from {0, 0.5, 1}.
+    - `sata_names` gets the same targets, so the two differ only in what they read.
+  - **Training data: fixed frames, since the prior must be measured.**
+    - New suites `sata_mi_train` (300 tasks) and `sata_mi_val` (60 tasks), from the evaluation distribution with their own seed streams, built like the evaluation frames: 256-row pool, ID, covariate and spurious-reversal splits, column-role permutation.
+    - Qwen measures pool priors (3 namings) and the zero-shot margin of every query (zero-shot units).
+    - Each epoch visits every (task, naming, environment) with fresh queries from the split.
+  - **Prior-augmented proxy** (`src/models/prior_proxy.py`, as planned). P(Qwen says 1) = σ(a₁·w·x + a₂·m₀ + a₀), where w is a ridge logistic fit on the 8 chosen demonstrations.
+    - a₀, a₁ and a₂ are fitted once on stage F's Qwen predictions for the 8 `sata_llmval` tasks, a reader model of how Qwen combines demonstration evidence with its prior.
+    - Early stopping uses its worst-environment accuracy, pooled over namings, with drawn selection, 3 seeds and fixed draws.
+  - **Gate S3a-MI:** the oracle (top-k by the MI targets) beats counter_prior and label_diversity on the prior-augmented proxy, on `sata_mi_val`.
+  - **Gate 5b** (as planned): proxy–Qwen Spearman ≥ 0.5, and SATA-MI ≥ both controls on the LLM validation.
+  - **Stage G on one H200, one session:**
+    1. Priors for the new suites.
+    2. Training of `sata_mi` and `sata_names` (fixed data, on the GPU).
+    3. Gate S3a-MI.
+    4. The LLM validation on `sata_llmval`.
+    5. The evaluation grid for `sata_mi` and `sata_names` (Qwen-Instruct, 3 namings, 3 seeds).
+    - Estimate about 2 hours, about $11 at $5.29/hr; price confirmed with the user first.
+  - **5b contrast family**, written before any 5b result. AUROC, one-sided hierarchical bootstrap, Holm over these 4, 24 evaluation tasks, Qwen-Instruct, flipped names (where the prior conflicts):
+    - **R7:** sata_mi − sata, ID.
+    - **R8:** sata_mi − sata_names, ID.
+    - **R9:** sata_mi − counter_prior, ID.
+    - **R10:** sata_mi − sata, mean over the three environments.
 - **5c SATA-MI-mech** (headline novelty, gated):
   - targets are **datamodel utilities** measured with the LLM: about 20 tasks × 2 namings × 128 balanced subsets from a 64-row pool; the mean correct-label margin over a label-balanced query set is regressed on subset membership (new `src/models/datamodels.py`);
   - label-symmetric, so no query-label leak;
   - optionally measured at the P6 critical layer.
   - **Gate:** held-out R² ≥ 0.2, and top-k by utility beats random under the LLM.
 - **Files:** `src/models/sata.py` (configurable input width), `sata_targets.py`, `sata_train.py`, `src/selection/sata_select.py`.
+- **Decisions (10 October 2026, the user's):**
+  - **SATA is trained as planned, without reinforcement learning.** The user asked whether training should follow Zhang et al. (2022). Their method treats selection as a sequence: offline conservative Q-learning on 2,000 random-policy episodes, rewarded by the accuracy gain from each added example. It was considered as a 5c variant, SATA-RL: random episodes scored after every step would serve both the datamodels and the RL rewards, for about $20 more GPU time with buffer. It is deferred until the 5a results are in.
+    - Their caveats, checked against the paper: gains on GPT-2 (345M); about 1% on GPT-3 Ada and mixed on Babbage and Curie; never trained on GPT-3 because episodes cost too much.
+  - **P6 is on hold.**
+- **5a implementation** (10 October 2026), in this order:
+  1. **Tasks from the evaluation distribution.** `sample_eval_tasks` with prefixes `sata_train` (1,000 tasks) and `sata_val` (100, for the proxy and early stopping). An 8-task LLM validation suite `sata_llmval` is written to disk like `pilot`. Each prefix has its own seed streams, so no task is shared with `eval` or `pilot`.
+  2. **Batches as on main, plus a fresh column-role permutation in every batch,** so the shortcut's position carries nothing (evaluation tasks shuffle their features per task).
+     - Data is still regenerated every epoch.
+     - ID pool in 75% of batches, matched pool in 25%; mechanism always matched.
+     - The task order is shuffled every epoch, because `sample_eval_tasks` lists the linear tasks first.
+  3. **Target fix: label-noise rows get no bonus** (`hiccups/` 21).
+     - A label-noise row's shortcut follows its true label, so it looks counter-spurious and, inside the query's regime, scored 3.5, the maximum.
+     - Gate S3a on 100 validation tasks: the targets as designed chose label-noise rows in 9.0% of demonstrations against 1.9% for random, and failed (0.476).
+     - With the fix they pass, but only by 0.0003: worst environment 0.556 against counter_spurious's 0.555.
+     - The fixed targets still reverse the shortcut: it agrees in 25% of chosen rows, 7% on tree tasks. A 30-task probe without the feature shuffle had hidden this (0.628), because XGBoost breaks ties between equally good features by column order.
+     - **Decision (the user's, 10 October 2026): the main SATA uses a neutral "matched pick rate" target; the planned targets are kept as an ablation.**
+       - **The target.** Each row's chance of being in a counter_spurious-style matched set. Within each label: 2 clean rows that break the shortcut (query's regime first), each paired with the clean agreeing row nearest in |shortcut| (query's regime first). Normalised to sum to 1.
+       - Same architecture, loss (KL) and top-k selection. Oracle worst environment 0.640 (shortcut agrees in 60% of rows), against 0.556 for the planned targets.
+       - **Strategies:**
+         - `sata`: matched target, per query; the main SATA in R1–R6.
+         - `sata_agnostic`: matched target, blank query (R5).
+         - `sata_designed`: planned targets with the label-noise fix, per query; the "as first designed" ablation, outside the contrast family.
+       - **Checkpoints:** `models/sata_v2.pt`, `models/sata_v2_agnostic.pt`, `models/sata_v2_designed.pt`.
+       - The planned run resumes from epoch 2 under its new name. The planned blank-query run was stopped, since it is in no contrast.
+       - Gate S3a is re-reported with the matched target as the main oracle (0.640 against 0.555: pass).
+     - **Selection: sampling instead of top-k** (decided by me on 10 October 2026 after the first training runs; checked on Qwen-Instruct on 12 October: top-k is no better; `hiccups/` 21).
+       - **What happened.** As training went on, all three models' proxy fell while their loss fell. For example, the blank-query model went from 0.428 to 0.288, with ID 0.29 and spurious reversal 0.73.
+       - **Why.** The learned scores rank the rows that break the shortcut first. The exact pick rates keep each such row's agreeing partner just as high, but a learned approximation cannot pin down which agreeing row is the partner. So top-k shows the shortcut reversed again (27% agreement).
+       - **The test** (50 validation tasks, latest `sata` weights): top 8 by score gives worst environment 0.478 (27% agreement); 4 rows per label *sampled* in proportion to the scores gives 0.558 (54%).
+       - **The rule from now on.** SATA's scores are a distribution over rows (the KL loss trains them as one), and its demonstrations are drawn from it, k/2 per label, like label_diversity's draw but weighted. Its sets therefore use 3 seeds, like label_diversity's.
+       - **Reversible.** Every epoch logs the proxy under both rules, and the best checkpoint under each is saved (`models/sata_v2*.pt` for sampling, `models/sata_v2*_topk.pt` for top-k). Early stopping waits until neither has improved for 10 epochs.
+       - All three models restart from scratch with this validation; the seeded data stream reproduces the same training.
+       - **Stage F cost** with 3 SATA seeds: about 45 minutes, about $3.50–4.
+  4. **Gate S3a rewritten for v3.** It uses `sata_val` tasks and the grid's own strategies through `protocols.select`. The criterion is the worst of id, covariate and spurious reversal; mechanism is reported alongside.
+  5. **Training.** Benchmark the device (cpu against mps), then train SATA-v2 and its query-agnostic ablation on the Mac.
+     - Checkpoints go to `models/sata_v2.pt` and `models/sata_v2_agnostic.pt`; logs to `results/v3/synthetic/p5/`.
+     - New notebook `04_sata_train`.
+  6. **Grid strategies.**
+     - `sata` and `sata_designed`: query-conditional like similarity, with k/2 rows per label drawn in proportion to SATA's scores (`sata.selection: sample`; `topk` gives the plan's original rule).
+     - `sata_agnostic`: one set per task.
+     - All use 3 seeds, because the draws are random (1 seed under top-k).
+  7. **One H200 session (stage F of `run_p4_pod.sh`).**
+     - First the LLM validation on `sata_llmval`: every strategy, 3 namings.
+     - Then the evaluation grid's SATA units: Qwen-Instruct under 3 namings, and Qwen-base under abstract and flipped.
+     - About 25 minutes, about $2. Confirm the price first.
+  8. **RQ4 contrast family**, frozen before the first SATA LLM result:
+     - AUROC, one-sided hierarchical bootstrap, Holm over these 6, 24 evaluation tasks, Qwen-Instruct.
+     - **R1–R3:** sata − label_diversity under spurious reversal, covariate and ID (abstract).
+     - **R4:** sata − similarity, mean over the three environments (abstract). Both select per query; does structural training beat plain kNN?
+     - **R5:** sata − sata_agnostic, mean over the three environments (abstract). Does per-query conditioning matter?
+     - **R6:** sata − label_diversity under flipped names, ID.
+  - **Known property: SATA reverses the shortcut.** Its targets prefer rows that break the shortcut, so the shortcut agrees with the label in only about 25% of SATA's target sets.
+    - Compare: label_diversity shows the shortcut (84%), counter_spurious neutralises it (50%), and notebook 03.1 removes it.
+    - A neutral (50%) target cannot be written as per-row scores with top-k selection. Each disagreeing row has a higher chance of being in a half-and-half set than each agreeing row, so ranking by score still picks disagreeing rows first.
+  - 5b and 5c follow once the 5a results are in.
+- **5a status: done 11 October 2026** (`hiccups/` 22; notebook 04; notebook 05, section 11).
+  - **Where it ran.** Training finished on a Runpod H200 (resumed from the Mac's epochs 15–16). Stage F ran on the same pod as stage E: 3 h 01 min, about $16.
+  - **Proxy, 100 validation tasks:** SATA-v2 (drawn) worst environment 0.652 at epoch 39; counter_spurious 0.555. sata_designed (drawn) 0.635; sata_agnostic 0.560.
+  - **RQ4 family on Qwen-Instruct: null.**
+    - R1 +0.032 [−0.024, 0.089]; R2 −0.096 [−0.154, −0.041]; R3 −0.040; R4 −0.020; R5 −0.025; R6 −0.014. Every Holm p ≥ 0.79.
+    - SATA flattens the environments, like counter_spurious; its worst environment ties counter_spurious (0.552 against 0.555).
+  - **Qwen-base (exploratory): SATA has the best worst environment** under both namings (abstract 0.589, flipped 0.551). Against random, spurious reversal +0.085 and +0.094, with no ID cost.
+  - **Proxy–LLM Spearman** (8 validation tasks, strategy × environment): 0.68 abstract, 0.46 aligned, 0.46 flipped.
+  - **Next (the user's call):** 5b (SATA-MI reads Qwen's prior per row) or 5c, or the parked "turn the prior" idea.
+- **5b status: done 11 October 2026** (`hiccups/` 23; notebook 04, section 6; notebook 05, section 12). **Gate 5b failed; R7–R10 null.**
+  - **Where it ran.** Stage G on one Runpod H200: 1.85 h, about $9.80. Training capped at 30 epochs, not 50, for budget (the user's decision, 11 October).
+  - **Gate S3a-MI passed:** MI targets worst environment 0.619 against counter_spurious 0.586. λ = 0, 0.5 and 1 tie (0.619, 0.616, 0.617), so λ = 0 was kept and SATA-MI's targets are the matched targets.
+  - **Training (reader proxy, 60 validation tasks):** sata_mi 0.620 at epoch 25; sata_names 0.590 at epoch 28. The gap is all under spurious reversal.
+  - **Gate 5b failed on both halves.**
+    - Proxy–Qwen Spearman over strategy × environment: 0.60 abstract, 0.48 aligned, 0.47 flipped (in-sample; bar 0.5).
+    - SATA-MI ≥ both controls only under abstract names. Under aligned names it is below sata_names (0.607 against 0.637), and under flipped names also below sata_names (0.504 against 0.526).
+  - **R7–R10 (flipped names, Holm over 4): null, every Holm p = 1.00.** R7 +0.005 [−0.050, 0.062]; R8 −0.010; R9 −0.032; R10 +0.001 [−0.031, 0.032].
+  - **Reading.** Under flipped names every strategy stays near chance (0.44–0.52). Knowing the prior does not help a selector when 8 demonstrations cannot move the model off it. The SATA line for the instruct model is closed. The positive result stays on Qwen-base (5a).
+  - **Next (the user's call):** write-up, 5c, or the parked "turn the prior" idea.
+- **Top-k robustness check: done 12 October 2026** (`hiccups/` 21; notebook 05, section 13; exploratory).
+  - **The question.** Is the RQ4 null down to SATA drawing its demonstrations rather than taking the top k?
+  - **The run.** `models/sata_v2_topk.pt` with top-k selection, 1 seed, on Qwen-Instruct under 3 namings: the 8 LLM-validation tasks and the 24 evaluation tasks.
+    - It ran on a fresh H200 (`scripts/run_topk_pod.sh`; 4 minutes of inference, about $1.20 with setup), because the old pod's host had no free GPU. The old pod was terminated (the user's decision).
+  - **Result: top-k is no better.** Top-k minus drawn, mean of 3 environments: abstract −0.005, aligned −0.029, flipped −0.028. R1k–R6k (R1–R6 with top-k SATA) are null. Every Holm p is 1.00.
+  - **Drawing stands.** The user then asked for P6 before the write-up; 5c and "turn the prior" go to future work.
 
 ### P6 — Mechanistic diagnosis (1 week)
+
+- **On hold** (the user's decision, 10 October 2026); resumed 12 October 2026 (below).
 
 - **New `src/inference/probes.py`** (PyTorch, on `HFRunner`'s model):
   - per-layer last-token residuals from `output_hidden_states=True`;
@@ -425,10 +545,54 @@ Don't claim "first to train a selector from model feedback" or "first to use mod
   - whether counter-prior or SATA-MI demos move the crossover earlier;
   - steering as an upper bound.
 - **Gate:** the final-layer logit-lens margin equals the runner margin (within 1e-3).
+- **Taken off hold 12 October 2026 (the user's decision), before the write-up.**
+- **P6 implementation** (12 October 2026; my design choices, flagged for the user's review):
+  1. **`src/inference/probes.py`.** `ProbeRunner` wraps `HFRunner` and scores exactly as `score()` does, prefix cache included. For every query it also keeps:
+     - the logit-lens margin at every layer: m_l = w·norm(h_l) for l < L and m_L = w·h_L, with w the difference of the two label rows of `lm_head`, computed in fp32;
+     - optionally, the last-position residual h_l at every layer (fp16);
+     - optionally, a steering hook adding α·v to one decoder layer's output during the query pass only.
+     - `ProbeGridRunner` subclasses `GridRunner`, so demonstration sets and prompts are the P4/P5 ones unchanged. `run_synth_grid.py --probe` turns it on.
+  2. **Stage P6-A (H200): layer margins.**
+     - Qwen-Instruct, 24 evaluation tasks, 3 namings, seed 0.
+     - Strategies: zero_shot, random, label_diversity, counter_prior, sata (drawn) and sata_mi.
+     - Residuals are kept for random only, which is what the probes and steering vectors are fitted on.
+     - Gate: |m_L − m| ≤ 1e-3 on every row. The same units are also compared with the stored P4/P5 margins.
+  3. **Steering vectors** (on the pod, from stage A). Training tasks are the even-indexed evaluation tasks; held-out tasks are the odd-indexed ones.
+     - Where a query's rule label differs from Qwen's zero-shot prediction, v_l = mean h_l (prediction follows the demonstrations) − mean h_l (prediction follows the prior).
+     - Predictions and the prior are centred by their median within (task, naming), as SATA-MI centres m0, so Qwen's class-1 bias does not decide who "follows".
+     - Layers 8, 12, 16, 20 and 24 of 28, chosen before the critical layer is known so the run needs one session.
+  4. **Stage P6-B (H200): steering** on the 12 held-out tasks with random demonstrations, under aligned and flipped names.
+     - α ∈ {1, 2, 4} at each of the 5 layers.
+     - Control: a random direction with the same norm, at α = 4.
+     - Baseline: α = 0, which is stage A's random units.
+  5. **Analysis** (Mac; notebook 06, new section 5).
+     - **Per-layer AUROC of m_l** against the rule label (y_clean), within (task, environment) cells, by naming and strategy.
+     - **Critical layer:** the first layer where AUROC_l(aligned) − AUROC_l(flipped) > 0.1 with a bootstrap interval excluding zero.
+       - Deviation: the spec uses the accuracy of 1[m_l > 0]. That measure carries Qwen's class bias, which is why the confirmatory statistic is AUROC (hiccups/15). Accuracy is reported alongside.
+     - **Selection question:** do counter_prior, SATA or SATA-MI move the divergence, or raise AUROC_l earlier, relative to random?
+     - **Probes:** per-layer logistic probes on h_l (random demonstrations, folds by task) decode the rule label and the prior prediction.
+     - **Steering:** the change in AUROC on held-out tasks against layer and α, with the random-direction control.
+  6. **Cost:** about 30 minutes on one H200 (setup, A, vectors, B), about $2.50–3.
+- **P6 status: done 12 October 2026** (`hiccups/` 24; notebook 06, section 5).
+  - **Where it ran.** A fresh H200, because the old pod's host had no free GPU; the old pod was terminated (the user's decision). Up 28.5 min, about $2.50.
+  - **The vectors were only 1–2% of the residual norm,** so a second steering pass added α = 8, 16, 32 (random direction at 32) in the same session (my decision; `STAGES=B ALPHAS="8 16 32" RAND_ALPHA=32`).
+  - **Gate passed:** max |m_L − m| = 8.6e-6 on 25,920 rows. 407 of 432 units are bit-identical to the stored H200 runs; 25 differ by run-to-run GPU numerics, with cell AUROC 0.001 apart on average.
+  - **Critical layer 23 of 28** (random, label_diversity, counter_prior, SATA-MI); 24 for zero-shot, 25 for SATA. The read-out is at chance before layer 21. Zero-shot already splits (0.141), so the names drive it. No strategy moves the split earlier; the prior-aware ones only narrow the final gap.
+  - **Probes:** Qwen's zero-shot prediction is decodable from layer 2 (AUROC 0.65–0.87); the rule label hardly at all (0.43–0.59).
+  - **Steering:** no AUROC change (±0.008 for α ≤ 16; ±0.04 at α = 32, like the random direction), although margins move by up to 9.4 logits. Following the demonstrations is label-specific, so the mean difference cancels into a bias.
+  - **Next:** the write-up (the user gives the structure).
 
 ### P7 — Analysis and write-up (remaining weeks)
 
 - **Design history for the write-up and the presentation:** `hiccups/`, one entry per problem, pivot and decision (what happened, evidence, decision, a draft paragraph), with a timeline in `hiccups/README.md`. Entries are added as issues arise.
+
+**Parked idea (the user's, 11 October 2026; not scheduled): turn the prior instead of fighting it.**
+- Qwen's zero-shot habit is "bigger number → 1".
+- Estimate each feature's direction from the labelled pool, and show the negated value for features whose larger values go with label 0, in the demonstrations and the query alike. The habit then points in the rule's direction.
+- It needs no ground truth.
+- **Catch 1:** it also aligns the shortcut, so it should be paired with neutralised or SATA-matched demonstrations.
+- **Catch 2:** it changes presentation, not selection, so it would be an exploratory question beside RQ4. Naming is the precedent.
+- **Cost:** one grid arm, about 30–45 minutes on an H200.
 
 **Cut order if time runs short:** P6 → 5c → reduced grids → 5b. The minimum thesis is P0–P2, P4 and 5a, which still answers all four RQs.
 

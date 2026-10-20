@@ -1,0 +1,26 @@
+\babel@toc {australian}{}\relax 
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {4.1}{\ignorespaces The ten confirmatory contrasts for \textbf {RQ1}\xspace --\textbf {RQ3}\xspace . Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the three that survive Holm correction (adjusted $p$ at the right), hollow grey the rest. The three panels use different units, so they do not share a scale. Concept shift through naming (C1c) is the largest effect.}}{15}{figure.caption.24}%
+\contentsline {figure}{\numberline {4.2}{\ignorespaces Every strategy by naming and environment (Qwen2.5-7B-Instruct, mean \textsc {auroc}\xspace over 24 tasks). Each row joins one strategy's three environments; rows are ordered by mean \textsc {auroc}\xspace under aligned names. The panels differ far more than the rows within a panel: the names matter more than the choice of demonstrations.}}{16}{figure.caption.25}%
+\contentsline {figure}{\numberline {4.3}{\ignorespaces Which features Qwen relies on ($\pi _{\mathrm {behav}}$, the drop in correct-label margin when a feature is replaced by a value from another row), by naming. Under abstract names the shortcut carries the reliance; under aligned names the rule features do; under flipped names the rule features are used in the names' direction (negative).}}{18}{figure.caption.27}%
+\contentsline {figure}{\numberline {4.4}{\ignorespaces The cost of spurious reversal (ID minus reversal \textsc {auroc}\xspace ), split by whether Qwen's ``bigger means 1'' prior agrees with the shortcut ($\sigma _t = +1$, vermilion) or opposes it ($\sigma _t = -1$, blue). The cost appears where the prior agrees with the shortcut, with or without demonstrations (zero-shot row).}}{19}{figure.caption.28}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {5.1}{\ignorespaces The stand-in learner's accuracy for each selection method, per environment (100 validation tasks), ordered by worst environment. Trained \textsc {sata}\xspace matches its oracle targets and has no weak environment; the hand-designed strategies trade one environment against another.}}{23}{figure.caption.33}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces \textsc {sata}\xspace on Qwen2.5-7B-Instruct: the pre-registered \textbf {RQ4}\xspace family (top) and the check of drawing against top-$k$ selection (bottom), with 95\% intervals over 24 tasks. No contrast survives correction (all hollow); R2's interval lies below zero.}}{23}{figure.caption.34}%
+\contentsline {figure}{\numberline {5.3}{\ignorespaces \textsc {sata-mi}\xspace under flipped names. Left: the pre-registered family R7--R10, with 95\% intervals; none is significant. Right: every strategy's \textsc {auroc}\xspace (mean of the three environments, 95\% interval over tasks), with \textsc {sata-mi}\xspace highlighted and zero-shot marked; every strategy sits near chance.}}{25}{figure.caption.39}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {6.1}{\ignorespaces Logit-lens \textsc {auroc}\xspace against the rule label at every layer (24 tasks, seed 0). Random demonstrations and zero-shot are highlighted; the four other strategies are in grey. The read-out is at chance for 20 layers and splits by naming after layer 22 (dotted line: the critical layer, 23).}}{27}{figure.caption.44}%
+\contentsline {figure}{\numberline {6.2}{\ignorespaces Aligned minus flipped \textsc {auroc}\xspace by layer, with a 95\% band over tasks for random demonstrations. The gap crosses the 0.1 threshold at layer 23 for every strategy, zero-shot included, so the names, not the demonstrations, drive it.}}{28}{figure.caption.45}%
+\contentsline {figure}{\numberline {6.3}{\ignorespaces Linear probes on the residual stream (random demonstrations, tested on held-out tasks). Qwen's zero-shot answer is decodable from layer 2; the rule label stays near chance.}}{29}{figure.caption.46}%
+\contentsline {figure}{\numberline {6.4}{\ignorespaces Steering on the 12 held-out tasks: change in final \textsc {auroc}\xspace (top) and in the margin (bottom), with 95\% intervals over tasks. Blue shades are the ``follow the demonstrations'' direction at increasing strength $\alpha $; grey diamonds are a random direction of the same norm. Margins move by up to 9 logits while \textsc {auroc}\xspace stays at zero: the direction shifts every answer together.}}{30}{figure.caption.47}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

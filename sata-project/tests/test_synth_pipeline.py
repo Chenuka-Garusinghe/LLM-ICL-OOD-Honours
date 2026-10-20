@@ -16,13 +16,16 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from src.data.generator import SyntheticTask, _is_degenerate_leaf_labels, sample_eval_tasks
 from src.data.synthetic_bridge import FEATURE_NAMES, build_task_frame, load_manifest, pool_of, queries_of, write_suite
 from src.experiments.synth_grid import GridRunner, completed_units, enumerate_units
 from src.inference.llm_runner import get_confidence
 from src.inference.prompts import completion_prompt
-from src.selection.protocols import SYNTHETIC_STRATEGIES, ProtocolContext, demo_seed, select
+from src.models.sata import build_sata
+from src.selection.protocols import QUERY_CONDITIONAL, SYNTHETIC_STRATEGIES, ProtocolContext, demo_seed, select
+from src.selection.sata_select import scorer as sata_scorer
 
 N_TASKS = 24
 
@@ -38,9 +41,20 @@ def frames(tasks):
 
 
 def _ctx(pool, prior_slopes=None):
-    """Selection context; the default prior is "bigger values mean 1" on every column (for counter_prior)."""
+    """Selection context; the default prior is "bigger values mean 1" on every column (for counter_prior),
+    and the sata mechanisms read small untrained SATAs."""
     return ProtocolContext(feature_cols=FEATURE_NAMES, kinds={f: "numeric" for f in FEATURE_NAMES}, train_ref=pool,
-                           prior_slopes=prior_slopes or {f: 1.0 for f in FEATURE_NAMES})
+                           prior_slopes=prior_slopes or {f: 1.0 for f in FEATURE_NAMES},
+                           sata_scorers=_SATA_SCORERS)
+
+
+def _untrained_sata_scorers():
+    torch.manual_seed(0)
+    return {v: sata_scorer(build_sata(v, 10, d_model=16, n_heads=2, n_layers=1).eval(), FEATURE_NAMES)
+            for v in ("sata", "sata_agnostic")}
+
+
+_SATA_SCORERS = _untrained_sata_scorers()
 
 
 # ---------------------------------------------------------------- generator
@@ -236,7 +250,7 @@ def test_selected_demos_come_from_the_pool_and_are_balanced(frames, strategy, k)
     mech, comp = SYNTHETIC_STRATEGIES[strategy]
     for frame, entry in frames[::4]:
         pool = pool_of(frame)
-        query = queries_of(frame, "id").iloc[0] if mech == "feature_knn" else None
+        query = queries_of(frame, "id").iloc[0] if mech in QUERY_CONDITIONAL else None
         seed = demo_seed(42, entry["task_id"], strategy, 0)
         ids, _ = select(mech, comp, pool, query, k, seed, _ctx(pool))
         assert len(set(ids)) == k

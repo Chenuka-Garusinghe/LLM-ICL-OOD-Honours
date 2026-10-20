@@ -221,10 +221,10 @@ Inference & \texttt{MLXRunner}; double BOS on Llama & \texttt{HFRunner}
 Device selection & CUDA-or-CPU in two places; SATA selection assumed CPU &
 shared auto-detection: CUDA, then MPS, then CPU & done (P0) \\
 Calibration & none & contextual calibration & done (P1) \\
-Demo masks & none & shortcut (and noise) feature hidden from demonstrations and selection; queries complete & built (5 Oct); run pending \\
+Demo masks & none & shortcut (and noise) feature hidden from demonstrations and selection; queries complete & done (11 Oct) \\
 Priors & none & measured zero-shot priors on the pool; surrogate (descriptive); conflict statistic & done (P3) \\
-SATA & not on this branch & ported (v2) + MI + MI-mech & P5 \\
-Probes & none & logit lens, probes, steering & P6 \\
+SATA & not on this branch & ported (v2) + MI; MI-mech not run & done (P5) \\
+Probes & none & logit lens, probes, steering & done (P6) \\
 Statistics & per-cell accuracy, $n=30$ & hierarchical bootstrap; Holm over a frozen contrast family & P2, P4 \\
 \bottomrule
 \end{tabular}
@@ -1548,6 +1548,7 @@ rows, then label-noise rows. Where counter\_prior is inactive it is
 label\_diversity's set. It is not part of the contrast family.
 
 \subsection{Counter-spurious selection must match on \texorpdfstring{$|f_8|$}{|f8|}}
+\label{sec:counter-spurious}
 
 The goal is a demonstration set in which $f_8$ carries no information about
 the label, so the model is not taught the shortcut. When demonstrations are
@@ -2348,7 +2349,7 @@ flipped-label accuracy of \citet{wei2023larger}.
 %======================================================================
 \section{Architecture}
 %======================================================================
-\status{Planned (P5): ported from main}
+\status{Implemented (P5, 5a): ported from main; \texttt{src/models/sata.py}}
 
 SATA was proposed in the project's literature review. It draws on
 In-Context Risk Minimization \citep{gupta2024context}, in which a
@@ -2361,7 +2362,10 @@ demonstration-type embedding; the query is embedded as its feature vector
 plus a query-type embedding; a transformer encoder ($d = 128$, 4 heads,
 4 layers) attends over all tokens; a linear head gives one score per
 candidate, normalised by a softmax. The query-agnostic ablation replaces the
-query with a zero vector. Selection takes the balanced top-$k$.
+query with a zero vector. Selection draws $k/2$ rows of each label without
+replacement, with probability proportional to the scores (from P5; the plan's
+balanced top-$k$ is kept as an option, \texttt{sata.selection}). Why the rule
+changed is in Section~\ref{sec:sata-training}.
 
 The row encoding resembles TabPFN \citep{hollmann2023tabpfn}, which also
 embeds each labelled row as one token and lets query rows attend to them.
@@ -2388,7 +2392,7 @@ the model's measured priors.
 \midrule
 SATA-v2 & $x$ (z-scored, displayed order) & 10 \\
 SATA-names (control) & $[x,\ s^{\text{lex}} \odot x]$, lexicon directions $\pm 1$, 0 for neutral names & 20 \\
-SATA-MI & $[x,\ \beta \odot x,\ \hat m_0(x)]$, measured prior slopes and surrogate margin & 21 \\
+SATA-MI & $[x,\ m_0(x)]$, Qwen's measured zero-shot margin, centred on the pool median & 11 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -2396,20 +2400,76 @@ Since P3 the surrogate is descriptive only (its fit failed G3,
 Section~\ref{sec:priors}); P5 may take $\hat m_0$ from the measured prior on
 the pool rows and the zero-shot margin of the query instead.
 
+\paragraph{In the grid (P5).} The strategy \texttt{sata} scores the pool for
+each query, like similarity, and \texttt{sata\_agnostic} (the query-agnostic
+ablation) gives one set per task. Both are trained on the matched targets
+(Section~\ref{sec:sata-targets}). \texttt{sata\_designed} is the same
+architecture trained on the structural targets, kept as an ablation outside
+the RQ4 contrasts. Each draws $k/2$ rows of each label in proportion
+to SATA's scores, so each uses 3 seeds, like label\_diversity.
+Features are z-scored with the pool's statistics, exactly as in training, and
+SATA runs on the CPU at inference, so a set does not depend on the device.
+Neither is defined under a demonstration mask (Section~\ref{sec:demo-mask}),
+because SATA is trained on all ten features.
+
 %======================================================================
 \section{Training targets}
 %======================================================================
-\status{Planned (P5)}
+\label{sec:sata-targets}
+\status{Implemented (P5, 5a): matched targets for SATA-v2; structural targets kept as an ablation}
 
-\paragraph{Structural targets (SATA-v2, as on main).}
+\paragraph{Structural targets (SATA-v2, as on main, with one fix).}
 For candidate $i$ and query $q$,
 \[
-  \tau_i = 2\,\1[r_i = r_q] + 1.5\,\1[\text{counter}_i]
+  \tau_i = \1[y_i = y^{\mathrm{clean}}_i]\bigl(2\,\1[r_i = r_q] + 1.5\,\1[\text{counter}_i]\bigr)
           - 1.5\,\1[\text{consistent}_i \wedge r_i \neq r_q],
   \qquad
   q_i = \operatorname{softmax}(\tau / T)_i ,
 \]
 where $r$ is the regime and counter/consistent refer to \texttt{agree\_obs}.
+
+\paragraph{Why label-noise rows earn no bonus (P5).} On main both bonuses
+went to every row. A label-noise row's spurious feature is generated from its
+clean label, so against its observed label it disagrees: it counts as
+counter-spurious, and inside the query's regime it scored $3.5$, the maximum.
+The targets therefore preferred exactly the rows that show the rule wrongly.
+On the evaluation distribution they picked label-noise rows several times
+more often than random selection does, and gate S3a failed
+(Section~\ref{sec:sata-validation}). The same exclusion is used by the
+counter-spurious and counter-prior strategies.
+
+\paragraph{A property to report: the targets reverse the shortcut.} Rows
+that break the shortcut score higher, so with top-$k$ selection the target
+sets show the shortcut agreeing with the label in only about a quarter of
+their rows. label\_diversity shows the pool's agreement (about $0.84$), and
+counter\_spurious neutralises it ($1/2$, Section~\ref{sec:counter-spurious}). A
+neutral target cannot be written as per-row scores with top-$k$ selection.
+
+
+\paragraph{Matched targets (SATA-v2 from P5; the user's decision).} The
+targets SATA-v2 learns are instead a row's probability of being in a
+\emph{matched set}, built like the magnitude-matched counter-spurious set
+with the query's regime first. Within each label $c$, the set takes $k/4$
+clean rows whose shortcut disagrees with the label, those in the query's
+regime first and at random among ties. Each is paired with the clean
+agreeing row of label $c$ nearest in $|f_8|$, again the query's regime
+first. Half the set agrees with the shortcut, so within the set the shortcut
+says nothing about the label. The target is
+\[
+  q_i = \frac{\pi_i}{\sum_j \pi_j}, \qquad \pi_i = \Pr(i \in S_{\text{matched}}(q)),
+\]
+computed exactly (\texttt{matched\_target\_scores}), except that two
+disagreeing rows sharing a nearest partner are not resolved. A label short of
+disagreeing rows is filled evenly over its other clean rows. Label-noise rows
+have $\pi_i = 0$, and nothing reads the query's label.
+
+A worry was that per-row scores could not represent a half-and-half set: each
+disagreeing row is likelier to be chosen than each agreeing row, because
+there are fewer of them. It does not bite. The agreeing partners are
+concentrated near the disagreeing rows' magnitudes and in the query's
+regime, so their probabilities are high too. Top-$k$ by $\pi$ shows the
+shortcut agreeing in 60\% of rows and reaches nearly the matched sets'
+proxy accuracy ($0.640$ against $0.648$ drawn directly; gate S3a below).
 Softening the targets with a temperature $T$ follows knowledge distillation
 \citep{hinton2015distilling}.
 
@@ -2461,34 +2521,76 @@ receives no query input.
 %======================================================================
 \section{Training}
 %======================================================================
-\status{Planned (P5)}
+\label{sec:sata-training}
+\status{Implemented (P5, 5a): \texttt{scripts/p5\_train\_sata.py}}
 
 \begin{itemize}[nosep]
-  \item Tasks: the evaluation distribution (Section~\ref{sec:config}) with
-        disjoint ids; pool size 256, matching evaluation. Out-of-distribution
-        in-context generalisation depends on the diversity of the training
-        tasks \citep{goddard2025when}, so training covers the full task
+  \item Tasks: the evaluation distribution (Section~\ref{sec:config}),
+        sampled by \texttt{sample\_eval\_tasks} under the prefixes
+        \texttt{sata\_train} (1{,}000 tasks) and \texttt{sata\_val} (100), whose
+        seed streams no evaluation or pilot task shares; pool size 256,
+        matching evaluation. Out-of-distribution in-context generalisation
+        depends on the diversity of the training tasks
+        \citep{goddard2025when}, so training covers the full task
         distribution rather than a few fixed tasks.
+  \item Data are drawn afresh for every batch, as on main. Every batch also
+        gets a fresh column-role permutation, because evaluation tasks show
+        their features in a per-task random order
+        (Section~\ref{sec:roles}): SATA cannot learn where the shortcut sits.
+        The task order is shuffled every epoch, and one seed fixes the whole
+        stream, so a run (and a resumed run) is reproducible.
   \item Environments: id, covariate and spurious\_reversal (ID pool 75\% of
         batches, matched pool 25\%), and mechanism (always matched pool;
         Section~\ref{sec:mechanism}).
   \item Loss $\mathrm{KL}(q \,\Vert\, p_\theta)$; Adam
         \citep{kingma2015adam}, learning rate $10^{-4}$; early stopping
-        \citep{prechelt1998early} on the proxy with patience 10.
-  \item Device: auto-detected (\texttt{sata.device}); benchmarked once
-        against CPU, because SATA's batches are small and GPU launch overhead
-        may outweigh the gain. A one-epoch run on MPS is verified.
+        \citep{prechelt1998early} with patience 10 on the proxy's worst
+        evaluated environment (id, covariate, spurious\_reversal), measured on
+        fixed validation pools and queries so that it moves only when the
+        model does. The mechanism placebo is scored and logged, not used.
+  \item Device: auto-detected (\texttt{sata.device}). Benchmarked once on the
+        M3 Max: a training step (32 queries, 257 tokens each; forward,
+        backward and Adam) takes 35\,ms on Apple Metal against 413\,ms on one
+        CPU thread, so training runs on Metal.
+  \item Variants: SATA-v2 and the query-agnostic ablation (matched targets)
+        and \texttt{sata\_designed} (structural targets), trained separately
+        with the same data stream.
+  \item Selection rule. The first runs selected by balanced top-$k$, and their
+        proxy fell as their loss fell (for example $0.428 \to 0.288$ for the
+        query-agnostic model, with ID $0.35$ and spurious reversal $0.73$). A
+        learned approximation of the matched targets cannot pin down which
+        agreeing row partners each shortcut-breaking row, so it spreads the
+        score over many agreeing rows, and top-$k$ takes the breaking rows
+        first, reversing the shortcut again. Drawing $k/2$ rows per label in
+        proportion to the scores keeps the targets' composition: with the
+        same weights, worst environment $0.558$ and shortcut agreement $0.54$,
+        against $0.478$ and $0.27$ for top-$k$ (50 validation tasks). Every
+        epoch is validated under both rules, with draws seeded by (task,
+        environment, query), and the best checkpoint under each rule is kept
+        (\texttt{hiccups/21}).
 \end{itemize}
 
 %======================================================================
 \section{Validation}
 %======================================================================
-\status{Planned (P5)}
+\label{sec:sata-validation}
+\status{Done (P5): gate S3a, LLM validation and the RQ4 family (\texttt{hiccups/22}); 5b SATA-MI, gate failed and R7--R10 null (\texttt{hiccups/23}); top-$k$ check (\texttt{hiccups/21}); notebook 04, notebook 05 sections 11--13}
 
 \begin{itemize}[nosep]
   \item \textbf{Oracle gate (S3a):} top-$k$ by the target function itself
         (no model) must beat the hand-designed strategies on the proxy
-        before any training.
+        before any training. On SATA's 100 validation tasks, with the
+        evaluation's column-role permutation, the targets as first designed
+        failed (worst environment $0.476$); with label-noise rows excluded
+        they passed by $0.0003$ ($0.556$ against counter\_spurious's $0.555$),
+        a tie. Their worst environment is ID, because the chosen sets show
+        the shortcut reversed (agreeing in 25\% of rows, 7\% on tree tasks).
+        Without the permutation a probe had looked better ($0.628$), because
+        XGBoost breaks ties between equally good features by column order,
+        which placed the rule features before the shortcut. The matched
+        targets (Section~\ref{sec:sata-targets}), chosen for SATA-v2 as a
+        result, pass clearly: $0.640$ against $0.555$
+        (\texttt{hiccups/21}).
   \item \textbf{XGBoost proxy:} an XGBoost classifier
         \citep{chen2016xgboost} is fitted on the selected demonstrations and
         predicts the query; worst-environment accuracy, the environment-level
@@ -2500,10 +2602,40 @@ receives no query input.
         validation tasks. The XGBoost proxy cannot see names, so it cannot
         validate the model-informed component.
   \item \textbf{LLM validation:} 8 held-out validation tasks, all
-        environments and namings, calibrated BA. Never evaluation tasks.
+        environments and namings; AUROC, with calibrated BA alongside. Never
+        evaluation tasks. Result (11 October): under abstract names SATA has
+        the best worst environment on these tasks ($0.531$) but a lower ID
+        AUROC than label\_diversity ($0.582$ against $0.657$). The proxy ranks
+        the strategies moderately well (Spearman over strategy $\times$
+        environment: $0.68$ abstract, $0.46$ aligned and flipped).
+  \item \textbf{RQ4 (evaluation tasks).} The frozen family R1--R6 is null on
+        Qwen2.5-7B-Instruct: R1 (spurious reversal) $+0.032$ $[-0.024, 0.089]$,
+        R2 (covariate) $-0.096$ $[-0.154, -0.041]$, every Holm $p \ge 0.79$.
+        SATA flattens the three environments, like counter\_spurious. On
+        Qwen2.5-7B base (exploratory) it has the best worst-environment AUROC
+        under both namings ($0.589$ abstract, $0.551$ flipped), with spurious
+        reversal $+0.085$ and $+0.094$ over random at no ID cost.
   \item \textbf{Gates:} 5b requires proxy--LLM Spearman $\geq 0.5$ and
         SATA-MI $\geq$ both controls; 5c requires utility held-out
         $R^2 \geq 0.2$ and top-$k$ by utility beating random under the LLM.
+  \item \textbf{5b result (11 October 2026).} SATA-MI reads Qwen's measured
+        zero-shot margin per row; the counter-prior bonus was dropped
+        ($\lambda = 0$; $\lambda \in \{0, 0.5, 1\}$ tie on the oracle check).
+        On the prior-augmented proxy it matches its targets (worst environment
+        $0.620$ against $0.590$ for SATA-names). Gate 5b fails: proxy--Qwen
+        Spearman $0.60$, $0.48$, $0.47$ (abstract, aligned, flipped), and
+        SATA-MI is below SATA-names on the LLM validation under named tasks.
+        The 5b family (flipped names, Holm over 4) is null: R7 sata\_mi $-$
+        sata, ID, $+0.005$ $[-0.050, 0.062]$; R10, mean of three environments,
+        $+0.001$ $[-0.031, 0.032]$; every Holm $p = 1.00$. Under flipped names
+        every strategy stays near chance.
+  \item \textbf{Top-$k$ check (12 October 2026, exploratory).} SATA-v2's
+        top-$k$ checkpoint with top-$k$ selection, on Qwen-Instruct under all
+        three namings, is no better than drawn SATA: top-$k$ $-$ drawn, mean of
+        three environments, $-0.005$, $-0.029$, $-0.028$ (abstract, aligned,
+        flipped), and R1--R6 repeated with top-$k$ SATA are null (every Holm
+        $p = 1.00$). The RQ4 null is not an artefact of drawing
+        (\texttt{hiccups/21}; notebook 05, section 13).
 \end{itemize}
 
 %======================================================================
@@ -2536,7 +2668,7 @@ receives no query input.
 %======================================================================
 \section{Residual stream and logit lens}
 %======================================================================
-\status{Planned (P6)}
+\status{Done (P6, 12 October 2026): \texttt{src/inference/probes.py}; gate passed ($8.6\times10^{-6}$ on 25{,}920 rows)}
 
 The logit lens \citep{nostalgebraist2020logit} reads a model's intermediate
 predictions by applying the final normalisation and unembedding to each
@@ -2570,7 +2702,7 @@ would miss it by up to half a bf16 step, about 0.06.
 %======================================================================
 \section{Critical layer, probes and steering}
 %======================================================================
-\status{Planned (P6)}
+\status{Done (P6, 12 October 2026): \texttt{src/evaluation/mechanisms.py}; notebook 06, section 5; \texttt{hiccups/24}}
 
 \begin{definition}[Critical layer]
 Let $\mathrm{acc}_l(N)$ be the accuracy of $\1[m_l > 0]$ against the rule
@@ -2614,6 +2746,41 @@ demonstrated label earlier, relative to random demonstrations?
 \citet{kato2025affinity} show that scores computed from induction-head
 representations track in-context accuracy, and leave selection with such
 scores to future work.
+
+\paragraph{Refinements made in P6.}
+\begin{itemize}[nosep]
+  \item The critical layer is defined with AUROC$_l$ (of $m_l$ against the
+        rule label, within task $\times$ environment cells) instead of the
+        accuracy of $\1[m_l > 0]$, which Qwen's class bias would decide
+        (Section~\ref{sec:calibration}); accuracy of the median-centred
+        prediction is reported alongside.
+  \item ``Follows the demonstrations'' and ``follows the prior'' compare
+        median-centred predictions with the rule label and with Qwen's
+        median-centred zero-shot prediction, on queries where the two
+        disagree; $v_l$ averages the difference of means over the two rule
+        labels. Vectors are fitted on the even-indexed evaluation tasks and
+        tested on the odd-indexed ones, at layers 8, 12, 16, 20 and 24 with
+        $\alpha \in \{1, 2, 4, 8, 16, 32\}$ and a random direction of the same
+        norm as control. The prefix (the demonstrations) is not steered.
+\end{itemize}
+
+\paragraph{Results (12 October 2026).} On Qwen2.5-7B-Instruct (24 tasks,
+seed 0; zero-shot, random, label\_diversity, counter\_prior, SATA, SATA-MI):
+\begin{itemize}[nosep]
+  \item AUROC$_l$ is at chance for the first 20 of 28 layers; the answer forms
+        in the last six. The critical layer is 23 for random, label\_diversity,
+        counter\_prior and SATA-MI, 24 for zero-shot and 25 for SATA.
+        Zero-shot already splits by naming (final gap $0.141$, random
+        $0.192$), so the names drive the divergence; no strategy moves it
+        earlier, and the prior-aware ones only narrow the final gap.
+  \item Probes decode Qwen's zero-shot prediction from layer 2 (AUROC
+        $0.65$--$0.87$) but the rule label hardly at all ($0.43$--$0.59$).
+  \item $\|v_l\|$ is 1--2\% of the residual norm. Steering moves margins by up
+        to $9.4$ logits but AUROC by at most $\pm 0.008$ for $\alpha \leq 16$
+        (and $\pm 0.04$ at $\alpha = 32$, like the random direction): following
+        the demonstrations is label-specific, so the mean difference cancels
+        into a bias.
+\end{itemize}
 
 %======================================================================
 \newpage

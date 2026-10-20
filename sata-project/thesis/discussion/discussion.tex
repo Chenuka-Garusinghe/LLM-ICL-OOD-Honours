@@ -1,0 +1,100 @@
+\chapter{Discussion}
+\label{ch:discussion}
+
+\section{Answers to the research questions}
+
+\paragraph{\RQ1: does in-context learning degrade under shift?}
+Yes, and concept shift realised by naming degrades it most: flipped names cost 0.20 \AUROC with random demonstrations (\autoref{ch:shift}).
+Reversing the shortcut costs about half as much, and most of that cost is the model's numeric prior reading the shortcut in the query rather than anything the demonstrations taught.
+Covariate shift shows no cost in within-environment \AUROC, but this is a property of the metric: the shift moves every score together, and a variance shift does hurt under flipped names.
+
+\paragraph{\RQ2: do different strategies help under different shifts?}
+Only weakly.
+One interaction survives correction: neutralising the shortcut helps under its reversal more than under covariate shift.
+No strategy helps under flipped names, including the one designed for prior conflict.
+
+\paragraph{\RQ3: does the model rely on the right features, and why does the prior win?}
+Under abstract names it relies on the shortcut; under aligned names, on the rule features; under flipped names, on the rule features in the names' direction.
+It cannot report which features it uses.
+The prior wins because it is present in the model's state from layer 2, while the demonstrated rule barely appears there, and the answer is formed in the last six layers, where the names decide it (\autoref{ch:mechanism}).
+
+\paragraph{\RQ4: does a learned selector help, and do model-informed signals help it?}
+Not on the instruction-tuned model.
+\sata and \satami beat every strategy on stand-in learners and tie on Qwen2.5-7B-Instruct; neither the selection rule nor the prior signal changes this.
+\sata does help the base model, in an exploratory comparison.
+
+\section{The results in context}
+
+\citet{wei2023larger} found that overriding semantic priors with in-context evidence emerges with scale.
+Our results are consistent with that picture and sharpen it for one model: for this pair of 7B models, the instruction-tuned one is held more tightly by its prior (the base model loses less to flipped names, and a selector helps it), although two models cannot show that instruction tuning is the cause, and the cost of conflict is set by the names more than by any choice of evidence.
+The graded picture of \citet{krishnakumar2025semantic} and \citet{kossen2024incontext}, in which mid-sized models follow flipped labels part of the time, fits the fact that demonstration labels still matter here (gold minus shuffled labels: +0.06 to +0.11 \AUROC) without being able to overturn the names.
+
+\citet{halawi2024overthinking} find that under false demonstrations, later layers switch to the demonstrated labels.
+We find a late critical layer as well, but the switch it marks is driven by the names, and zero-shot shows it too: the late layers are where the semantic prior is applied, not where the demonstrations take over.
+\citet{minder2025controllable} report a single context-versus-prior direction in Llama-3.1-8B; for our numeric task, a mean-difference direction of that kind was a bias rather than a switch.
+\citet{nastl2024causal} found that restricting predictors to causal features did not improve generalisation on real tabular shifts; we find the same for demonstrations without the shortcut on ID queries, but a clear gain under reversal.
+Finally, learned selectors trained on model feedback \citep{rubin2022learning,ye2023compositional} are usually evaluated in distribution and on tasks the model already knows; our results suggest that a selector's value is bounded by how much the model reads the evidence at all.
+
+\section{Anticipated criticism}
+\label{sec:criticism}
+
+\subsection*{\RQ1}
+
+\critique{Covariate shift showing no effect means your covariate shift is too weak.}
+{The shift moves two rule features by 1--2 standard deviations, and the model's scores move by 0.44--1.21 logits for the same prompts, so the shift reaches the model. What it does not do is reorder queries within an environment, which is all within-cell \AUROC can see. We report this as a limitation of the metric (\autoref{sec:shift-covariate}), and a variance shift does show harm under flipped names.}
+
+\critique{Naming is not concept shift; $P(y \mid x)$ never changes.}
+{From the model's side it does: the same numbers under antonym names imply the opposite mapping, which is what concept shift means for a learner whose prior is semantic. We use the term in that operational sense and say so (\autoref{sec:environments}).}
+
+\subsection*{\RQ2}
+
+\critique{The strategies are weak straw men.}
+{Each follows a published idea (\autoref{tab:strategies}), two use ground truth that a deployed selector would not have, and one is matched to the model's own prior. The comparator is balanced random, which controls the label balance that is known to bias predictions \citep{zhao2021calibrate}. That most of them tie with it is the finding.}
+
+\critique{24 tasks are too few to detect anything.}
+{The intervals are about 0.1 \AUROC wide for strategy contrasts, so effects below about 0.05 could be missed. The naming effect (0.20) and the interaction (0.11) were detected; for the ten selector contrasts, every upper bound is at most 0.09 \AUROC, and eight are below 0.05. We do not claim that smaller effects are absent.}
+
+\subsection*{\RQ3}
+
+\critique{The logit lens is unreliable for early layers.}
+{It can be biased there \citep{belrose2023eliciting}. The final layer matches the model's output exactly, and the linear probes, which avoid that bias, tell the same story: the prior early, the rule weak throughout.}
+
+\critique{Steering failing proves nothing about steering in general.}
+{Agreed. We tested one family of directions (a label-averaged mean difference at five layers, applied to the query) on one 7B model with eight numeric demonstrations, within a small budget. We claim only that this direction acts as a bias at this scale, and we explain why it must: following the demonstrations means opposite things for the two labels.}
+
+\critique{Self-reported importance is a known failure; why test it?}
+{Because it is the cheapest explanation a practitioner would ask for, and because the comparison with behavioural reliance under each naming shows that the self-report follows the names, not the model's behaviour.}
+
+\subsection*{\RQ4}
+
+\critique{\sata failed because it was badly trained.}
+{It reached its own oracle's level on the stand-in learners and beat every strategy there; the base model benefits from the same checkpoints; and ranking instead of drawing does no better. The failure is in what the instruction-tuned model does with good evidence.}
+
+\critique{The stand-in learners are poor proxies for the model, so the selectors were optimised for the wrong thing.}
+{This is the main weakness of the selector chapters, and we measured it: the proxies rank strategies like Qwen at Spearman 0.68 (abstract) but only about 0.47 under named features, and the agreement check before the \satami evaluation failed on exactly this. Training on the model's own scores, as datamodels would \citep{chang2023data}, was planned and not run within our budget.}
+
+\critique{You chose the matched target and the drawing rule after seeing results.}
+{Both were chosen on validation tasks and stand-in learners, before any selector result on the model; the original targets are reported as an ablation, and the drawing rule was checked on the model afterwards (\autoref{sec:sata-topk}).}
+
+\section{Limitations}
+\label{sec:limitations}
+
+Every negative result in this thesis holds for the conditions we could test, and those conditions were narrow.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Scale.} One model family at 7B: Qwen2.5-7B-Instruct and, exploratorily, its base model. Llama-3.1-8B-Instruct was dropped when it would not answer in format; a prefill would likely fix this, but was not run. Larger models, which \citet{wei2023larger} find follow contradicting evidence better, were out of reach.
+  \item \textbf{Demonstrations.} $k = 8$, chosen on the pilot because $k = 32$ did not pass the learnability check. More demonstrations might give the rule more weight.
+  \item \textbf{Tasks.} Synthetic numeric tasks with three load-bearing features, two domains and 24 evaluation tasks. Real tabular data, text features or other rule families may behave differently.
+  \item \textbf{Metric.} Within-environment \AUROC cannot see shifts that move every score together; balanced accuracy, its alternative, was distorted by calibration.
+  \item \textbf{Proxies.} The selectors were trained against stand-in learners that track the model only moderately under named features.
+  \item \textbf{Budget.} The later stages were sized to a few tens of US dollars of rented GPU time: \satami's training was capped at 30 epochs, steering covered one direction family, and the datamodel variant of the selector (training on the model's own scores) and a reinforcement-learning selector were not run.
+  \item \textbf{Decisions after data.} Some design decisions followed pilot or partial results: the random spurious direction, the switch to \AUROC, the names chosen by measured contrast, the matched target. Each was made before the confirmatory family it affects was computed.
+  \item \textbf{Numerics.} Rerunning identical prompts on a fresh GPU reproduced 407 of 432 units bit for bit; 25 differed by run-to-run GPU numerics, moving cell \AUROC by 0.001 on average.
+\end{itemize}
+
+\section{Future work}
+
+The most direct extension is scale: the same testbed and contrast families on larger models, where the prior's hold should be weaker, would show whether selection starts to matter as the model starts to read the evidence.
+Training the selector on the model's own scores of demonstration subsets (datamodels, \citealp{ilyas2022datamodels,chang2023data}), possibly read at the critical layer, would remove the proxy problem.
+On the presentation side, a parked idea is to \emph{turn} the prior rather than fight it: negate the features whose larger values go with label 0, in the demonstrations and the query alike, so that the ``bigger means 1'' habit points in the rule's direction.
+Finally, label-specific or learned steering directions, and steering of the demonstration prefix rather than the query, would test whether the rule can be made to reach the late layers at all.

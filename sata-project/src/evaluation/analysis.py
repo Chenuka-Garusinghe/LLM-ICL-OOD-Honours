@@ -69,6 +69,50 @@ CONTRASTS = [
      "direction": "greater", "label": "rho(pi_true, pi_behav), abstract minus flipped names"},
 ]
 
+# RQ4 (P5), written down on 10 October 2026 before any SATA result existed
+# (docs/research_plan.md, 5a step 8). A family of its own: AUROC, one-sided
+# hierarchical bootstrap, Holm over these 6, the 24 evaluation tasks.
+# `strategy_mean_env` averages the paired difference over the three
+# environments (weights 1/3), so R4 and R5 ask about SATA overall.
+RQ4_CONTRASTS = [
+    {"id": "R1", "rq": "RQ4", "kind": "strategy", "a": "sata", "b": "label_diversity",
+     "naming": "abstract", "env": "spurious_reversal", "direction": "greater",
+     "label": "sata minus label_diversity under spurious reversal"},
+    {"id": "R2", "rq": "RQ4", "kind": "strategy", "a": "sata", "b": "label_diversity",
+     "naming": "abstract", "env": "covariate", "direction": "greater",
+     "label": "sata minus label_diversity under covariate shift"},
+    {"id": "R3", "rq": "RQ4", "kind": "strategy", "a": "sata", "b": "label_diversity",
+     "naming": "abstract", "env": "id", "direction": "greater",
+     "label": "sata minus label_diversity on ID queries"},
+    {"id": "R4", "rq": "RQ4", "kind": "strategy_mean_env", "a": "sata", "b": "similarity",
+     "naming": "abstract", "envs": ["id", "covariate", "spurious_reversal"], "direction": "greater",
+     "label": "sata minus similarity, mean over the three environments"},
+    {"id": "R5", "rq": "RQ4", "kind": "strategy_mean_env", "a": "sata", "b": "sata_agnostic",
+     "naming": "abstract", "envs": ["id", "covariate", "spurious_reversal"], "direction": "greater",
+     "label": "sata minus sata_agnostic (per-query conditioning), mean over the three environments"},
+    {"id": "R6", "rq": "RQ4", "kind": "strategy", "a": "sata", "b": "label_diversity",
+     "naming": "flipped", "env": "id", "direction": "greater",
+     "label": "sata minus label_diversity under flipped names, ID"},
+]
+
+# 5b SATA-MI (P5), written down on 11 October 2026 before any 5b result
+# (docs/research_plan.md, 5b contrast family). Flipped names, where the prior
+# conflicts with the task; Holm over these 4, the 24 evaluation tasks.
+MI_CONTRASTS = [
+    {"id": "R7", "rq": "RQ4-MI", "kind": "strategy", "a": "sata_mi", "b": "sata",
+     "naming": "flipped", "env": "id", "direction": "greater",
+     "label": "sata_mi minus sata under flipped names, ID"},
+    {"id": "R8", "rq": "RQ4-MI", "kind": "strategy", "a": "sata_mi", "b": "sata_names",
+     "naming": "flipped", "env": "id", "direction": "greater",
+     "label": "sata_mi minus sata_names under flipped names, ID"},
+    {"id": "R9", "rq": "RQ4-MI", "kind": "strategy", "a": "sata_mi", "b": "counter_prior",
+     "naming": "flipped", "env": "id", "direction": "greater",
+     "label": "sata_mi minus counter_prior under flipped names, ID"},
+    {"id": "R10", "rq": "RQ4-MI", "kind": "strategy_mean_env", "a": "sata_mi", "b": "sata",
+     "naming": "flipped", "envs": ["id", "covariate", "spurious_reversal"], "direction": "greater",
+     "label": "sata_mi minus sata under flipped names, mean over the three environments"},
+]
+
 
 # --------------------------------------------------------------------------- #
 # grid metrics
@@ -179,6 +223,18 @@ def grid_blocks(df: pd.DataFrame, spec: dict, statistic: str) -> list:
                 continue
             y, A, B = pair
             blocks = [(y, [(A, 1.0), (B, -1.0)])]
+        elif kind == "strategy_mean_env":
+            s = _select(g, naming=spec["naming"])
+            w = 1.0 / len(spec["envs"])
+            for env in spec["envs"]:
+                e = _select(s, env=env)
+                pair = _paired(_select(e, strategy=spec["a"]), _select(e, strategy=spec["b"]), value)
+                if pair is None:
+                    break
+                y, A, B = pair
+                blocks.append((y, [(A, w), (B, -w)]))
+            if len(blocks) < len(spec["envs"]):
+                continue
         elif kind == "interaction":
             s = _select(g, naming=spec["naming"])
             for env, w in ((spec["env_a"], 1.0), (spec["env_b"], -1.0)):

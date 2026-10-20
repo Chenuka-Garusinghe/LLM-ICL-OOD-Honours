@@ -9,7 +9,9 @@ Synthetic (v3) strategies map onto mechanism x composition through
 mechanisms read the generator's ground-truth row tags (`regime`, `agree_obs`,
 `spurious_raw`, `y_clean`), which SATA does not get; the spec discloses this
 asymmetry. `counter_prior` reads the model's prior surrogate
-(src/inference/priors.py) through `ProtocolContext.prior_slopes`. Seeds come
+(src/inference/priors.py) through `ProtocolContext.prior_slopes`. The `sata`
+mechanisms (P5) read a trained SATA's scores through
+`ProtocolContext.sata_scorers` (src/selection/sata_select.py). Seeds come
 from `demo_seed`, one stream per (task, strategy, seed).
 """
 
@@ -35,6 +37,8 @@ MECHANISMS = (
     "gt_counter_spurious",
     "feature_knn",
     "counter_prior",
+    "sata",
+    "sata_agnostic",
 )
 
 
@@ -49,6 +53,8 @@ class ProtocolContext:
     proxy_features: list[str] = field(default_factory=list)
     prior_slopes: dict[str, float] = field(default_factory=dict)  # column -> prior surrogate slope
     prior_margin: pd.Series | None = None      # pool row id -> measured zero-shot margin (centred); preferred
+    sata_scorers: dict[str, Callable] = field(default_factory=dict)  # mechanism -> scorer(pool, query) -> scores
+    sata_kind: str = "weight"                   # "weight": draw in proportion to SATA's scores (P5); "score": top-k
     _cache: dict = field(default_factory=dict, repr=False)
 
     def ranges(self) -> pd.Series:
@@ -274,6 +280,26 @@ def select_counter_prior_matched(pool: pd.DataFrame, ctx: ProtocolContext, refer
     return list(pool.index[picked]), meta
 
 
+def _sata_scorer(ctx: ProtocolContext, mechanism: str) -> Callable:
+    if mechanism not in ctx.sata_scorers:
+        raise ValueError(f"mechanism {mechanism!r} needs a trained SATA in ProtocolContext.sata_scorers")
+    return ctx.sata_scorers[mechanism]
+
+
+def _m_sata(pool, query, ctx, rng):
+    """A trained SATA's score for every pool row given the query (P5). The
+    balanced composition then draws k/2 rows per class in proportion to the
+    scores (`sata_kind="weight"`, hiccups/21), or takes the top k/2 ("score")."""
+    if query is None:
+        raise ValueError("mechanism 'sata' is query-conditional; `query` is required")
+    return ctx.sata_kind, np.asarray(_sata_scorer(ctx, "sata")(pool, query), dtype=float), {}
+
+
+def _m_sata_agnostic(pool, query, ctx, rng):
+    """The query-agnostic ablation: the query token is a zero vector, so one set per pool."""
+    return ctx.sata_kind, np.asarray(_sata_scorer(ctx, "sata_agnostic")(pool, None), dtype=float), {}
+
+
 _MECH: dict[str, Callable] = {
     "random": _m_random,
     "similarity": _m_similarity,
@@ -283,9 +309,11 @@ _MECH: dict[str, Callable] = {
     "gt_regime": _m_gt_regime,
     "feature_knn": _m_feature_knn,
     "counter_prior": _m_counter_prior,
+    "sata": _m_sata,
+    "sata_agnostic": _m_sata_agnostic,
 }
 
-QUERY_CONDITIONAL = {"similarity", "feature_knn"}
+QUERY_CONDITIONAL = {"similarity", "feature_knn", "sata"}
 
 
 # --------------------------------------------------------------------------- #
@@ -461,7 +489,8 @@ def protocol_grid(include_degenerate: bool = False) -> list[tuple[str, str]]:
 
 # The synthetic arm's strategies (generator_spec.pdf, strategy table).
 # Structured strategies are balanced (k/2 per class); plain random is free.
-# zero_shot (no demonstrations) is handled by the runner, and SATA arrives in P5.
+# zero_shot (no demonstrations) is handled by the runner. SATA (P5) is
+# query-conditional like similarity; its query-agnostic ablation gives one set per task.
 SYNTHETIC_STRATEGIES = {
     "random": ("random", "free"),
     "label_diversity": ("random", "balanced"),
@@ -471,13 +500,18 @@ SYNTHETIC_STRATEGIES = {
     "similarity": ("feature_knn", "balanced"),
     "counter_prior": ("counter_prior", "balanced"),
     "counter_prior_matched": ("counter_prior", "balanced"),   # exploratory (hiccups/16)
+    "sata": ("sata", "balanced"),
+    "sata_agnostic": ("sata_agnostic", "balanced"),
+    "sata_designed": ("sata", "balanced"),   # the planned targets, an ablation (hiccups/21)
+    "sata_mi": ("sata", "balanced"),         # 5b: also reads Qwen's measured prior
+    "sata_names": ("sata", "balanced"),      # 5b control: reads the names' lexicon directions
 }
 # Where counter_prior is inactive (prior-data conflict <= 1/2) it shows this
 # strategy's demonstration set.
 COUNTER_PRIOR_FALLBACK = "label_diversity"
 
 # The v1 strategy names, kept as the names of the synthetic strategies above.
-V1_EQUIVALENTS = {k: v for k, v in SYNTHETIC_STRATEGIES.items() if not k.startswith("counter_prior")}
+V1_EQUIVALENTS = {k: v for k, v in SYNTHETIC_STRATEGIES.items() if not k.startswith(("counter_prior", "sata"))}
 
 
 def demo_seed(base_seed: int, task_id: str, strategy: str, seed: int, purpose: str = "select", *extra: int) -> int:

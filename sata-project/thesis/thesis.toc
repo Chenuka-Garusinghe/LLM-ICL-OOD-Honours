@@ -1,0 +1,109 @@
+\babel@toc {australian}{}\relax 
+\contentsline {chapter}{\tocchapter {Chapter}{}{Student Plagiarism: Compliance Statement}}{ii}{chapter*.2}%
+\contentsline {chapter}{\tocchapter {Chapter}{}{Abstract}}{iii}{chapter*.4}%
+\contentsline {chapter}{\tocchapter {Chapter}{}{Acknowledgements}}{iv}{chapter*.6}%
+\contentsline {chapter}{\tocchapter {Chapter}{}{List of Figures}}{viii}{chapter*.6}%
+\contentsline {chapter}{\tocchapter {Chapter}{}{List of Tables}}{x}{chapter*.6}%
+\contentsline {part}{Part I\hskip 1em\relax Foundations}{1}{section*.7}%
+\contentsline {chapter}{\tocchapter {Chapter}{1}{Introduction}}{1}{chapter.1}%
+\contentsline {section}{\tocsection {}{1.1}{The question}}{1}{section.1.1}%
+\contentsline {section}{\tocsection {}{1.2}{Approach and the story of this thesis}}{2}{section.1.2}%
+\contentsline {section}{\tocsection {}{1.3}{Contributions}}{3}{section.1.3}%
+\contentsline {section}{\tocsection {}{1.4}{Summary of findings}}{3}{section.1.4}%
+\contentsline {section}{\tocsection {}{1.5}{How to read this thesis}}{4}{section.1.5}%
+\contentsline {chapter}{\tocchapter {Chapter}{2}{Background}}{5}{chapter.2}%
+\contentsline {section}{\tocsection {}{2.1}{In-context learning}}{5}{section.2.1}%
+\contentsline {section}{\tocsection {}{2.2}{Priors against demonstrations}}{6}{section.2.2}%
+\contentsline {section}{\tocsection {}{2.3}{Distribution shift and shortcuts}}{6}{section.2.3}%
+\contentsline {paragraph}{\tocparagraph {}{}{Kinds of shift.}}{6}{section*.8}%
+\contentsline {paragraph}{\tocparagraph {}{}{Spurious features and shortcuts.}}{7}{section*.9}%
+\contentsline {section}{\tocsection {}{2.4}{Demonstration selection}}{7}{section.2.4}%
+\contentsline {paragraph}{\tocparagraph {}{}{Heuristic selection.}}{7}{section*.10}%
+\contentsline {paragraph}{\tocparagraph {}{}{Learned selection.}}{7}{section*.11}%
+\contentsline {paragraph}{\tocparagraph {}{}{Set-based architectures.}}{7}{section*.12}%
+\contentsline {section}{\tocsection {}{2.5}{Looking inside the model}}{8}{section.2.5}%
+\contentsline {section}{\tocsection {}{2.6}{The gap}}{8}{section.2.6}%
+\contentsline {chapter}{\tocchapter {Chapter}{3}{Method: a controlled testbed}}{9}{chapter.3}%
+\contentsline {section}{\tocsection {}{3.1}{Why synthetic tasks}}{9}{section.3.1}%
+\contentsline {section}{\tocsection {}{3.2}{Tasks}}{9}{section.3.2}%
+\contentsline {paragraph}{\tocparagraph {}{}{Rules.}}{9}{section*.13}%
+\contentsline {paragraph}{\tocparagraph {}{}{The shortcut.}}{10}{section*.14}%
+\contentsline {paragraph}{\tocparagraph {}{}{Suites.}}{10}{section*.15}%
+\contentsline {section}{\tocsection {}{3.3}{Environments}}{10}{section.3.3}%
+\contentsline {section}{\tocsection {}{3.4}{Naming: setting the prior against the rule}}{11}{section.3.4}%
+\contentsline {section}{\tocsection {}{3.5}{Prompts, scoring and the model}}{11}{section.3.5}%
+\contentsline {paragraph}{\tocparagraph {}{}{The number of demonstrations.}}{12}{section*.16}%
+\contentsline {paragraph}{\tocparagraph {}{}{Measured priors.}}{12}{section*.17}%
+\contentsline {section}{\tocsection {}{3.6}{Selection strategies}}{12}{section.3.6}%
+\contentsline {section}{\tocsection {}{3.7}{Evaluation and statistics}}{12}{section.3.7}%
+\contentsline {paragraph}{\tocparagraph {}{}{The metric.}}{12}{section*.19}%
+\contentsline {paragraph}{\tocparagraph {}{}{Inference.}}{13}{section*.20}%
+\contentsline {paragraph}{\tocparagraph {}{}{Figures.}}{13}{section*.21}%
+\contentsline {paragraph}{\tocparagraph {}{}{Gates.}}{13}{section*.22}%
+\contentsline {part}{Part II\hskip 1em\relax Experiments}{14}{section*.23}%
+\contentsline {chapter}{\tocchapter {Chapter}{4}{Shift, names and the prior}}{14}{chapter.4}%
+\contentsline {section}{\tocsection {}{4.1}{Motivation}}{14}{section.4.1}%
+\contentsline {section}{\tocsection {}{4.2}{What the pilot revealed: a numeric prior}}{14}{section.4.2}%
+\contentsline {section}{\tocsection {}{4.3}{Setup}}{15}{section.4.3}%
+\contentsline {section}{\tocsection {}{4.4}{\textbf {RQ1}\xspace : how much does each shift hurt?}}{15}{section.4.4}%
+\contentsline {paragraph}{\tocparagraph {}{}{The covariate null is a measurement limit.}}{16}{section*.26}%
+\contentsline {section}{\tocsection {}{4.5}{\textbf {RQ2}\xspace : does the right strategy help under the right shift?}}{17}{section.4.5}%
+\contentsline {section}{\tocsection {}{4.6}{\textbf {RQ3}\xspace : which features does the model rely on?}}{17}{section.4.6}%
+\contentsline {section}{\tocsection {}{4.7}{The prior reads the shortcut in the query}}{18}{section.4.7}%
+\contentsline {paragraph}{\tocparagraph {}{}{Demonstrations without the shortcut.}}{18}{section*.29}%
+\contentsline {paragraph}{\tocparagraph {}{}{The base model.}}{19}{section*.30}%
+\contentsline {section}{\tocsection {}{4.8}{What this chapter does not show, and the next question}}{19}{section.4.8}%
+\contentsline {chapter}{\tocchapter {Chapter}{5}{Learning to select}}{21}{chapter.5}%
+\contentsline {section}{\tocsection {}{5.1}{Motivation}}{21}{section.5.1}%
+\contentsline {section}{\tocsection {}{5.2}{The selector}}{21}{section.5.2}%
+\contentsline {paragraph}{\tocparagraph {}{}{Getting the targets right.}}{22}{section*.31}%
+\contentsline {paragraph}{\tocparagraph {}{}{Drawing instead of ranking.}}{22}{section*.32}%
+\contentsline {section}{\tocsection {}{5.3}{SATA on the model}}{22}{section.5.3}%
+\contentsline {paragraph}{\tocparagraph {}{}{Was it the drawing?}}{24}{section*.35}%
+\contentsline {paragraph}{\tocparagraph {}{}{The base model is different.}}{24}{section*.36}%
+\contentsline {section}{\tocsection {}{5.4}{SATA-MI: telling the selector what the model believes}}{24}{section.5.4}%
+\contentsline {paragraph}{\tocparagraph {}{}{Design.}}{24}{section*.37}%
+\contentsline {paragraph}{\tocparagraph {}{}{Results.}}{24}{section*.38}%
+\contentsline {section}{\tocsection {}{5.5}{What this chapter does not show, and the next question}}{25}{section.5.5}%
+\contentsline {chapter}{\tocchapter {Chapter}{6}{Inside the model}}{26}{chapter.6}%
+\contentsline {section}{\tocsection {}{6.1}{Motivation}}{26}{section.6.1}%
+\contentsline {section}{\tocsection {}{6.2}{Method}}{26}{section.6.2}%
+\contentsline {paragraph}{\tocparagraph {}{}{Logit lens.}}{26}{section*.40}%
+\contentsline {paragraph}{\tocparagraph {}{}{Critical layer.}}{26}{section*.41}%
+\contentsline {paragraph}{\tocparagraph {}{}{Probes.}}{27}{section*.42}%
+\contentsline {paragraph}{\tocparagraph {}{}{Steering.}}{27}{section*.43}%
+\contentsline {section}{\tocsection {}{6.3}{Results}}{27}{section.6.3}%
+\contentsline {section}{\tocsection {}{6.4}{What this chapter does not show}}{29}{section.6.4}%
+\contentsline {part}{Part III\hskip 1em\relax Synthesis}{31}{section*.48}%
+\contentsline {chapter}{\tocchapter {Chapter}{7}{Discussion}}{31}{chapter.7}%
+\contentsline {section}{\tocsection {}{7.1}{Answers to the research questions}}{31}{section.7.1}%
+\contentsline {paragraph}{\tocparagraph {}{}{\textbf {RQ1}\xspace : does in-context learning degrade under shift?}}{31}{section*.49}%
+\contentsline {paragraph}{\tocparagraph {}{}{\textbf {RQ2}\xspace : do different strategies help under different shifts?}}{31}{section*.50}%
+\contentsline {paragraph}{\tocparagraph {}{}{\textbf {RQ3}\xspace : does the model rely on the right features, and why does the prior win?}}{31}{section*.51}%
+\contentsline {paragraph}{\tocparagraph {}{}{\textbf {RQ4}\xspace : does a learned selector help, and do model-informed signals help it?}}{31}{section*.52}%
+\contentsline {section}{\tocsection {}{7.2}{The results in context}}{32}{section.7.2}%
+\contentsline {section}{\tocsection {}{7.3}{Anticipated criticism}}{32}{section.7.3}%
+\contentsline {subsection}{\tocsubsection {}{}{\textbf {RQ1}\xspace }}{32}{section*.53}%
+\contentsline {subsection}{\tocsubsection {}{}{\textbf {RQ2}\xspace }}{33}{section*.54}%
+\contentsline {subsection}{\tocsubsection {}{}{\textbf {RQ3}\xspace }}{33}{section*.55}%
+\contentsline {subsection}{\tocsubsection {}{}{\textbf {RQ4}\xspace }}{34}{section*.56}%
+\contentsline {section}{\tocsection {}{7.4}{Limitations}}{34}{section.7.4}%
+\contentsline {section}{\tocsection {}{7.5}{Future work}}{35}{section.7.5}%
+\contentsline {chapter}{\tocchapter {Chapter}{8}{Conclusion}}{36}{chapter.8}%
+\contentsline {chapter}{\tocchapter {Chapter}{}{References}}{37}{chapter*.58}%
+\contentsline {chapter}{References}{37}{chapter*.58}%
+\contentsline {chapter}{\tocappendix {Appendix}{A}{Notation}}{44}{appendix.A}%
+\contentsline {chapter}{\tocappendix {Appendix}{B}{Design details}}{47}{appendix.B}%
+\contentsline {section}{\tocsection {}{B.1}{Tasks and environments}}{47}{section.B.1}%
+\contentsline {paragraph}{\tocparagraph {}{}{Rows.}}{47}{section*.59}%
+\contentsline {paragraph}{\tocparagraph {}{}{Rules.}}{47}{section*.60}%
+\contentsline {paragraph}{\tocparagraph {}{}{The shortcut.}}{47}{section*.61}%
+\contentsline {paragraph}{\tocparagraph {}{}{Covariate shift.}}{47}{section*.62}%
+\contentsline {section}{\tocsection {}{B.2}{Naming}}{48}{section.B.2}%
+\contentsline {section}{\tocsection {}{B.3}{Counter-spurious selection}}{48}{section.B.3}%
+\contentsline {section}{\tocsection {}{B.4}{Scoring and caching}}{49}{section.B.4}%
+\contentsline {section}{\tocsection {}{B.5}{Statistics}}{49}{section.B.5}%
+\contentsline {paragraph}{\tocparagraph {}{}{Cells and contrasts.}}{49}{section*.63}%
+\contentsline {paragraph}{\tocparagraph {}{}{Hierarchical bootstrap.}}{49}{section*.64}%
+\contentsline {paragraph}{\tocparagraph {}{}{Multiplicity.}}{49}{section*.65}%
+\contentsline {section}{\tocsection {}{B.6}{Reproducibility}}{50}{section.B.6}%
