@@ -6,7 +6,7 @@
 \section{Motivation}
 
 \autoref{ch:shift} left an opening.
-Neutralising the shortcut helped under its reversal (C2e), but the strategies that did so were hand-built rules for one shift each.
+Neutralising the shortcut helped more under its reversal than under covariate shift (\autoref{sec:shift-rq2}), but the strategies that did so were hand-built rules for one shift each.
 A learned selector could combine their ideas, choosing per query the rows that teach the rule rather than the shortcut, and could be trained on synthetic tasks where the best choices are known.
 This chapter builds one, \sata (\autoref{sec:sata}), and then gives it what the model itself believes about every row, \satami (\autoref{sec:satami}).
 Each was tested against a contrast family frozen before its first result on the model.
@@ -17,7 +17,7 @@ Each was tested against a contrast family frozen before its first result on the 
 \sata scores every row of the 256-row pool given the whole pool and the query.
 Each candidate is one token: its feature vector plus a label embedding plus a ``demonstration'' type embedding; the query is a token with its feature vector and a ``query'' type embedding.
 A transformer encoder ($d = 128$, 4 heads, 4 layers, about 0.8M parameters) attends over all tokens, and a linear head gives one score per candidate, normalised by a softmax.
-There are no positional encodings, so the encoder is permutation-equivariant over candidates \citep{lee2019set}; the row encoding resembles TabPFN's \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
+There are no positional encodings, so the encoder remains permutation-equivariant over candidates \citep{lee2019set}; the row encoding style resembles TabPFN's \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
 Unlike EPR, UDR or CEIL \citep{rubin2022learning,li2023unified,ye2023compositional}, \sata is not trained on the language model's scores: it learns targets computed from the ground truth, so its training never touches the model it is evaluated on.
 
 \paragraph{Getting the targets right.}
@@ -47,17 +47,17 @@ On the stand-in learner its worst environment is 0.652, against 0.555 for the be
 
 \finding{On the stand-in learner, \sata beats every hand-designed strategy in every environment.}
 
-The \RQ4 family (R1--R6; \autoref{fig:rq4}, exact values in \autoref{tab:contrasts}) was frozen before any \sata result on the model.
+The \RQ4 family of six contrasts (\autoref{fig:rq4}; exact values in \autoref{tab:contrasts}) was frozen before any \sata result on the model.
 
 \finding{On Qwen2.5-7B-Instruct, \sata does not beat balanced random demonstrations: none of the six pre-registered contrasts favours it.}
 
 \sata flattens the environments rather than raising them.
-Under abstract names its ID, covariate and reversal \AUROC are 0.553, 0.556 and 0.552, the same pattern as \strat{counter\_spurious} (0.561, 0.575, 0.555): a gain under reversal paid for on ID and, significantly, under covariate shift (R2, $-0.096$ [$-0.154$, $-0.041$]).
+Under abstract names its ID, covariate and reversal \AUROC are 0.553, 0.556 and 0.552, the same pattern as \strat{counter\_spurious} (0.561, 0.575, 0.555): a gain under reversal paid for on ID and under covariate shift, where the loss is clear ($-0.096$ [$-0.154$, $-0.041$]).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{\figpath/fig_rq4.pdf}
-\caption{\sata on Qwen2.5-7B-Instruct: the pre-registered \RQ4 family (top) and the check of drawing against top-$k$ selection (bottom), with 95\% intervals over 24 tasks. No contrast survives correction (all hollow); R2's interval lies below zero.}
+\caption{\sata on Qwen2.5-7B-Instruct: the pre-registered \RQ4 family (top) and the check of drawing against top-$k$ selection (bottom), with 95\% intervals over 24 tasks. No contrast survives correction (all hollow); the interval for \sata against \strat{label\_diversity} under covariate shift lies below zero.}
 \label{fig:rq4}
 \end{figure}
 
@@ -80,7 +80,7 @@ If the selector knew, for every candidate and for the query, what the model pred
 \satami reads, for every pool row and the query, its feature vector and Qwen's measured zero-shot margin $m_0$ under the task's naming, centred on the pool median.
 Its controls are \strat{sata\_names}, which reads $s^{\mathrm{lex}} \odot x$ (each name's dictionary direction, no model measurement) instead, and \strat{counter\_prior}; both selectors learn \sata's targets on 300 tasks.
 Because gradient-boosted trees cannot see names, a new stand-in, a \emph{reader}, scores a set by how Qwen combines evidence with its prior: $P(\text{Qwen says }1) = \sigma(a_1\, \hat w^\top x + a_2\, m_0 + a_0)$, with $\hat w$ a ridge logistic fit on the eight chosen rows and $a_0, a_1, a_2$ fitted once on Qwen's predictions.
-A gate required the reader to rank strategies like Qwen (Spearman $\ge 0.5$) and \satami to beat both controls; the family R7--R10, under flipped names, was written down before any result; training was capped at 30 epochs for budget.
+A gate required the reader to rank strategies like Qwen (Spearman $\ge 0.5$) and \satami to beat both controls; the family of four contrasts under flipped names was written down before any result; training was capped at 30 epochs for budget.
 
 \paragraph{Results.}
 On the reader, \satami reached 0.620, its targets' own level, against 0.590 for \strat{sata\_names}, all of the gap under spurious reversal.
@@ -91,7 +91,7 @@ But the gate failed: the reader agreed with Qwen at Spearman 0.60 under abstract
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{\figpath/fig_mi.pdf}
-\caption{\satami under flipped names. Left: the pre-registered family R7--R10, with 95\% intervals; none is significant. Right: every strategy's \AUROC (mean of the three environments, 95\% interval over tasks), with \satami highlighted and zero-shot marked; every strategy sits near chance.}
+\caption{\satami under flipped names. Left: the four pre-registered contrasts, with 95\% intervals; none is significant. Right: every strategy's \AUROC (mean of the three environments, 95\% interval over tasks), with \satami highlighted and zero-shot marked; every strategy sits near chance.}
 \label{fig:mi-flipped}
 \end{figure}
 

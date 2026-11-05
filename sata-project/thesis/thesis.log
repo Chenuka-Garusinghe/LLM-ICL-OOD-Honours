@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.7.27)  13 OCT 2026 12:54
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.7.27)  1 NOV 2026 19:56
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1273,31 +1273,31 @@ Package csquotes Info: Redefining alias 'default' -> 'australian'.
  (./thesis.aux)
 \openout1 = `thesis.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 118.
-LaTeX Font Info:    ... okay on input line 118.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 118
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 119.
+LaTeX Font Info:    ... okay on input line 119.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 119
 .
 
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 118
+LaTeX Font Info:    Trying to load font information for U+msb on input line 119
 .
 
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -1325,7 +1325,7 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
 e
 ))
-Package hyperref Info: Link coloring OFF on input line 118.
+Package hyperref Info: Link coloring OFF on input line 119.
 
 (./thesis.out) (./thesis.out)
 \@outlinefile=\write5
@@ -1382,14 +1382,14 @@ Package biblatex Info: Trying to load bibliographic data...
 Package biblatex Info: ... file 'thesis.bbl' found.
 
 (./thesis.bbl)
-Package biblatex Info: Reference section=0 on input line 118.
-Package biblatex Info: Reference segment=0 on input line 118.
+Package biblatex Info: Reference section=0 on input line 119.
+Package biblatex Info: Reference segment=0 on input line 119.
 Package caption Info: Begin \AtBeginDocument code.
 Package caption Info: End \AtBeginDocument code.
-<style/usyd-primary-colour.pdf, id=269, 1569.865pt x 548.0475pt>
+<style/usyd-primary-colour.pdf, id=265, 1569.865pt x 548.0475pt>
 File: style/usyd-primary-colour.pdf Graphic file (type pdf)
 <use style/usyd-primary-colour.pdf>
-Package pdftex.def Info: style/usyd-primary-colour.pdf  used on input line 123.
+Package pdftex.def Info: style/usyd-primary-colour.pdf  used on input line 124.
 
 (pdftex.def)             Requested size: 290.21811pt x 101.31194pt.
  [1
@@ -1399,7 +1399,7 @@ Package pdftex.def Info: style/usyd-primary-colour.pdf  used on input line 123.
 al/texlive/2026/texmf-dist/fonts/enc/dvips/base/8r.enc} <./style/usyd-primary-c
 olour.pdf>] (./plagiarism/plagiarism.tex
 Student Plagiarism: Compliance Statement
-<images/signature.jpg, id=280, 1222.5675pt x 423.5825pt>
+<images/signature.jpg, id=276, 1222.5675pt x 423.5825pt>
 File: images/signature.jpg Graphic file (type jpg)
 <use images/signature.jpg>
 Package pdftex.def Info: images/signature.jpg  used on input line 18.
@@ -1437,7 +1437,12 @@ Contents
  [7]
 List of Figures
 (./thesis.lof
-Underfull \vbox (badness 4096) has occurred while \output is active []
+LaTeX Font Info:    Trying to load font information for T1+pcr on input line 15
+.
+ (/usr/local/texlive/2026/texmf-dist/tex/latex/psnfss/t1pcr.fd
+File: t1pcr.fd 2001/06/04 font definitions for T1/pcr.
+)
+Underfull \vbox (badness 10000) has occurred while \output is active []
 
  [8
 
@@ -1460,7 +1465,7 @@ List of Tables
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \hskip 10.95pt
-(hyperref)                replaced by space on input line 159.
+(hyperref)                replaced by space on input line 160.
 
 (./introduction/introduction.tex
 Chapter 1
@@ -1472,7 +1477,7 @@ Chapter 1
 
 
 ] [2]
-Underfull \vbox (badness 2351) has occurred while \output is active []
+Underfull \vbox (badness 10000) has occurred while \output is active []
 
  [3])
 (./background/background.tex [4]
@@ -1481,7 +1486,7 @@ Chapter 2
 
 
 ]
-Underfull \vbox (badness 10000) has occurred while \output is active []
+Underfull \vbox (badness 1571) has occurred while \output is active []
 
  [6]
 [7]) (./methodology/methodology.tex [8]
@@ -1493,12 +1498,6 @@ Chapter 3
 Underfull \vbox (badness 1122) has occurred while \output is active []
 
  [10]
-LaTeX Font Info:    Trying to load font information for T1+pcr on input line 78
-.
-
-(/usr/local/texlive/2026/texmf-dist/tex/latex/psnfss/t1pcr.fd
-File: t1pcr.fd 2001/06/04 font definitions for T1/pcr.
-)
 Underfull \hbox (badness 10000) in paragraph at lines 83--86
 []\T1/pcr/m/n/10 f0: 0.99; f1: 1.42; f2: 0.72; f3: -0.23; f4: -0.52; f5:
  []
@@ -1508,11 +1507,16 @@ Underfull \hbox (badness 10000) in paragraph at lines 83--86
 \T1/pcr/m/n/10 f0: 1.25; f1: 0.19; f2: 0.10; f3: -0.04; f4: -0.83; f5:
  []
 
-[11] [12]) [13]
+[11]
+
+LaTeX Warning: Reference `sec:shift-covariate' on page 12 undefined on input li
+ne 136.
+
+[12]) [13]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \hskip 10.95pt
-(hyperref)                replaced by space on input line 164.
+(hyperref)                replaced by space on input line 165.
 
 (./experiments/shift.tex
 Chapter 4
@@ -1522,66 +1526,75 @@ Chapter 4
 
 
 ]
-<figures/fig_p4_contrasts.pdf, id=781, 550.74287pt x 295.69872pt>
-File: figures/fig_p4_contrasts.pdf Graphic file (type pdf)
-<use figures/fig_p4_contrasts.pdf>
-Package pdftex.def Info: figures/fig_p4_contrasts.pdf  used on input line 33.
-(pdftex.def)             Requested size: 452.96779pt x 243.20996pt.
- [15 <./figures/fig_p4_contrasts.pdf>]
-<figures/fig_strategies_by_naming.pdf, id=825, 433.91649pt x 262.38025pt>
+<figures/fig_rq1_rq3_contrasts.png, id=768, 551.4201pt x 239.2137pt>
+File: figures/fig_rq1_rq3_contrasts.png Graphic file (type png)
+<use figures/fig_rq1_rq3_contrasts.png>
+Package pdftex.def Info: figures/fig_rq1_rq3_contrasts.png  used on input line 
+20.
+(pdftex.def)             Requested size: 452.96779pt x 196.5069pt.
+ [15 <./figures/fig_rq1_rq3_contrasts.png>]
+Underfull \vbox (badness 3780) has occurred while \output is active []
+
+ [16]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [17]
+<figures/fig_strategies_by_naming.pdf, id=798, 414.45314pt x 262.38025pt>
 File: figures/fig_strategies_by_naming.pdf Graphic file (type pdf)
 <use figures/fig_strategies_by_naming.pdf>
 Package pdftex.def Info: figures/fig_strategies_by_naming.pdf  used on input li
-ne 49.
-(pdftex.def)             Requested size: 452.96779pt x 273.90593pt.
+ne 66.
+(pdftex.def)             Requested size: 452.96779pt x 286.76949pt.
 
-Underfull \vbox (badness 1259) has occurred while \output is active []
+Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [16 <./figures/fig_strategies_by_naming.pdf>] [17]
-<figures/fig_pi_behav.pdf, id=861, 324.66924pt x 167.99562pt>
+ [18]
+[19 <./figures/fig_strategies_by_naming.pdf>] [20]
+<figures/fig_pi_behav.pdf, id=846, 324.66924pt x 167.99562pt>
 File: figures/fig_pi_behav.pdf Graphic file (type pdf)
 <use figures/fig_pi_behav.pdf>
-Package pdftex.def Info: figures/fig_pi_behav.pdf  used on input line 94.
+Package pdftex.def Info: figures/fig_pi_behav.pdf  used on input line 104.
 (pdftex.def)             Requested size: 353.31432pt x 182.82193pt.
-<figures/fig_reversal_direction.pdf, id=863, 433.91649pt x 256.56052pt>
+<figures/fig_reversal_direction.pdf, id=848, 414.45314pt x 256.56052pt>
 File: figures/fig_reversal_direction.pdf Graphic file (type pdf)
 <use figures/fig_reversal_direction.pdf>
 Package pdftex.def Info: figures/fig_reversal_direction.pdf  used on input line
- 109.
-(pdftex.def)             Requested size: 452.96779pt x 267.83055pt.
- [18 <./figures/fig_pi_behav.pdf>])
-(./experiments/selectors.tex [19 <./figures/fig_reversal_direction.pdf>]
-[20]
+ 119.
+(pdftex.def)             Requested size: 452.96779pt x 280.40878pt.
+ [21 <./figures/fig_pi_behav.pdf>]) (./experiments/selectors.tex
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [22 <./figures/fig_reversal_direction.pdf>] [23]
 Chapter 5
-[21
+[24
 
 
 ]
-<figures/fig_sata_proxy.pdf, id=947, 365.75948pt x 236.36305pt>
+<figures/fig_sata_proxy.pdf, id=934, 365.75948pt x 236.36305pt>
 File: figures/fig_sata_proxy.pdf Graphic file (type pdf)
 <use figures/fig_sata_proxy.pdf>
 Package pdftex.def Info: figures/fig_sata_proxy.pdf  used on input line 43.
 (pdftex.def)             Requested size: 371.43689pt x 240.03398pt.
- [22]
-<figures/fig_rq4.pdf, id=962, 595.66069pt x 223.10553pt>
+ [25]
+<figures/fig_rq4.pdf, id=949, 595.66069pt x 223.10553pt>
 File: figures/fig_rq4.pdf Graphic file (type pdf)
 <use figures/fig_rq4.pdf>
 Package pdftex.def Info: figures/fig_rq4.pdf  used on input line 59.
 (pdftex.def)             Requested size: 452.96779pt x 169.65727pt.
- [23 <./figures/fig_sata_proxy.pdf> <./figures/fig_rq4.pdf>]
+ [26 <./figures/fig_sata_proxy.pdf>]
 Underfull \hbox (badness 2564) in paragraph at lines 86--88
  []\T1/ptm/b/n/10.95 Results.[] \T1/ptm/m/n/10.95 On the reader, \T1/ptm/m/sc/1
 0.95 sata-mi \T1/ptm/m/n/10.95 reached 0.620, its tar-gets' own level, against 
 0.590 for
  []
 
-[24]
-<figures/fig_mi.pdf, id=1030, 503.71037pt x 212.35637pt>
+[27 <./figures/fig_rq4.pdf>]
+<figures/fig_mi.pdf, id=1017, 485.64288pt x 212.35637pt>
 File: figures/fig_mi.pdf Graphic file (type pdf)
 <use figures/fig_mi.pdf>
 Package pdftex.def Info: figures/fig_mi.pdf  used on input line 93.
-(pdftex.def)             Requested size: 452.96779pt x 190.9699pt.
-) (./experiments/mechanism.tex [25 <./figures/fig_mi.pdf>]
+(pdftex.def)             Requested size: 452.96779pt x 198.07262pt.
+) (./experiments/mechanism.tex [28 <./figures/fig_mi.pdf>]
 Chapter 6
 
 Underfull \hbox (badness 1371) in paragraph at lines 20--22
@@ -1592,117 +1605,143 @@ t al. ([]2024[]), the crit-ical layer is the first layer at which
 
 Underfull \vbox (badness 3199) has occurred while \output is active []
 
- [26
+ [29
 
 
 ]
-<figures/fig_lens.pdf, id=1089, 390.14357pt x 183.35501pt>
+<figures/fig_lens.pdf, id=1077, 390.14357pt x 183.35501pt>
 File: figures/fig_lens.pdf Graphic file (type pdf)
 <use figures/fig_lens.pdf>
 Package pdftex.def Info: figures/fig_lens.pdf  used on input line 34.
 (pdftex.def)             Requested size: 452.96779pt x 212.88779pt.
 
-[27 <./figures/fig_lens.pdf>]
-<figures/fig_lens_gap.pdf, id=1115, 353.84573pt x 170.5572pt>
+[30 <./figures/fig_lens.pdf>]
+<figures/fig_lens_gap.pdf, id=1102, 353.84573pt x 170.5572pt>
 File: figures/fig_lens_gap.pdf Graphic file (type pdf)
 <use figures/fig_lens_gap.pdf>
 Package pdftex.def Info: figures/fig_lens_gap.pdf  used on input line 52.
 (pdftex.def)             Requested size: 371.43689pt x 179.03568pt.
-<figures/fig_probes.pdf, id=1118, 382.11357pt x 172.22543pt>
+<figures/fig_probes.pdf, id=1105, 382.11357pt x 172.22543pt>
 File: figures/fig_probes.pdf Graphic file (type pdf)
 <use figures/fig_probes.pdf>
 Package pdftex.def Info: figures/fig_probes.pdf  used on input line 65.
 (pdftex.def)             Requested size: 452.96779pt x 204.17027pt.
- [28 <./figures/fig_lens_gap.pdf>]
-<figures/fig_steering.pdf, id=1142, 398.4329pt x 279.68492pt>
+ [31 <./figures/fig_lens_gap.pdf>]
+<figures/fig_steering.pdf, id=1129, 398.4329pt x 279.68492pt>
 File: figures/fig_steering.pdf Graphic file (type pdf)
 <use figures/fig_steering.pdf>
 Package pdftex.def Info: figures/fig_steering.pdf  used on input line 82.
 (pdftex.def)             Requested size: 452.96779pt x 317.98633pt.
-) [29 <./figures/fig_probes.pdf>] [30 <./figures/fig_steering.pdf>]
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [32 <./figures/fig_probes.pdf>])
+Underfull \vbox (badness 1097) has occurred while \output is active []
+
+ [33 <./figures/fig_steering.pdf>] [34]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \hskip 10.95pt
-(hyperref)                replaced by space on input line 169.
+(hyperref)                replaced by space on input line 170.
 
 (./discussion/discussion.tex
 Chapter 7
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [31
+ [35
 
 
 
 
 ]
-[32] [33]
+
+LaTeX Warning: Reference `sec:shift-covariate' on page 36 undefined on input li
+ne 44.
+
+[36] [37]
 
 LaTeX Font Warning: Font shape `T1/ptm/m/scit' undefined
 (Font)              using `T1/ptm/m/sc' instead on input line 71.
 
-[34]) (./conclusion/conclusion.tex [35]
+[38]) (./conclusion/conclusion.tex [39]
 Chapter 8
-) [36
+) [40
 
 
 ]
 References
-[37
+[41
 
 
 
 
-] [38] [39] [40] [41] [42] (./appendix/notation.tex [43]
+] [42] [43]
+Underfull \hbox (badness 1147) in paragraph at lines 182--182
+[][]\T1/ptm/m/n/10.95 Liu, Y., Khand-a-gale, S., White, C., & Neiswanger, W. (2
+021). Syn-thetic bench-marks for sci-
+ []
+
+
+Underfull \hbox (badness 1087) in paragraph at lines 182--182
+\T1/ptm/m/n/10.95 entific re-search in ex-plain-able ma-chine learn-ing. In J. 
+Van-s-choren & S. Yeung (Eds.),
+ []
+
+[44] [45] [46] (./appendix/notation.tex [47]
 Appendix A
 
-ignored: Infinite glue shrinkage found in box being split [44
+ignored: Infinite glue shrinkage found in box being split [48
 
 
 ]
-ignored: Infinite glue shrinkage found in box being split [45]) (./appendix/design.tex 
-[46]
+ignored: Infinite glue shrinkage found in box being split [49]) (./appendix/design.tex 
+[50]
 Appendix B
-[47
+[51
 
 
 ]
 Underfull \vbox (badness 1412) has occurred while \output is active []
 
- [48]
+ [52]
 LaTeX Font Info:    Font shape `T1/pcr/m/it' in size <10.95> not available
 (Font)              Font shape `T1/pcr/m/sl' tried instead on input line 72.
 
 
+LaTeX Font Warning: Font shape `T1/ptm/m/scit' undefined
+(Font)              using `T1/ptm/m/sc' instead on input line 109.
+
+
+LaTeX Font Warning: Font shape `T1/ptm/m/scit' undefined
+(Font)              using `T1/ptm/m/sc' instead on input line 117.
+
+
 LaTeX Warning: `h' float specifier changed to `ht'.
 
-) [49] [50] (./thesis.aux)
+) [53] [54] (./thesis.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
+
+
+LaTeX Warning: There were undefined references.
+
 Package rerunfilecheck Info: File `thesis.out' has not changed.
-(rerunfilecheck)             Checksum: 4A7C80A370A5B81248746C08E78D3DDC;12859.
+(rerunfilecheck)             Checksum: FD121429AC95E25150098C12F446E112;12789.
 Package logreq Info: Writing requests to 'thesis.run.xml'.
 \openout1 = `thesis.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 38305 strings out of 467525
- 736664 string characters out of 5418982
- 1680864 words of memory out of 5000000
- 66049 multiletter control sequences out of 15000+600000
- 740460 words of font info for 147 fonts, out of 8000000 for 9000
+ 38347 strings out of 467525
+ 738038 string characters out of 5418982
+ 1681351 words of memory out of 5000000
+ 66085 multiletter control sequences out of 15000+600000
+ 743228 words of font info for 149 fonts, out of 8000000 for 9000
  1302 hyphenation exceptions out of 8191
- 87i,11n,94p,1183b,5006s stack positions out of 10000i,1000n,20000p,200000b,200000s
-
-pdfTeX warning (dest): name{Hfootnote.5} has been referenced but does not exist
-, replaced by a fixed one
-
-
-pdfTeX warning (dest): name{Hfootnote.4} has been referenced but does not exist
-, replaced by a fixed one
-
+ 87i,11n,94p,1273b,5006s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 pdfTeX warning (dest): name{Hfootnote.3} has been referenced but does not exist
 , replaced by a fixed one
@@ -1735,10 +1774,10 @@ live/2026/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/local/texlive/202
 s/type1/urw/times/utmbi8a.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/u
 rw/times/utmr8a.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/urw/times/u
 tmri8a.pfb>
-Output written on thesis.pdf (60 pages, 962229 bytes).
+Output written on thesis.pdf (64 pages, 1073382 bytes).
 PDF statistics:
  1636 PDF objects out of 1728 (max. 8388607)
- 1392 compressed objects within 14 object streams
- 310 named destinations out of 1000 (max. 500000)
- 606 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 1401 compressed objects within 15 object streams
+ 315 named destinations out of 1000 (max. 500000)
+ 598 words of extra memory for PDF output out of 10000 (max. 10000000)
 

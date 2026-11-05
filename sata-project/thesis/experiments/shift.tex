@@ -4,92 +4,102 @@
 \emph{Research questions: \RQ1, \RQ2 and the behavioural half of \RQ3.}
 
 \section{Motivation}
-
-Before asking whether a selector can help, we need to know what goes wrong: how each shift affects Qwen2.5-7B-Instruct, whether any hand-designed strategy helps under the shift it was designed for, and which features the model relies on. First, what the pilot taught us, because it changed the design of everything after it.
+Before asking whether a selector can help, we needed to know what was going wrong: how each shift affected the model tested here, Qwen2.5-7B-Instruct; whether a hand-designed strategy helps under the shift it was designed for; and which features the model relies on.
 
 \section{What the pilot revealed: a numeric prior}
 \label{sec:shift-p2}
-
-In the first pilot run the shortcut's direction was the same in every task: a larger $x_8$ always meant label 1.
-With abstract names, Qwen's zero-shot margin rose with every feature value (Spearman correlation 0.70 with the plain sum of the ten features).
-Scoring the ID queries by that sum gives \AUROC 0.628, and 0.511 once $x_8$ is left out; Qwen's own zero-shot \AUROC was 0.633.
-Its ``zero-shot skill'' was the shortcut, read through a habit that bigger numbers mean 1.
+In the first pilot run the shortcut's direction remained the same across all tasks: a larger value of $x_8$ always meant the label was 1. For the pilot ID queries under abstract names, we calculated the raw sum of the features $f_0$ through $f_9$ and compared it with the margin $m = logProb("1") - logProb("0")$ of Qwen's prediction for the same query using Spearman's correlation, which was 0.70. This meant that Qwen's internal approach carried a habit, a prior, similar to the summing approach. Scoring those same ID queries by that sum gives \AUROC 0.628, and 0.511 once $x_8$ is left out; Qwen's own zero-shot \AUROC was 0.633. Its ``zero-shot skill'' was the shortcut, read through a habit that bigger numbers mean 1.
 
 \finding{Qwen2.5-7B-Instruct carries a numeric prior, ``bigger values mean 1'', that applies to every feature, including the shortcut.}
 
-We made the shortcut's direction random per task and balanced it, and reran the pilot on the same tasks.
-Zero-shot \AUROC fell to 0.499 overall: 0.642 where the habit backs the shortcut ($\sigma_t = +1$) and 0.357 where it opposes it ($\sigma_t = -1$).
-The tasks whose shortcut had not changed gave bit-identical scores.
-From here on, every analysis of the shortcut reports the two halves separately as well as pooled.
+\newpage
+It was interesting to see that this model followed its priors, essentially its gut, across zero-shot tasks, where the \AUROC was 0.642 where the habit backs the shortcut ($\sigma_t = +1$) and 0.357 where it opposes it ($\sigma_t = -1$), despite the shortcut's direction being made random per task and balanced. \citet{wei2023larger} show that the ability to do ICL well and override priors appears with scale; this is a limitation we try to address with demonstrations and, later, with a selector that chooses the demonstrations based on the known nature of the base model.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{\figpath/fig_rq1_rq3_contrasts.png}
+    \caption{The ten confirmatory contrasts for \RQ1--\RQ3. Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the three that survive Holm correction (adjusted $p$ at the right), hollow grey the rest. The three panels use different units, so they do not share a scale. Flipping the names (concept shift) is the largest effect.}
+    \label{fig:p4-contrasts}
+\end{figure}
 
 \section{Setup}
 
-The main grid crosses the 24 evaluation tasks, three namings, three environments and every strategy of \autoref{tab:strategies} except the learned selectors, with three demonstration seeds (one for \strat{similarity}, whose nearest-neighbour sets barely change with the seed).
-It was run on Qwen2.5-7B-Instruct; a reduced grid on Qwen2.5-7B (base) used abstract and flipped names.
-The confirmatory family of ten contrasts (\autoref{fig:p4-contrasts}; exact values in \autoref{tab:contrasts}) was frozen before any result.
+The experiments use the 24 evaluation tasks of \autoref{sec:tasks}: 12 linear and 12 tree tasks, generated synthetically across the loan and medical domains. Each has a 256-row in-distribution pool from which demonstrations are drawn, and 20 label-balanced queries in each of three environments (ID, covariate shift and spurious reversal; \autoref{sec:environments}).
+The \emph{main grid} is the full set of runs over every combination of task, naming (abstract, aligned, flipped) and condition (zero-shot and the seven hand-designed strategies of \autoref{tab:strategies}), with three demonstration seeds per strategy (one for \strat{similarity}, whose nearest-neighbour sets do not depend on the seed).
+In each run the strategy picks eight demonstrations from the pool, and that same set is paired with each of the task's 60 queries, giving one margin per query and one \AUROC per environment from its 20 queries.
+Because a demonstration set depends only on the task, strategy and seed, the same rows are shown under every naming and environment, so differences between them are never differences in the demonstrations.
+This gives 86,400 scored prompts on Qwen2.5-7B-Instruct, and a reduced grid on Qwen2.5-7B (base) with abstract and flipped names only.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{\figpath/fig_p4_contrasts.pdf}
-\caption{The ten confirmatory contrasts for \RQ1--\RQ3. Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the three that survive Holm correction (adjusted $p$ at the right), hollow grey the rest. The three panels use different units, so they do not share a scale. Concept shift through naming (C1c) is the largest effect.}
-\label{fig:p4-contrasts}
-\end{figure}
+\section{\RQ1: How much does each shift hurt?}
 
-\section{\RQ1: how much does each shift hurt?}
-\label{sec:shift-rq1}
+\finding{Flipping the feature names costs more than any shift of the data: 0.20 difference in \AUROC for random demonstrations on ID queries (95\% CI [0.13, 0.28], 22 of 24 tasks).}
 
-\finding{Flipping the feature names costs more than any shift of the data: 0.20 \AUROC for random demonstrations on ID queries (95\% CI [0.13, 0.28], 22 of 24 tasks).}
+Based on the results in \autoref{fig:p4-contrasts}, we can see that the most significant cost was for flipping names. The basis of the metric, the \emph{difference in AUROC}, is a paired comparison made within each task. For every one of the 24 tasks we take Qwen's margins on 20 label-balanced queries in two conditions that differ in exactly one respect, compute the \AUROC in each (the chance that a randomly chosen label-1 query receives a higher margin than a randomly chosen label-0 one), subtract, and average the 24 differences; the interval comes from the hierarchical bootstrap of \autoref{sec:stats}. A positive value is the \AUROC lost to the change. In the first two rows the change is the environment, ID queries against covariate or reversal queries, both under abstract names so that no name meaning is involved; in the third it is the naming, the same ID queries under aligned and under flipped names.
 
-Reversing the shortcut costs about half as much (C1b, +0.115), and its interval excludes zero but it misses significance after correction (Holm $p = 0.063$).
-Covariate shift shows no cost in within-cell \AUROC (C1a, +0.024).
-\autoref{fig:strategies-by-naming} shows the size of the naming effect for every strategy: under flipped names every strategy stays near chance on ID queries (\AUROC 0.44--0.54), and aligned names lift every strategy to 0.66--0.71.
+The third row is how we realise concept shift, and it cannot be built like the other two: if the queries followed a different rule from the demonstrations, the demonstrations would simply be wrong and no choice of them could help. Flipped names keep the data, the rule and the demonstrations fixed and move the conflict to the model's side instead, because the rule it brings from pre-training (a higher credit score means approval) now points the opposite way to the task's. From the model's point of view the mapping from features to label has changed, which is what concept shift means for a learner whose prior is semantic, even though $P(y \mid x)$ in the data never does.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{\figpath/fig_strategies_by_naming.pdf}
-\caption{Every strategy by naming and environment (Qwen2.5-7B-Instruct, mean \AUROC over 24 tasks). Each row joins one strategy's three environments; rows are ordered by mean \AUROC under aligned names. The panels differ far more than the rows within a panel: the names matter more than the choice of demonstrations.}
+Read this way, the ordering of the three rows is the main result of this section. In the flipped condition the prompt carries exactly the evidence it carries in the aligned one, the same numbers, the same eight correctly labelled demonstrations and the same queries, and only three feature names differ, yet Qwen loses 0.20 \AUROC, and in 22 of the 24 tasks. Eight demonstrations that show the correct mapping are not enough to overrule what the names mean to it. Nor is this a weakness of random demonstrations: on ID queries every strategy falls to 0.44--0.54 under flipped names, against 0.66--0.71 under aligned ones (\autoref{fig:strategies-by-naming}).
+
+This is the behaviour \citet{wei2023larger} describe for models below the scale at which in-context evidence overrides semantic priors, and a 7B model sits below it. Qwen does not ignore its demonstrations, though. With \strat{label\_diversity}'s sets, correct labels beat shuffled ones on ID queries under every naming, by 0.06 to 0.11 \AUROC, and under flipped names they lift Qwen from 0.41 only to 0.51. The demonstrations cancel the names' pull rather than overturn it, in line with \citet{kossen2024incontext}, who find that in-context labels change a model's predictions without fully overcoming the preferences it acquired in pre-training.
+
+Reversing the shortcut costs about half as much (+0.12), as seen in \autoref{fig:p4-contrasts}. The interval excludes zero and the direction holds in 16 of 24 tasks, but the effect misses significance after Holm correction ($p = 0.063$), and \autoref{sec:shift-prior-shortcut} shows why it is so noisy: with random demonstrations under abstract names the cost is 0.21 in the tasks where the ``bigger means 1'' habit backs the shortcut and 0.02 where it opposes it, so the pooled estimate averages a large effect with almost none. Much of what looks like a cost of reversal is the numeric prior of \autoref{sec:shift-p2} reading the shortcut in the query, rather than something the demonstrations taught.
+
+Covariate shift costs nothing we can measure (+0.02, 15 of 24 tasks). Its interval runs from $-0.04$ to 0.09, so what the data rule out is a large cost, not a moderate one, and the shift itself is not small: it moves two of the three rule features by one to two standard deviations. However, moving where the inputs fall disturbed Qwen far less than changing what the inputs are called.
+
+For a 7B model, then, the threat to in-context learning is less a shift in the data than a conflict between the task and what the model already believes. If that is so, better demonstrations can help only as far as the model is willing to read them, which is what \RQ2 tests next. The two \RQ3 rows of \autoref{fig:p4-contrasts} are taken up in \autoref{sec:shift-rq3}.
+
+\section{\RQ2: does each strategy help under its target shift? (strategy - label diversity)}
+\label{sec:shift-rq2}
+
+Comparing random demonstrations and each strategy under the two shift types, covariate shift and shortcut reversal, against the baseline of ID test rows within a task, we saw that the strategies work best when the feature names are aligned with a clear semantic meaning, and worst when they are flipped.
+
+Across the ID environment we can see that the counter-prior, rule-diversity and similarity strategies performed above chance under all naming schemes, but under the shifts above the similarity strategy performs best overall under covariate shift and worst under spurious reversal, meaning that this strategy largely emphasised the predictive power of the shortcut. Conversely, the counter-spurious strategy performs better in an environment where the spurious feature is absent.
+
+Overall, what we take away is that, across strategy designs, attempting to override a model's priors is the most balanced approach when the features carry semantic meaning. It is possible that combining this strategy with the counter-spurious strategy could help to deal with models' reliance on shortcut features.
+
+It is worth mentioning that the rule-diversity strategy was observed to perform nearly as well as the attempt to reverse the priors, making it a possible cheaper, valid substitute, despite its marginal performance drops under flipped names compared with the counter-prior strategy.
+
+\finding{The strategy's value depends on the kind of shift, and it helps marginally in situations where the semantic relationship in the features is reversed or lost.}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{\figpath/fig_strategies_by_naming.pdf}
+    \caption{Every strategy by naming (panels) and environment (dot colour), as mean AUROC over 24 tasks. The grey line joins one strategy's three environments, so its length shows how much the shifts move that strategy. Rows are sorted by their mean under aligned names. The panels differ far more than the rows within a panel: the names matter more than the choice of demonstrations.}
 \label{fig:strategies-by-naming}
 \end{figure}
 
-\paragraph{The covariate null is a measurement limit.}
-\label{sec:shift-covariate}
-A null on covariate shift is not evidence that covariate shift is harmless.
-The shift raises every covariate query's score together, by 0.44 to 1.21 logits for the same prompt; ranking ID positives against covariate negatives gives \AUROC 0.46--0.54, but within-environment \AUROC cannot see a uniform move.
-An exploratory variance shift, which stretches every covariate but the shortcut by 1.5--3 times, does hurt, but only under flipped names (\AUROC $-0.09$ to $-0.13$).
-
-\finding{Within-environment \AUROC hides covariate harm that moves every score together; covariate shift is not shown to be harmless.}
-
-\section{\RQ2: does the right strategy help under the right shift?}
-\label{sec:shift-rq2}
-
-Each strategy was designed for one kind of shift: \strat{counter\_spurious} against the shortcut, \strat{similarity} and \strat{feature\_range} against covariate shift, \strat{counter\_prior} against prior conflict.
-Individually, none beats \strat{label\_diversity} after correction (C2a--C2d).
-\strat{feature\_range} is significantly worse under covariate shift by its interval ($-0.078$); it turned out to cover the shortcut in all 24 tasks, because the shortcut is the most label-related feature in every pool.
-
-\finding{Neutralising the shortcut helps under its reversal more than under covariate shift (interaction +0.111, Holm $p = 0.024$, 17 of 24 tasks).}
-
-The interaction is the only evidence in the family that a strategy's value depends on the kind of shift.
-\strat{counter\_prior}, the strategy aimed at the prior, does not help under flipped names (C2d, +0.023); in nine tasks the pool shows too little prior--data conflict for it to activate.
+\begin{table}[H]
+\centering\small
+\caption{}
+\label{tab:rq2-rows}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Row} & \textbf{Strategy tested} & \textbf{Its target shift} \\
+\midrule
+counter\_spurious, under reversal & \strat{counter\_spurious} & The shortcut reversing \\
+similarity, under covariate & \strat{similarity} & Covariate shift \\
+feature\_range, under covariate & \strat{feature\_range} & Covariate shift \\
+counter\_prior, under flipped names & \strat{counter\_prior} & Names pointing the wrong way \\
+counter\_spurious's gain: reversal $-$ covariate & \strat{counter\_spurious} & Does its help depend on the shift? \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \section{\RQ3: which features does the model rely on?}
 \label{sec:shift-rq3}
+To find out whether Qwen relies on the true features, and whether it uses them in the direction the demonstrations show or the direction the names suggest, we ran tests on the 20 ID queries of each of the 24 tasks under abstract, aligned and flipped feature names. The \emph{label diversity} strategy was used to construct the demonstrations here because it provides the balanced targets needed for prediction. To see which of the 10 features Qwen uses ($\pi_{behav}$), we use a removal-based measure of importance \citep{breiman2001random,covert2021explaining}: each feature is replaced by hot-deck imputation \citep{andridge2010review} with a value from the same pool of rows the demonstrations are drawn from, which keeps the altered query in distribution \citep{zhu2026faithfulness}, and we observe the change in Qwen's resulting answer through the margin, computing the \emph{drop} as the correct-label margin (original) $-$ the correct-label margin (swapped). For the bias correction, the code also subtracts a ``content-free'' baseline, obtained by passing in a query whose feature names are \emph{N/A} \citep{zhao2021calibrate}.
 
-On \strat{label\_diversity}'s sets and ID queries, $\pi_{\mathrm{true}}$ is each feature's ground-truth importance, $\pi_{\mathrm{behav}}$ the drop in correct-label margin when the feature is replaced by another pool row's value (which keeps the query in distribution; \citealp{andridge2010review,zhu2026faithfulness}), and $\pi_{\mathrm{self}}$ the model's own ranking.
-The \emph{demo-following index} nudges each load-bearing feature by $\pm 0.5$ and records how often the margin moves in the rule's direction rather than the name's.
+From the construction of the tasks we know $\pi_{true}$, the ground-truth features the generator constructed, also known as the rule features; synthetic tasks give this kind of ground truth for judging feature importance \citep{liu2021synthetic}.
 
-\finding{With abstract names, Qwen relies on the shortcut, not the rule: replacing the shortcut costs 0.141 of correct-label margin, and the rule features cost 0.009.}
+\finding{With abstract names, Qwen follows the demonstrations slightly more often than chance but barely learns the rule's direction from the examples. With flipped names that conflict with each other, despite the demonstrations showing the correct direction, Qwen's agreement falls to 42\%, meaning it goes with the names more often than with the evidence in front of it. The names do not just add noise; they actively pull Qwen's use of each feature the wrong way.}
 
-With aligned names the rule features dominate (0.241).
-With flipped names the model uses them in the names' direction ($-0.047$), and its demonstration-following falls (C3a, +0.123 lower than under abstract names, 23 of 24 tasks).
-The correctness of its reliance does not change significantly between namings (C3b).
-\todo{Add the demo-following index for each naming.}
+The \emph{demo-following index} was used to test whether the model indeed followed the demonstrations it was given. As a sensitivity test, this was done by nudging each load-bearing feature by $\pm 0.5$ and measuring how often the margin moved in the rule's direction; we saw that the model does follow the demonstrations, as shown in \autoref{fig:p4-contrasts}. We compare with abstract rather than aligned names because under aligned names following the demonstrations and following the names move the answer the same way, so the two cannot be told apart; however, it is worth noting that Qwen's prior bias, ``bigger means 1'', is still active even under abstract names.
 
-\finding{Qwen's self-reports are unfaithful to its behaviour.}
+\finding{With abstract names, Qwen relies on the shortcut, not the rule, but with semantically aligned, meaningful features we can see the model go in the right direction, relying on the rule features.}
 
-All 216 rankings parsed.
-With names, Qwen ranks the named rule features in its top three (0.64--0.69 of rankings) even under flipped names, and the rank correlation between what it reports and what it relies on is $-0.02$ (abstract), 0.12 (aligned) and $-0.02$ (flipped), in line with work on unfaithful self-explanations \citep{turpin2023language,lanham2023measuring}.
+In assessing the correlation of $\pi_{self}$ and $\pi_{behav}$, a comparison of self-reported and behavioural rankings in the manner of \citet{li2025stads}, all 216 rankings were parsed. With names, Qwen ranks the named rule features in its top three (0.64--0.69 of rankings) even under flipped names, and the rank correlation between what it reports and what it relies on is $-0.02$ (abstract), 0.12 (aligned) and $-0.02$ (flipped), in line with work on unfaithful self-explanations \citep{huang2023can,turpin2023language,lanham2023measuring}.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.78\textwidth]{\figpath/fig_pi_behav.pdf}
 \caption{Which features Qwen relies on ($\pi_{\mathrm{behav}}$, the drop in correct-label margin when a feature is replaced by a value from another row), by naming. Under abstract names the shortcut carries the reliance; under aligned names the rule features do; under flipped names the rule features are used in the names' direction (negative).}
@@ -99,7 +109,7 @@ With names, Qwen ranks the named rule features in its top three (0.64--0.69 of r
 \section{The prior reads the shortcut in the query}
 \label{sec:shift-prior-shortcut}
 
-Splitting the cost of spurious reversal by the shortcut's direction explains much of C1b (\autoref{fig:reversal-direction}).
+Splitting the cost of spurious reversal by the shortcut's direction explains much of it (\autoref{fig:reversal-direction}).
 Where the ``bigger means 1'' habit agrees with the shortcut ($\sigma_t = +1$), reversal costs every strategy 0.04--0.21 \AUROC.
 Where it opposes the shortcut ($\sigma_t = -1$), most gaps are near zero or negative.
 Zero-shot, with no demonstrations at all, splits the same way: $+0.07$ to $+0.13$ against $-0.09$ to $-0.15$.
@@ -113,18 +123,20 @@ Zero-shot, with no demonstrations at all, splits the same way: $+0.07$ to $+0.13
 
 \paragraph{Demonstrations without the shortcut.}
 If demonstrations are meant to teach the causal rule, perhaps they should not show the shortcut at all.
-This exploratory experiment removed the shortcut (and, in a second arm, also the noise feature) from every demonstration while keeping queries complete.
-Removing the shortcut cut ID \AUROC by 0.048 and covariate \AUROC by 0.040, and raised spurious-reversal \AUROC by 0.049.
+As an exploratory experiment we removed the shortcut (and, in a later stage, the noise feature) from every demonstration while keeping queries complete.
+Removing the shortcut cut ID we saw a decrease in \AUROC by 0.048 and in covariate \AUROC by 0.040, and raised spurious-reversal \AUROC by 0.049.
 The ID--reversal gap shrank in all 18 (strategy, naming) cells, significantly in 14.
 Removing the shortcut worked as well as neutralising it with \strat{counter\_spurious}, and removing the noise feature added nothing.
 The gap that remains follows $\sigma_t$ ($+0.04$ to $+0.11$ against $-0.06$ to $-0.15$): the prior still reads the shortcut in the query.
 
 \finding{Much of what looks like shortcut learning from demonstrations is the model's numeric prior reading the shortcut in the query; hiding the shortcut from the demonstrations removes the demonstration part and leaves the prior part.}
 
+Hence it is possibly that the model is mapping the query task to some similar task it has seen before and preferring to copy the method for that task
+
 \paragraph{The base model.}
 Qwen2.5-7B (base) loses less to flipped names than the instruction-tuned model (random demonstrations on ID queries: 0.625 to 0.560, against 0.603 to 0.484), which matters in \autoref{ch:sata}, where it is the one model a learned selector helps.
 
 \section{What this chapter does not show, and the next question}
 
-Every strategy tested reads only the data, never what the model makes of it (\strat{counter\_prior} is a single-rule heuristic, inactive in nine tasks), and only one interaction (C2e) shows that matching strategy to shift pays; with 24 tasks, effects below about 0.05 \AUROC are hard to detect.
+Every strategy tested reads only the data, never what the model makes of it (\strat{counter\_prior} is a single-rule heuristic, inactive in nine tasks), and only one comparison, the interaction for \strat{counter\_spurious}, shows that matching strategy to shift pays; with 24 tasks, effects below about 0.05 \AUROC are hard to detect.
 The natural next step is to \emph{learn} a selector that composes these ideas, choosing per query the rows that teach the rule rather than the shortcut: \autoref{ch:sata}.

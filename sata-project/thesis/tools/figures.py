@@ -157,11 +157,11 @@ def p4_cells():
 # ---------------------------------------------------------------- figures
 def fig_p4_contrasts():
     c = pd.read_csv(H / "p4" / "contrasts.csv")
-    lab = {"C1a": "C1a  ID $-$ covariate", "C1b": "C1b  ID $-$ spurious reversal",
-           "C1c": "C1c  aligned $-$ flipped names", "C2a": "C2a  counter_spurious, reversal",
-           "C2b": "C2b  similarity, covariate", "C2c": "C2c  feature_range, covariate",
-           "C2d": "C2d  counter_prior, flipped names", "C2e": "C2e  C2a under reversal $-$ under covariate",
-           "C3a": "C3a  demo-following index", "C3b": r"C3b  $\rho(\pi_{true}, \pi_{behav})$"}
+    lab = {"C1a": "covariate shift (ID $-$ covariate)", "C1b": "shortcut reversal (ID $-$ reversal)",
+           "C1c": "flipped names (aligned $-$ flipped)", "C2a": "counter_spurious, under reversal",
+           "C2b": "similarity, under covariate", "C2c": "feature_range, under covariate",
+           "C2d": "counter_prior, under flipped names", "C2e": "counter_spurious's gain: reversal $-$ covariate",
+           "C3a": "demo-following index", "C3b": r"feature reliance $\rho(\pi_{true}, \pi_{behav})$"}
     fig, axes = plt.subplots(3, 1, figsize=(WIDTH, 4.6), gridspec_kw={"height_ratios": [11.6, 2.4, 2.4], "hspace": 0.75})
     coefficient_plot(axes[0], c[c.statistic == "auroc"], lab,
                      groups=[("RQ1: cost of each shift (random demonstrations)", ["C1a", "C1b", "C1c"]),
@@ -175,6 +175,7 @@ def fig_p4_contrasts():
 
 
 def fig_strategies_by_naming(cells):
+    cells = cells[cells.strategy != "counter_prior_matched"]      # exploratory variant, not in the strategy table
     m = cells.groupby(["naming", "strategy", "env", "task_id"]).auroc.mean().groupby(["naming", "strategy", "env"]).mean().reset_index()
     order = (m[m.naming == "aligned"].groupby("strategy").auroc.mean().sort_values(ascending=False).index.tolist())
     m["_row"] = m.strategy
@@ -189,7 +190,131 @@ def fig_strategies_by_naming(cells):
     save(fig, "fig_strategies_by_naming")
 
 
+def fig_rq2_interaction(grid):
+    """The one RQ2 contrast that survives Holm (C2e): counter_spurious - label_diversity per shift, abstract names."""
+    from src.evaluation.analysis import grid_blocks, prepare
+    from src.evaluation.bootstrap import hierarchical_contrast
+    df = prepare(grid)
+    envs = [("covariate", "covariate shift"), ("spurious_reversal", "shortcut reversal")]
+    res = [hierarchical_contrast(grid_blocks(df, {"kind": "strategy", "a": "counter_spurious", "b": "label_diversity",
+                                                   "naming": "abstract", "env": e}, "auroc"), "auroc",
+                                 n_bootstrap=2000, seed=0) for e, _ in envs]
+    per_task = np.array([r["per_task"] for r in res], dtype=float)          # 2 x tasks, same task order
+    fig, ax = plt.subplots(figsize=(WIDTH * 0.55, 2.4))
+    for t in per_task.T:
+        ax.plot([0, 1], t, color=LIGHT, linewidth=0.7, zorder=1)
+    est = [r["estimate"] for r in res]
+    ax.plot([0, 1], est, color=HIGHLIGHT, linewidth=1.6, zorder=3)
+    for x, r in enumerate(res):
+        ax.plot([x, x], [r["ci_low"], r["ci_high"]], color=HIGHLIGHT, linewidth=1.6, zorder=3)
+        ax.plot(x, r["estimate"], "o", color=HIGHLIGHT, mec="white", ms=6, zorder=4)
+        ax.text(x + (-0.07 if x == 0 else 0.07), r["estimate"], f"{r['estimate']:+.3f}", color=INK,
+                fontsize=8, va="center", ha="right" if x == 0 else "left")
+    ref_line(ax, 0, axis="y")
+    ax.text(-0.43, 0.006, "no difference", color=INK2, fontsize=7, va="bottom", ha="left")
+    ax.set_xlim(-0.45, 1.45); ax.set_xticks([0, 1], [lab for _, lab in envs])
+    ax.grid(axis="x", visible=False)
+    ax.set_ylabel("AUROC, counter_spurious $-$\nlabel_diversity (abstract names)")
+    save(fig, "fig_rq2_interaction")
+
+
+def _shift_size_panel(ax, groups, band, xmax, xticks, xlabel, title):
+    """One jittered dot per value, a row per feature group, a grey band over the designed range."""
+    rng = np.random.default_rng(0)
+    for i, x in enumerate(groups.values()):
+        ax.plot(x, i + rng.uniform(-0.12, 0.12, len(x)), "o", ms=3, color=INK2, alpha=0.7, mec="none")
+    ax.axvspan(*band, color="#f2f2f2", zorder=0)
+    ax.set_yticks(range(len(groups)), list(groups)); ax.set_ylim(len(groups) - 0.5, -0.5)
+    ax.set_xlim(0, xmax); ax.set_xticks(xticks); ax.grid(axis="y", visible=False)
+    ax.set_xlabel(xlabel); ax.set_title(title, loc="left")
+
+
+def _shift_cost_panel(fig, ax, probe, xlabel, yardstick=False):
+    """ID minus shifted AUROC per strategy and naming, with 95% intervals (exploratory rows of covariate_probes.csv)."""
+    e = pd.read_csv(H / "p4" / "covariate_probes.csv")
+    e = e[e.id == probe]
+    strategies = ["random", "label_diversity", "counter_spurious", "rule_diversity", "similarity"]
+    col = dict(zip(NAMINGS, [GREY, OKABE["blue"], OKABE["vermillion"]]))
+    off = dict(zip(NAMINGS, [-0.22, 0.0, 0.22]))
+    for i, s in enumerate(strategies):
+        for n in NAMINGS:
+            q = e[(e.strategy == s) & (e.naming == n)].iloc[0]
+            ax.plot([q.ci_low, q.ci_high], [i + off[n]] * 2, color=col[n], linewidth=1.2, zorder=2)
+            ax.plot(q.estimate, i + off[n], "o", ms=3.8, color=col[n], mec="white", mew=0.5, zorder=3)
+    ref_line(ax, 0, "no cost")
+    if yardstick:
+        ax.axvline(0.204, color=INK2, linewidth=0.7, linestyle=(0, (3, 2)), zorder=1)
+        ax.text(0.204, 0.995, " cost of flipped\n names (0.20)", transform=ax.get_xaxis_transform(), fontsize=7,
+                color=INK2, va="top", ha="left")
+    ax.set_yticks(range(len(strategies)), [STRAT_LAB[s] for s in strategies])
+    ax.set_ylim(len(strategies) - 0.5, -0.7); ax.grid(axis="y", visible=False)
+    ax.set_xlabel(xlabel); ax.set_title("What it costs Qwen", loc="left")
+    handles = [Line2D([], [], marker="o", color=col[n], ms=4, linewidth=1.2, label=f"{n} names") for n in NAMINGS]
+    fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.47, 0.98), ncol=3, frameon=False,
+               fontsize=7.5, handlelength=1.4, columnspacing=1.0)
+
+
+def fig_covariate_strength():
+    """The covariate shift is not small, yet costs no strategy much: shift sizes from the task manifest (left),
+    ID - covariate AUROC for every strategy and naming from the exploratory E1 rows (right)."""
+    tasks = load_suite("eval", CFG)["tasks"]
+    labels = {"towards_1": "rule feature pushed\ntowards label 1", "towards_0": "rule feature pushed\ntowards label 0",
+              "distractor": "distractor"}
+    groups = {lab: [abs(d) for t in tasks for r, d in zip(t["covariate_shift"]["shift_roles"],
+                                                          t["covariate_shift"]["shift_delta"]) if r == role]
+              for role, lab in labels.items()}
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(WIDTH, 2.4), gridspec_kw={"width_ratios": [1, 1.5], "wspace": 0.75})
+    _shift_size_panel(a1, groups, (1, 2), 2.3, [0, 1, 2], "shift (standard deviations)",
+                      "How far the shift moves the inputs")
+    _shift_cost_panel(fig, a2, "E1", "AUROC, ID $-$ covariate (positive = shift hurts)", yardstick=True)
+    save(fig, "fig_covariate_strength")
+
+
+def fig_covariate_dose(cells):
+    """Dose-response: per task, how far the covariate shift moved the two rule features (mean |delta|, SD)
+    against the AUROC drop (ID - covariate), averaged over the five strategies, three namings and seeds."""
+    from scipy.stats import spearmanr
+    size = {t["task_id"]: np.mean([abs(d) for r, d in zip(t["covariate_shift"]["shift_roles"],
+                                                          t["covariate_shift"]["shift_delta"]) if r != "distractor"])
+            for t in load_suite("eval", CFG)["tasks"]}
+    strategies = ["random", "label_diversity", "counter_spurious", "rule_diversity", "similarity"]
+    c = cells[cells.env.isin(["id", "covariate"]) & cells.strategy.isin(strategies)]
+    per = c.groupby(["task_id", "env"]).auroc.mean().unstack("env")
+    drop, x = per["id"] - per["covariate"], per.index.map(size).to_numpy()
+    fig, ax = plt.subplots(figsize=(WIDTH * 0.6, 2.4))
+    ax.axhline(0, color=GREY, linewidth=0.8, zorder=1)
+    ax.text(2.04, 0.006, "no drop", fontsize=7, color=INK2, va="bottom", ha="right")
+    ax.plot(x, drop, "o", ms=4.5, color=OKABE["blue"], mec="white", mew=0.5, zorder=3)
+    ax.text(0.02, 0.97, f"Spearman $\\rho$ = {spearmanr(x, drop)[0]:.2f}  (24 tasks)", transform=ax.transAxes,
+            fontsize=7.5, color=INK2, va="top")
+    ax.set_xlim(1.0, 2.05); ax.set_ylim(-0.25, 0.25)
+    ax.set_xlabel("how far the shift moves the rule features (standard deviations)")
+    ax.set_ylabel("AUROC drop under the shift\n(ID $-$ covariate)")
+    ax.set_title("Bigger shifts do not cost more", loc="left")
+    save(fig, "fig_covariate_dose")
+
+
+def fig_variance_shift():
+    """Exploratory variance shift (covariate_scale): every feature but the shortcut stretched by its factor (left),
+    ID - covariate_scale AUROC per strategy and naming from the E2 rows (right)."""
+    tasks = load_suite("eval", CFG)["tasks"]
+    groups = {"rule features (3)": [], "distractors (5)": [], "noise feature": []}
+    for t in tasks:
+        lb = set(t["load_bearing_generator_idx"])
+        for j, s in zip(t["covariate_scale"]["scale_features"], t["covariate_scale"]["scale"]):
+            key = "rule features (3)" if j in lb else "noise feature" if j == 9 else "distractors (5)"
+            groups[key].append(s)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(WIDTH, 2.4), gridspec_kw={"width_ratios": [1, 1.5], "wspace": 0.75})
+    _shift_size_panel(a1, groups, (1.5, 3), 3.3, [1, 2, 3], "spread after the shift ($\\times$ original)",
+                      "How much the shift stretches the inputs")
+    a1.text(0.05, 2.45, "shortcut: not stretched", fontsize=7, color=INK2, va="center")
+    a1.set_ylim(2.7, -0.5)
+    _shift_cost_panel(fig, a2, "E2", "AUROC, ID $-$ variance shift (positive = shift hurts)")
+    save(fig, "fig_variance_shift")
+
+
 def fig_reversal_direction(cells):
+    cells = cells[cells.strategy != "counter_prior_matched"]      # exploratory variant, not in the strategy table
     sr = cells[cells.env.isin(["id", "spurious_reversal"])]
     per = (sr.groupby(["strategy", "naming", "sigma", "env", "task_id"]).auroc.mean()
              .groupby(["strategy", "naming", "sigma", "env"]).mean().unstack("env"))
@@ -250,16 +375,41 @@ def fig_sata_proxy():
     save(fig, "fig_sata_proxy")
 
 
+def fig_base_sata():
+    """Exploratory: every strategy run on Qwen2.5-7B (base), by naming (panels) and environment (dot colour),
+    as mean AUROC over 24 tasks. Rows sorted by each strategy's weakest environment under abstract names."""
+    from src.evaluation.analysis import cell_metrics
+    grid = pd.concat([pd.read_parquet(H / "p4" / "grid_base.parquet"),
+                      pd.read_parquet(H / "p5" / "grid_sata_base.parquet")], ignore_index=True)
+    c = cell_metrics(grid)
+    c = c[(c.label_mode == "gold") & c.strategy.isin(["sata", "counter_spurious", "random", "counter_prior", "zero_shot"])]
+    m = c.groupby(["naming", "strategy", "env", "task_id"]).auroc.mean().groupby(["naming", "strategy", "env"]).mean().reset_index()
+    order = m[m.naming == "abstract"].groupby("strategy").auroc.min().sort_values(ascending=False).index.tolist()
+    m["_row"] = m.strategy
+    fig, axes = plt.subplots(1, 2, figsize=(WIDTH * 0.8, 2.3), sharey=True, sharex=True, gridspec_kw={"wspace": 0.08})
+    for ax, n in zip(axes, ["abstract", "flipped"]):
+        dot_rows(ax, m[m.naming == n], order, "auroc", "env", ENV_COL)
+        ref_line(ax, 0.5, "chance" if n == "abstract" else None)
+        ax.set_title(f"{n} names", loc="left", fontsize=9)
+        ax.set_xlim(0.40, 0.68)
+    for lab, o in zip(axes[0].get_yticklabels(), order):
+        if o == "sata":
+            lab.set_fontweight("bold"); lab.set_color(INK)
+    fig.supxlabel("AUROC on Qwen2.5-7B (base), mean over 24 tasks", fontsize=8, y=-0.04)
+    direct_key(fig, [(ENV_LAB[e], ENV_COL[e]) for e in ENV_COL], y=0.95, x0=0.22)
+    save(fig, "fig_base_sata")
+
+
 def fig_rq4():
     r = pd.read_parquet(H / "p5" / "rq4_contrasts.parquet")
     k = pd.read_parquet(H / "p5" / "topk_contrasts.parquet")
     d = pd.concat([r, k[k.id.str.startswith("K")]], ignore_index=True)
-    lab = {"R1": "R1  SATA $-$ label_diversity, spurious reversal", "R2": "R2  SATA $-$ label_diversity, covariate",
-           "R3": "R3  SATA $-$ label_diversity, ID", "R4": "R4  SATA $-$ similarity, mean of 3 environments",
-           "R5": "R5  SATA $-$ SATA without the query, mean of 3", "R6": "R6  SATA $-$ label_diversity, flipped names, ID",
-           "K1": "K1  abstract names", "K2": "K2  aligned names", "K3": "K3  flipped names"}
+    lab = {"R1": "SATA $-$ label_diversity, spurious reversal", "R2": "SATA $-$ label_diversity, covariate",
+           "R3": "SATA $-$ label_diversity, ID", "R4": "SATA $-$ similarity, mean of 3 environments",
+           "R5": "SATA $-$ SATA without the query, mean of 3", "R6": "SATA $-$ label_diversity, flipped names, ID",
+           "K1": "abstract names", "K2": "aligned names", "K3": "flipped names"}
     fig, ax = plt.subplots(figsize=(WIDTH, 3.3))
-    coefficient_plot(ax, d, lab, groups=[("Pre-registered RQ4 family (Holm over 6)", [f"R{i}" for i in range(1, 7)]),
+    coefficient_plot(ax, d, lab, groups=[("Planned RQ4 family (Holm over 6)", [f"R{i}" for i in range(1, 7)]),
                                          ("Top-$k$ $-$ drawn SATA, mean of 3 environments (Holm over 3)", ["K1", "K2", "K3"])],
                      xlabel="difference in AUROC (positive favours the first)")
     save(fig, "fig_rq4")
@@ -267,8 +417,8 @@ def fig_rq4():
 
 def fig_mi(cells_grid):
     m = pd.read_parquet(H / "p5" / "mi_contrasts.parquet")
-    lab = {"R7": "R7  SATA-MI $-$ SATA, ID", "R8": "R8  SATA-MI $-$ SATA-names, ID",
-           "R9": "R9  SATA-MI $-$ counter_prior, ID", "R10": "R10  SATA-MI $-$ SATA, mean of 3"}
+    lab = {"R7": "SATA-MI $-$ SATA, ID", "R8": "SATA-MI $-$ SATA-names, ID",
+           "R9": "SATA-MI $-$ counter_prior, ID", "R10": "SATA-MI $-$ SATA, mean of 3"}
     g = pd.concat([cells_grid, pd.read_parquet(H / "p5" / "grid_sata.parquet"), pd.read_parquet(H / "p5" / "grid_mi.parquet")],
                   ignore_index=True)
     c = cell_metrics(g)
@@ -326,10 +476,34 @@ def fig_lens(la):
     save(fig, "fig_lens")
 
 
+def fig_lens_strategies(la):
+    """fig_lens with every strategy in its own colour and no SATA-MI (Okabe-Ito subset, worst CVD dE 13)."""
+    curves = la.groupby(["naming", "strategy", "layer"]).auroc.mean().reset_index()
+    spec = [("zero_shot", OKABE["orange"]), ("random", OKABE["blue"]), ("label_diversity", OKABE["sky"]),
+            ("counter_prior", OKABE["vermillion"]), ("sata", INK)]
+    fig, axes = plt.subplots(1, 3, figsize=(WIDTH, 2.6), sharey=True, gridspec_kw={"wspace": 0.08})
+    for ax, n in zip(axes, NAMINGS):
+        for s, col in spec:
+            c = curves[(curves.naming == n) & (curves.strategy == s)]
+            ax.plot(c.layer, c.auroc, color=col, linewidth=1.3)
+        ref_line(ax, 0.5, axis="y")
+        ax.axvline(23, color=GREY, linewidth=0.6, linestyle=(0, (2, 2)), zorder=1)
+        ax.set_title(f"{n} names", loc="left")
+        ax.set_xlim(0, 28); ax.set_xticks([0, 7, 14, 21, 28])
+    axes[0].text(23, 0.405, "layer 23 ", ha="right", fontsize=7, color=INK2)
+    axes[0].set_ylabel("logit-lens AUROC")
+    axes[1].set_xlabel("layer")
+    axes[0].set_ylim(0.40, 0.70)
+    handles = [Line2D([], [], color=col, linewidth=1.6, label=STRAT_LAB[s]) for s, col in spec]
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.97), ncol=len(spec), frameon=False,
+               handlelength=1.6, columnspacing=1.2)
+    save(fig, "fig_lens_strategies")
+
+
 def fig_lens_gap(la):
     from src.evaluation.mechanisms import critical_layer
     fig, ax = plt.subplots(figsize=(WIDTH * 0.8, 2.5))
-    spec = [("zero_shot", OKABE["orange"]), ("sata", GREY), ("sata_mi", OKABE["green"]), ("random", OKABE["blue"])]
+    spec = [("zero_shot", OKABE["orange"]), ("sata", GREY), ("random", OKABE["blue"])]
     for s, col in spec:
         t = critical_layer(la[la.strategy == s])["table"]
         if s == "random":
@@ -406,13 +580,19 @@ if __name__ == "__main__":
     grid, cells = p4_cells()
     fig_p4_contrasts()
     fig_strategies_by_naming(cells)
+    fig_rq2_interaction(pd.read_parquet(H / "p4" / "grid.parquet"))
+    fig_covariate_strength()
+    fig_covariate_dose(cells)
+    fig_variance_shift()
     fig_reversal_direction(cells)
     fig_pi_behav()
     fig_sata_proxy()
+    fig_base_sata()
     fig_rq4()
     fig_mi(grid[grid.label_mode == "gold"])
     A, la = _lens()
     fig_lens(la)
+    fig_lens_strategies(la)
     fig_lens_gap(la)
     fig_probes()
     fig_steering(A)

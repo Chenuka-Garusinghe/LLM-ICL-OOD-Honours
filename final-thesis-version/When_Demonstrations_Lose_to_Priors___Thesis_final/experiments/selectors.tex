@@ -1,0 +1,79 @@
+\chapter{Learning to select}
+\label{ch:sata}
+
+\emph{Research question: \RQ4 (does a learned selector beat the hand-designed strategies?).}
+
+\section{Motivation}
+
+\autoref{ch:shift} left an opening. We saw that neutralising the shortcut fared better under its reversal than under covariate shift. But the strategies that did so were hand-built rules, each of which targeted only one shift at a time. This motivated us to explore the idea of a learned selector that combines these ideas, choosing per query the rows that teach the rule rather than the shortcut, and that can be trained on synthetic tasks where the best choices are known. In this chapter, we build \sata (\autoref{sec:sata}).
+
+
+\section{The selector}
+\label{sec:sata-arch}
+\sata scores every row of the 256-row demonstration pool, given the whole pool and the query. We set each candidate to be a single token made up of its feature vector plus a label embedding plus a ``demonstration'' type embedding; the query is a token with its feature vector and a ``query'' type embedding. \sata is an encoder-only transformer ($d = 128$, 4 heads, 4 layers, about 0.8M parameters) that attends over all tokens, and a linear head gives one score per candidate, normalised by a softmax. There are no positional encodings, so the encoder remains permutation-equivariant over candidates \citep{lee2019set}; the row encoding follows TabPFN's style of approach \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
+
+\sata is not trained on the language model's scores; its aim is to learn targets computed from the ground truth, so its training never touches the model it is evaluated on. This is the distinguishing difference in comparison to EPR, UDR or CEIL \citep{rubin2022learning,li2023unified,ye2023compositional}.
+
+\paragraph{Getting the targets right.}
+\label{sec:sata-targets}
+\sata learns by example, and for each pool it needs a ``right answer''. This is essentially a score for every row saying how strongly that row should be picked. The answer key is the target here, and because we built the tasks synthetically, we know the ground truth, which makes our target known as well, computed outside Qwen. However, due to computation limits, we needed a way to test these answer keys before training \sata on them. The idea was an oracle check.
+
+Each oracle picks 8 demonstrations, and we tested 3 oracles. The check did not use the 24 evaluation tasks. It ran on \sata's own 100 validation tasks, drawn from the same generator but kept separate, so the evaluation tasks stayed untouched until the final test on Qwen. Our first approach was almost greedy: it rewarded rows in the query's region and rows that break the shortcut, and penalised the ones that follow the shortcut and sit in a different region. The issue with this approach was that it favoured label-noise rows instead. In 2\% of rows the label is flipped by noise, but the shortcut was generated from the true label, so in those rows it disagrees with the recorded label. They look like shortcut-breakers, but their label is actually wrong, so the targets were teaching wrong examples. Upon discovering this, we excluded the label-noise rows, only to find that the targets then overshot: they picked so many shortcut-breaking rows that the shortcut agreed with the label in only 25\% of the chosen rows. That does not remove the shortcut; it just teaches it backwards. The solution we settled on was to copy the \strat{counter\_spurious} strategy, where we take 2 clean rows in which the shortcut disagrees with the label and pair each with a clean row of the same label in which the shortcut agrees, choosing the one closest in shortcut size $|x_8|$ (matched in size as well, so that the size does not give the label away either; \autoref{app:design}).
+
+\paragraph{Drawing instead of ranking.}
+In the exact targets, each shortcut-breaking row's size-matched partner scores as high as the row itself, so taking the top $k$ rows recovers balanced pairs. \sata cannot reproduce that pairing: it learns that shortcut-breaking rows deserve high scores, but not \emph{which} agreeing row is each one's partner, so it spreads the partners' share thinly over many agreeing rows. Taking its top $k$ rows therefore picks mostly shortcut-breaking ones, and the shortcut agreed with the label in only 27\% of the chosen rows: the shortcut was reversed again, with the stand-in learner's accuracy high under reversal (0.657) but at chance on ID queries (0.478). Because \sata is trained to output a distribution over rows (with a KL loss), it can instead \emph{draw} $k/2$ rows of each label in proportion to its scores; the spread-out partners then still make up about half of the draws (54\% agreement). On 50 validation tasks, drawing raised the worst environment on the stand-in learner from 0.478 to 0.558. Whether the drawing rule matters on Qwen itself is checked in \autoref{sec:sata} (\autoref{fig:rq4}, bottom).
+
+\finding{A selector's training target can encode the very shortcut it is meant to avoid, and an oracle check on a stand-in learner can catch this before any training.}
+
+\section{SATA on the model}
+\label{sec:sata}
+
+We use 1,000 tasks from the evaluation distribution to train \sata, regenerating them every epoch with a fresh permutation of feature positions so that the shortcut's position carries no information, and validate on 100 more (Adam \citep{kingma2015adam} at learning rate $10^{-4}$, early stopping \citep{prechelt1998early}).
+
+On the stand-in learner its worst environment is 0.652, against 0.555 for the best hand-designed strategy, with no weak environment (\autoref{fig:sata-proxy}).
+
+\finding{On the stand-in learner, \sata is the only method with no weak environment: it beats every hand-designed strategy under spurious reversal and stays within 0.03 of the best under ID and covariate shift.}
+
+The \RQ4 family of six contrasts (\autoref{fig:rq4}; exact values in \autoref{tab:contrasts}) was decided and written down before any \sata result on the model.
+
+\finding{On Qwen2.5-7B-Instruct, \sata does not beat balanced random demonstrations: none of the six pre-registered contrasts favours it.}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{\figpath/fig_sata_proxy.pdf}
+\caption{The stand-in learner's accuracy for each selection method, per environment (100 validation tasks), ordered by worst environment. Trained \sata matches its oracle targets and has no weak environment; the hand-designed strategies trade one environment against another.}
+\label{fig:sata-proxy}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_rq4.pdf}
+\caption{\sata on Qwen2.5-7B-Instruct: the pre-registered \RQ4 family (top) and the check of drawing against top-$k$ selection (bottom), with 95\% intervals over 24 tasks. No contrast survives correction (all hollow); the interval for \sata against \strat{label\_diversity} under covariate shift lies below zero.}
+\label{fig:rq4}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+\textbf{Strategy} & \textbf{ID} & \textbf{Covariate} & \textbf{Reversal} & \textbf{Shape} \\
+\midrule
+\strat{label\_diversity}  & 0.593 & 0.652 & 0.520 & good in two, weak under reversal \\
+\sata                     & 0.553 & 0.556 & 0.552 & all three about equal \\
+\strat{counter\_spurious} & 0.561 & 0.575 & 0.555 & about equal too \\
+\bottomrule
+\end{tabular}
+\caption{Mean \AUROC on Qwen2.5-7B-Instruct under abstract names, by environment (24 tasks, three demonstration seeds).}
+\label{tab:sata-flattening}
+\end{table}
+
+Based on the results above in \autoref{fig:rq4} and \autoref{tab:sata-flattening}, we can see that \sata tends to flatten the environments, bringing their performance to about the same level: it removes the weakness under reversal and pays for it in the ID and covariate environments. This is, however, expected, since \sata was trained to imitate the \strat{counter\_spurious} strategy, i.e.\ to make the shortcut uninformative. On ID and covariate queries, the shortcut is right 80 to 90\% of the time, and removing it loses that help, while under reversal it is wrong, so removing it avoids that harm.
+
+The bottom group in \autoref{fig:rq4} compares \sata against itself, to see which of the two ways of turning its scores into 8 demonstrations works best. In the top-$k$ setting we chose the highest-scoring rows, 4 per label, whereas in the normal setting \sata draws rows in proportion to their scores. When we re-ran Qwen with \sata's top-$k$ rows instead, top-$k$ did no better than drawing, so the drawing rule is not why \sata did no better than balanced random selection on Qwen.
+
+
+These results cannot fully separate a weakness of \sata from a property of the model, but they point towards the model: \sata's demonstrations carry the rule, since the stand-in learner learns it from them, yet Qwen does not use them. This is consistent with \citet{pan2023what} and \citet{wei2023larger}, who find that at the 7B scale in-context learning works mostly by recognising the task and applying what the model already believes, rather than by learning a new mapping from 8 examples. As our compute budget restricted us to 7B models, we aimed to see whether a less tuned model, with less pull from its priors, would give different results. Hence, in an exploratory study on Qwen2.5-7B (base), we ran the same \sata checkpoint and found that its weakest environment was better than any other strategy's, with its gains coming under spurious reversal (\autoref{app:base}). The base model also loses less to flipped names, i.e.\ it reads its demonstrations more. On a positive note, this means that with enough compute, \sata may perform differently, for better or worse, on larger models that can override their priors.
+
+\finding{\sata helped the learners that read their demonstrations, the stand-in learner and, in an exploratory comparison, the base model, but not the instruction-tuned model.}
+
+We leave readers with the possibility of training \sata with information about the underlying base model's behaviour, evaluated against that base model's priors. There may be room to improve \sata's demonstration selection if it were trained with this information in hand.

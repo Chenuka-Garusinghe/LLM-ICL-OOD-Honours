@@ -88,7 +88,8 @@ f0: 1.25; f1: 0.19; f2: 0.10; f3: -0.04; f4: -0.83; f5: 0.20; f6: 0.01; f7: 0.36
 The model is \textbf{Qwen2.5-7B-Instruct} \citep{qwen2024qwen25} in bf16, run through PyTorch and Hugging Face \texttt{transformers} \citep{paszke2019pytorch,wolf2020transformers}.
 Its score for a query is the margin $m = \log p(\texttt{1}) - \log p(\texttt{0})$ of the two label tokens, computed in fp32 from the final hidden state; reading it from the bf16 output layer rounded margins onto a coarse grid.
 The demonstration prefix is computed once and cached, and each query is scored against the cached keys and values \citep{pope2023efficiently,gim2024prompt}; this was checked to change mean per-task \AUROC by at most 0.005.
-Qwen2.5-7B (base) answers in format and is used for exploratory comparisons. Inference ran first on an Apple M3 Max and then on a rented NVIDIA H200 with eight copies of the model sharing the GPU (the main grid, about 255,000 forward passes, took 42 minutes); the whole project used a few tens of US dollars of GPU time, which bounds what could be tested (\autoref{sec:limitations}).\todo{State the total cloud cost from the Runpod billing history.}
+Qwen2.5-7B (base) answers in format and is used for exploratory comparisons. Inference ran first on an Apple M3 Max and then on a rented NVIDIA H200 with eight copies of the model sharing the GPU (the main grid, about 255,000 forward passes, took 42 minutes); the whole project used a few tens of US dollars of GPU time, which bounds what could be tested (\autoref{sec:limitations}).
+
 Llama-3.1-8B-Instruct \citep{grattafiori2024llama3} was dropped after the pilot, because with this prompt it explains its reasoning instead of answering (only about 2\% of its probability fell on the label tokens).
 
 \paragraph{The number of demonstrations.}

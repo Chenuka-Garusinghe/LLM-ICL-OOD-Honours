@@ -1,0 +1,787 @@
+NOTES FOR OVERLEAF
+Created 2 November 2026. Nothing here has been applied to the Overleaf version.
+Each item is to be decided after comparing it with Chenuka's version. "Current" quotes the local
+copy, which may differ from Overleaf.
+
+
+=====================================================================
+A. RQ2 INTERACTION: REPORT IT ONCE, IN CHAPTER 4 (Chenuka's prose)
+=====================================================================
+
+Why: the only RQ2 contrast that survives Holm correction is listed as a test in the RQ2 table
+("counter_spurious's gain: reversal - covariate") but its result is never reported in chapter 4.
+The introduction, chapter 5, chapter 4's "does not show" section, the discussion and the
+conclusion all rely on it, and only Table B.1 in the appendix gives the numbers.
+
+What the numbers mean (abstract names, counter_spurious minus label_diversity, AUROC):
+  covariate shift     -0.077  [-0.139, -0.016]   costs AUROC (interval excludes zero)
+  shortcut reversal   +0.035  [-0.019,  0.086]   not significant (Table B.1, Holm p = 0.59)
+  interaction         +0.035 - (-0.077) = +0.111  [0.033, 0.196], Holm p = 0.024, 17/24 tasks
+The interaction is significant mostly because of the covariate cost, not because of a gain
+under reversal.
+
+A1. Upload figures/fig_rq2_interaction.pdf and place it after Figure 4.2 in the RQ2 section:
+
+    \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]{\figpath/fig_rq2_interaction.pdf}
+    \caption{The one \RQ2 contrast that survives Holm correction (abstract names). Each grey line is one task; blue is the mean with a 95\% interval (hierarchical bootstrap, 24 tasks). Neutralising the shortcut with \strat{counter\_spurious} costs \AUROC under covariate shift and roughly breaks even under its reversal; the rise between the two, $+0.11$ (Holm $p = 0.024$, 17 of 24 tasks), is the interaction.}
+    \label{fig:rq2-interaction}
+    \end{figure}
+
+A2. Add a sentence to the RQ2 text that points to it:
+
+    Of the five planned \RQ2 contrasts, only one survives Holm correction (\autoref{fig:rq2-interaction}): \strat{counter\_spurious} fares better against \strat{label\_diversity} under shortcut reversal than under covariate shift, mainly because it costs \AUROC under covariate shift; its gain under reversal itself is not significant.
+
+A3. (Optional) The RQ2 table (label tab:rq2-rows) has an empty \caption{}. Suggested:
+    \caption{The five planned \RQ2 contrasts: each strategy against \strat{label\_diversity} under the shift it targets.}
+
+
+=====================================================================
+B. ALIGN THE OTHER MENTIONS WITH A
+=====================================================================
+
+B1. Introduction, key findings item (local introduction.tex line 70)
+  Current:
+    \item \textbf{Strategies that neutralise the shortcut help under its reversal more than under covariate shift} (interaction +0.11, Holm $p = 0.024$), but no strategy helps under flipped names (\autoref{ch:shift}).
+  Suggested:
+    \item \textbf{Neutralising the shortcut fares better under its reversal than under covariate shift} (interaction +0.11, Holm $p = 0.024$, \autoref{fig:rq2-interaction}), mainly because it costs \AUROC under covariate shift, and no strategy helps under flipped names (\autoref{ch:shift}).
+
+B2. Chapter 5 opening (local selectors.tex line 9)
+  Current:
+    Neutralising the shortcut helped more under its reversal than under covariate shift (\autoref{sec:shift-rq2}), but the strategies that did so were hand-built rules for one shift each.
+  Suggested:
+    Neutralising the shortcut fared better under its reversal than under covariate shift (\autoref{fig:rq2-interaction}), but the strategies that did so were hand-built rules for one shift each.
+
+B3. Chapter 4, "What this chapter does not show" (local shift.tex line 141)
+  Current:
+    ... and only one comparison, the interaction for \strat{counter\_spurious}, shows that matching strategy to shift pays; ...
+  Suggested:
+    ... and only one comparison, the interaction for \strat{counter\_spurious}, separates strategies by shift, and mostly because the strategy costs \AUROC under the shift it was not built for; ...
+
+B4. Discussion, RQ2 paragraph (local discussion.tex lines 11-14)
+  Current:
+    Only weakly. One interaction survives correction: neutralising the shortcut helps under its reversal more than under covariate shift. No strategy helps under flipped names, including the one designed for prior conflict.
+  Suggested:
+    \paragraph{\RQ2: do different strategies help under different shifts?}
+    Only weakly. The strategies differ far less than the namings do (\autoref{fig:strategies-by-naming}), and none lifts Qwen above chance under flipped names, including the one designed for prior conflict ($+0.023$ over \strat{label\_diversity}, not significant). The one planned test that survives correction compares a strategy's effect across two shifts rather than asking whether it helps (\autoref{fig:rq2-interaction}): neutralising the shortcut fares better under its reversal than under covariate shift, but mainly because it costs \AUROC under covariate shift ($-0.08$); its gain under reversal itself ($+0.035$) is not significant.
+  Note: only counter_prior was formally tested under flipped names; "none lifts Qwen above chance"
+  rests on Figure 4.2.
+
+B5. Conclusion (local conclusion.tex line 9)
+  Current:
+    Hand-designed strategies help only where they neutralise a shortcut.
+  Suggested:
+    No hand-designed strategy reliably beats label diversity; neutralising the shortcut only trades some accuracy under covariate shift for a smaller drop under its reversal.
+  (Supported: under aligned names counter_spurious scores 0.66 on both ID and reversal, while
+  label_diversity drops from 0.70 to 0.64.)
+
+
+=====================================================================
+C. OTHER OPEN ITEMS FROM THIS SESSION (for reference; decide separately)
+=====================================================================
+
+C1. Shortcut reversal and the numeric prior. "Most of the reversal cost is the prior" does not
+    follow: the prior's part cancels across the 12 + 12 tasks (zero-shot pooled cost 0.00), so the
+    pooled +0.12 is what the demonstrations add. The prior explains why the cost is uneven
+    (0.21 vs 0.02) and about half the cost where it agrees with the shortcut. Affected:
+    introduction line 57; chapter 4 end of the RQ1 paragraph (line 45, last sentence);
+    chapter 4 section 4.7 finding (first half); discussion line 8. Suggested discussion sentence:
+      Reversing the shortcut costs about half as much, and unevenly: where the model's numeric prior agrees with the shortcut the cost is large, and where it opposes it there is almost none, because the prior reads the shortcut in the query with or without demonstrations. Averaged over tasks the prior's part cancels, and what remains is the shortcut the demonstrations taught; hiding it from the demonstrations shrinks the cost in every strategy and naming.
+    To show this in a figure: add a mean marker per row to Figure 4.4 (zero-shot sits at zero,
+    demonstration rows to the right). Not yet made.
+
+C2. Discussion line 9 (local copy) is corrupted: the sentence above is pasted into the middle of
+    "moves" ("the shift mo[Reversing ... taught.]ves every score together"). It also still has the
+    covariate "property of the metric" explanation that was cut from chapter 4. Line 44 has a
+    broken \autoref{sec:shift-covariate}.
+
+C3. Chapter 6 motivation overstates "follows its prior and the feature names". Suggested:
+      Three chapters of behaviour converge on one picture. Qwen2.5-7B-Instruct does use its demonstrations: any eight labelled rows raise its \AUROC by about 0.1 over zero-shot under abstract and aligned names. But which eight rows it sees barely matters, whether a strategy is hand-designed or learned, while the feature names move it by 0.2. Aligned names lift every strategy together, flipped names sink every strategy together, and no choice of demonstrations overturns the names.
+
+C4. Chapter 6 critical-layer paragraph: drop "accuracy of the median-centred prediction is
+    reported alongside" (the numbers are only in notebook 06) and give the accurate reason for
+    AUROC:
+      We use \AUROC rather than the accuracy of $\mathbb{1}[m_l > 0]$ because the margins share a large offset: at 21 of the 29 read-outs at least 90\% of them fall on the same side of zero, which pins that accuracy near 0.5 however well they order the queries.
+
+C5. Chapter 6 probes: the sentence "The probes reuse the demonstration sets and prompts ... for
+    zero-shot, random, ..., \sata and \satami" is wrong for the probes (random only) and still
+    lists SATA-MI. Suggested fuller Probes paragraph:
+      A linear probe \citep{alain2017understanding} is a logistic regression that takes $h_l$ as its input and predicts a label. Each prompt with random demonstrations gives one example, $h_l$ at its last token, so each naming has 1,440 (24 tasks, three environments, 20 queries). At every second layer and for each naming, two probes are trained, one per target: the query's rule label, and Qwen's zero-shot prediction for the same query (its zero-shot margin above or below the task's median). Each probe standardises its inputs and is L2-regularised ($C = 0.1$), since $h_l$ has 3,584 dimensions; it is trained on 18 tasks and scored by \AUROC on the other six, in four folds, so that every task is tested by a probe that never saw it.
+
+C6. Chapter 6 steering paragraph: plainer version (also says what "zero-shot prediction" means):
+      The lens and the probes only observe; steering intervenes. We take the queries on which the rule label and Qwen's zero-shot prediction (its zero-shot margin above or below the task's median) disagree, so that following the demonstrations and following the prior give different answers. At layer $l$, $v_l$ is the mean residual state of the queries on which Qwen, given random demonstrations, followed the demonstrations, minus the mean of those on which it followed its prior. It is computed separately for the two rule labels and the two differences are averaged, so that $v_l$ does not simply push towards one label \citep{turner2023activation,rimsky2024steering}. We fit $v_l$ on the 12 loan tasks and test it on the 12 medical tasks, adding $\alpha v_l$ to the residual state at the query's tokens only ($h_l \leftarrow h_l + \alpha v_l$), at layers 8, 12, 16, 20 and 24 and with $\alpha$ from 1 to 32. A random direction of the same length is the control: if it moves the answers as much, the effect is disruption, not steering.
+
+C7. Chapter 6 steering figure (fig_steering.pdf): change \begin{figure}[t] to \begin{figure}[H]
+    so it sits after the steering results instead of floating into section 6.4. (Done locally.)
+
+C8. SATA-MI removal: chapter 6 still mentions \satami in the method (probes sentence) and twice in
+    the results (critical layer 23 list; final gap 0.119), and Figures 6.1 and 6.2 draw a SATA-MI
+    line. Optional replacement for Figure 6.1 without SATA-MI and with every strategy coloured:
+    figures/fig_lens_strategies.pdf (keep label fig:lens if swapping it in). The discussion's
+    "ten selector contrasts" (line 55) becomes six without SATA-MI.
+
+C9. Introduction line 49: says "linear probes and steering show that the answer forms in the last
+    few layers, that the names decide it there". Those two findings come from the logit lens.
+
+C10. Optional: the logit-lens sentence in 6.2 could read "$m_l = w \cdot \mathrm{norm}(h_l)$" if
+     $w^\top$ is unclear, and "the residual state at the prompt's last token (the position from
+     which the answer token is predicted)" for "last-position residual state".
+
+
+C11. Methodology 3.3 (local methodology.tex line 107) says "Every strategy except \strat{random} and
+    \strat{similarity} takes $k/2$ demonstrations of each label". Similarity is balanced too: the code
+    maps it to (feature_knn, balanced), and every similarity set in the P4 grid has exactly 4 rows of
+    each label. Table 3.1's similarity row ("the k/2 nearest rows of each label") is right. Suggested:
+      Every strategy except \strat{random} takes $k/2$ demonstrations of each label, because the label balance of the demonstrations biases predictions on its own \citep{zhao2021calibrate}; balanced strategies are compared with \strat{label\_diversity}, a label-balanced random draw, so that contrasts compare selection mechanisms at fixed label counts.
+    (Random demonstrations are drawn freely: in the P4 grid they hold 1 to 7 label-1 rows out of 8.)
+
+=====================================================================
+D. DISCUSSION 7.3: THE "COVARIATE SHIFT IS TOO WEAK" CRITIQUE
+=====================================================================
+
+Why: the current reply (local discussion.tex line 44) rests on material that is no longer in the
+thesis: the "scores move by 0.44--1.21 logits" score-shift argument (cut from chapter 4 because of
+confounds; source was an exploratory analysis, hiccup 18 / notebook 05), the variance shift
+(exploratory, only in the result files), and \autoref{sec:shift-covariate}, which no longer exists
+(prints "??"). "For the same prompts" is also loose: same demonstrations, different query rows.
+
+D1. Upload figures/fig_covariate_strength.pdf and place it just above \subsection*{\RQ1} in
+    the "Anticipated criticism" section:
+
+    \begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{\figpath/fig_covariate_strength.pdf}
+    \caption{The covariate shift is not small, yet it costs no strategy a measurable amount. Left: in every task the shift moves two rule features, one towards each label so that the label rate is unchanged, and one distractor by one to two standard deviations (one dot per task). Right: ID minus covariate \AUROC for five strategies under each naming, with 95\% intervals over 24 tasks (exploratory, apart from random demonstrations under abstract names, the planned contrast). Every interval includes zero, and every upper end (at most 0.13) lies below the cost of flipped names (dashed line).}
+    \label{fig:covariate-strength}
+    \end{figure}
+
+D1b. Upload figures/fig_variance_shift.pdf and place it right after fig:covariate-strength:
+
+    \begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{\figpath/fig_variance_shift.pdf}
+    \caption{An exploratory variance shift, added after the planned analysis. Every feature except the shortcut is stretched by its own factor between 1.5 and 3; the rule is applied to the stretched values, so the rule and the label rate are unchanged. Left: the stretch factor of each feature in each task. Right: ID minus variance-shifted \AUROC for five strategies under each naming, with 95\% intervals over 24 tasks. The shift costs nothing measurable under abstract or aligned names, but 0.08--0.13 under flipped names, where four of the five intervals lie above zero.}
+    \label{fig:variance-shift}
+    \end{figure}
+
+D2. Replace the critique's reply (this version uses both figures and drops the logit argument):
+
+    \critique{Covariate shift showing no effect means your covariate shift is too weak.}
+    {The shift is not weak. In every task it moves two of the three rule features, and one distractor, by one to two standard deviations (\autoref{fig:covariate-strength}, left). Yet no strategy shows a measurable cost under any naming (\autoref{fig:covariate-strength}, right): every interval includes zero, so what the data rule out is a large cost, not a moderate one. Nor does Qwen ignore every change to its inputs. In an exploratory variance shift, which stretches every feature except the shortcut to 1.5 to 3 times its spread, the cost stays near zero under abstract and aligned names but reaches 0.08 to 0.13 under flipped names, with four of the five intervals above zero (\autoref{fig:variance-shift}). Stretching features whose names point the wrong way may amplify the wrong reading: a shift hurts most where the model already misreads the features.}
+
+    Numbers checked against covariate_probes.csv (E1, E2) and the task manifest (shift sizes 1.02-1.98 SD;
+    stretch factors 1.50-2.99). Correction to what was said in chat: under flipped names FOUR of five
+    variance-shift intervals exclude zero (random, label_diversity, rule_diversity, similarity), not three.
+
+D3. Discussion line 9 (RQ1 answer) has the same problem as the old reply ("this is a property of
+    the metric: the shift moves every score together, and a variance shift does hurt under flipped
+    names"), plus the pasted-in sentence (see C2). Suggested replacement for that sentence:
+      Covariate shift shows no measurable cost under any strategy or naming, although it moves two rule features by one to two standard deviations (\autoref{fig:covariate-strength}); what the data rule out is a large cost, not a moderate one.
+
+Note: the right panel's random/abstract interval [-0.046, 0.090] differs from Table B.1's
+[-0.044, 0.093] by a few thousandths (re-estimated with the other rows); the estimate is the same.
+
+D-ALT (RECOMMENDED, replaces D1, D1b and D2): one figure, three plain points, no variance shift.
+    Idea: if the shift were too weak, the tasks shifted furthest should lose the most. They do not.
+
+    Upload figures/fig_covariate_dose.pdf and place it just above \subsection*{\RQ1} in the
+    "Anticipated criticism" section:
+
+    \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.62\textwidth]{\figpath/fig_covariate_dose.pdf}
+    \caption{Tasks shifted further do not lose more. Each dot is one task. Horizontal: how far the covariate shift moves the task's two rule features (one towards each label, so the label rate is unchanged). Vertical: how much ranking quality (\AUROC) Qwen loses on shifted queries compared with in-distribution ones; above the line, the shift hurts. Each task's drop is averaged over five strategies, three namings and three seeds. The drops scatter around zero at every shift size (Spearman $\rho = -0.03$), and the same holds under each naming separately ($\rho$ between $-0.03$ and $0.13$).}
+    \label{fig:covariate-dose}
+    \end{figure}
+
+    \critique{Covariate shift showing no effect means your covariate shift is too weak.}
+    {We do not think weakness explains the null, for three reasons. First, the shift is not small: in every task it moves two of the three rule features by one to two standard deviations. Second, if the shift were too weak, the tasks shifted furthest should lose the most, and they do not. Shift sizes range from 1.05 to 1.98 standard deviations across the 24 tasks, yet the drop in \AUROC does not grow with them (Spearman $\rho = -0.03$; \autoref{fig:covariate-dose}). Third, the design can detect a cost: with the same tasks, demonstrations and number of queries, it detects the cost of flipped names (0.20), while the covariate interval ends at 0.09 (\autoref{tab:contrasts}). A covariate cost as large as the cost of flipped names would have been seen. The criticism still holds in one sense: we tested shifts of one to two standard deviations only, so a larger shift, or one that changes the shape of the inputs rather than moving them, may still hurt.}
+
+    Numbers checked (2 Nov):
+      - shift size per task = mean |shift| of the two rule features, task manifest: 1.05-1.98 SD.
+      - drop per task = ID - covariate AUROC (cell_metrics, the same AUROC as every thesis figure),
+        five strategies (random, label_diversity, counter_spurious, rule_diversity, similarity).
+        Spearman -0.03 (p 0.88) over all namings; abstract 0.13, aligned -0.03, flipped 0.02.
+        Smaller-shift half of the tasks: mean drop 0.008; larger-shift half: 0.010.
+        Task family is not a confound: linear and tree tasks span similar shift ranges.
+      - Table B.1: C1a covariate 0.024 [-0.044, 0.093]; C1c flipped names 0.204 [0.131, 0.280], Holm p 0.005.
+        Do NOT use the reversal cost (C1b) as the "the design can detect a cost" example: its interval
+        is above zero but it does not survive Holm (p 0.063).
+      - Limits to state if asked: shift sizes only span a twofold range, and per-task drops are noisy
+        (-0.16 to +0.13).
+    If D-ALT is used, D3 still applies, and fig_variance_shift / fig_covariate_strength are not needed.
+
+
+=====================================================================
+E. DISCUSSION 7.3: THE "STRATEGIES ARE WEAK STRAW MEN" CRITIQUE
+=====================================================================
+
+Why: the current reply (local discussion.tex line 52) defends the comparator, not the strategies.
+"The comparator is balanced random" shows the yardstick is fair; "that most of them tie with it is
+the finding" restates the result. A straw man would also tie, so neither sentence answers the
+critique. Two arguments do: (1) two strategies read the ground truth, so they are best-case
+versions of their ideas; (2) the strategies are not inert: counter_spurious does what it was built
+to do (it removes the ID-reversal gap under every naming), it just does not beat the comparator.
+
+E1. Suggested reply:
+
+    \critique{The strategies are weak straw men.}
+    {Two observations suggest they are not. First, each follows a published idea (\autoref{tab:strategies}), and two of them, \strat{rule\_diversity} and \strat{counter\_spurious}, read the ground truth, which no deployed selector could. They are best-case versions of their ideas, so if they cannot beat balanced random, a realistic version is unlikely to, at least at $k = 8$. Second, the strategies are not inert: they change Qwen's behaviour the way their ideas predict. \strat{counter\_spurious}, which makes the shortcut uninformative, all but removes the drop from ID to spurious reversal under every naming: in \autoref{fig:strategies-by-naming} its ID and reversal dots nearly coincide in each panel (gaps of $-0.03$ to $0.01$, against $0.05$ to $0.07$ for \strat{label\_diversity}). It pays for this with lower ID \AUROC, so it does not beat \strat{label\_diversity} overall. The same holds for the others: no strategy reliably beats \strat{label\_diversity}, a random draw with $k/2$ rows of each label. Across six strategies, three namings and three environments, the typical difference from it is 0.025 \AUROC; 40 of the 54 differences have intervals that include zero, 10 lie below it and 4 above, and no strategy is clearly ahead in more than one environment under any naming. Each balanced strategy shows the same label counts as \strat{label\_diversity}, so these comparisons separate which rows are chosen from how many of each label are shown, which biases predictions on its own \citep{zhao2021calibrate}. Choosing rows by a selection idea therefore adds little over picking them at random with the labels balanced, and what it gains in one environment it tends to give back in another. The criticism does apply to selectors we did not test, such as retrievers trained on the model's own feedback; \RQ4 tests one learned selector.}
+
+    Numbers checked (2 Nov, P4 grid, mean over 24 tasks of the per-task mean AUROC, gold labels):
+      ID - reversal gap   counter_spurious   label_diversity   (ID AUROC cs / ld)
+        abstract              0.006              0.073          0.561 / 0.593
+        aligned              -0.001              0.053          0.662 / 0.695
+        flipped              -0.030              0.073          0.447 / 0.505
+      These per-naming gaps are descriptive (only abstract names were formally tested: C2a, C2e).
+      The 54 comparisons (strategy - label_diversity per naming and environment; strategies random,
+      counter_prior, rule_diversity, counter_spurious, feature_range, similarity) use a simple bootstrap
+      over the 24 tasks, uncorrected and exploratory: about 3 of 54 would exclude zero by chance.
+        Above zero (4): counter_prior abstract ID +0.046; rule_diversity abstract ID +0.043;
+          counter_spurious flipped reversal +0.046; similarity flipped covariate +0.084.
+        Below zero (10): counter_spurious covariate under all three namings (-0.06 to -0.08) and flipped ID;
+          feature_range covariate (abstract, aligned) and flipped ID; random abstract covariate and
+          aligned reversal; similarity aligned reversal (-0.120, the largest difference).
+        Median |difference| 0.025; median interval half-width 0.041.
+      The user's original sentence "That most of them tie with it is the finding" overstates this:
+      the dots in Figure 4.2 are not on top of each other; the differences are small and mostly noise.
+      The figure reference is Figure 4.2 (fig:strategies-by-naming), which plots exactly these means
+      (ID = blue dot, reversal = green dot). An earlier draft wrongly pointed to fig:rq2-interaction,
+      which shows only counter_spurious - label_diversity under abstract names, not the ID-reversal gaps.
+
+=====================================================================
+F. DISCUSSION 7.3: THE "24 TASKS ARE TOO FEW" CRITIQUE (local discussion.tex line 55)
+=====================================================================
+
+Why: three problems with the current reply.
+  (1) It sits under RQ2 but its "ten selector contrasts" are the SATA (R1-R6) and SATA-MI (R7-R10)
+      contrasts of chapter 5, not the RQ2 strategy contrasts; with SATA-MI removed there are six.
+  (2) "every upper bound is at most 0.09" is true (all are <= 0.089) but reads as if all ten sat
+      near 0.09; only one does (R1). Saying "the largest gain inside any interval" is clearer.
+  (3) It concedes the weakness but never says what the data DO rule out, which is the defence:
+      the design detects effects of about 0.1 (it found two), and the intervals exclude any
+      strategy gain above 0.09, under half the cost of flipped names.
+  Figure 4.1 now shows only the RQ1 and RQ3 rows, so the reply points to Table B.1
+  (tab:contrasts), which still lists all ten.
+
+F1. Suggested reply:
+
+    \critique{24 tasks are too few to detect anything.}
+    {They are too few to detect small effects, and we do not claim otherwise. The intervals for the strategy contrasts are about 0.1 \AUROC wide, so effects below about 0.05 would usually be missed; halving that width would take roughly four times as many tasks. The design does detect effects of about 0.1: the cost of flipped names (0.20) and the \strat{counter\_spurious} interaction (0.11) both survive Holm correction, and \strat{feature\_range}'s loss under covariate shift ($-0.08$) has an interval entirely below zero (\autoref{tab:contrasts}). What the null results rule out is a large benefit. For the four strategies tested against \strat{label\_diversity} under their target shifts, the largest gain inside any interval is 0.09 \AUROC, under half the cost of flipped names, and two of the four exclude any gain above 0.05; the six \sata contrasts give the same ceiling (\autoref{ch:sata}). A strategy that helps by a few hundredths of \AUROC may exist at $k = 8$ on this model; one that helps as much as the names hurt is ruled out.}
+
+F2. Figure 4.1 caption (local shift.tex line 21) still says "The ten confirmatory contrasts" and
+    "the three that survive Holm correction", but the figure now shows five rows, two filled.
+    If the Overleaf caption is the same, suggested:
+
+    \caption{Five of the ten confirmatory contrasts: the three for \RQ1 and the two for \RQ3 (the five \RQ2 contrasts are in \autoref{tab:contrasts}). Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the two that survive Holm correction (adjusted $p$ at the right, corrected over all ten), hollow grey the rest. The three panels use different units, so they do not share a scale. Flipping the names (concept shift) is the largest effect.}
+
+    Numbers checked (2 Nov; p4/contrasts.csv, p5/rq4_contrasts.parquet; hierarchical bootstrap,
+    2,000 draws, 95% percentile interval):
+      Interval widths, RQ2 strategy contrasts C2a-C2d: 0.104, 0.158, 0.123, 0.079 (median 0.11);
+        with SATA R1-R6 the median is about 0.11 too. Half-width ~0.055 -> "below about 0.05".
+      "four times as many tasks": the interval width scales with 1/sqrt(number of tasks),
+        an approximation, hence "roughly".
+      Detected: C1c names 0.204 [0.131, 0.280], Holm p 0.005; C2e interaction 0.111 [0.033, 0.196],
+        Holm p 0.024; C2c feature_range under covariate -0.078 [-0.141, -0.018] (tested one-sided
+        for a gain, so Holm p = 1.0; the interval is stated, not a significance claim).
+      Upper bounds (largest gain inside the interval):
+        C2a counter_spurious, reversal  0.086
+        C2b similarity, covariate       0.048
+        C2c feature_range, covariate   -0.018
+        C2d counter_prior, flipped      0.064   -> max 0.086 (~0.09), two of four below 0.05
+        SATA R1-R6: 0.089, -0.041, 0.023, 0.026, 0.010, 0.048 -> max 0.089
+      Script: scratchpad power_numbers.py (session 2 Nov).
+
+=====================================================================
+G. DISCUSSION 7.3: THE "STEERING FAILING" CRITIQUE (local discussion.tex line 63)
+=====================================================================
+
+Why: within-cell AUROC cannot see a push that moves every margin together, and the steering vector
+is exactly such a push, so a reader may suspect the metric hid an effect. It did not: the margins
+are reported (Figure 6.x bottom), and accuracy at the model's own threshold also stays at chance.
+Frame it as a check that closes the blind spot, not as a concession. The user's three sentences
+are unchanged; G1 appends two.
+
+G1. Suggested reply:
+
+    \critique{Steering failing proves nothing about steering in general.}
+    {Agreed. We tested one family of directions (a label-averaged mean difference at five layers, applied to the query) on one 7B model with eight numeric demonstrations, within a small budget. We claim only that this direction acts as a bias at this scale, and we explain why it must: following the demonstrations means opposite things for the two labels. Within-cell \AUROC cannot see a push that moves every margin together, but that blind spot hides no gain here: the margins themselves fall by about 9 logits at layer 24 (\autoref{fig:steer}), while accuracy at the model's own threshold stays between 0.49 and 0.55 at every layer and strength, against 0.51--0.52 without steering. The strongest push only turns Qwen from answering 1 to 87--90\% of the label-balanced queries to answering 0 to 75--86\% of them.}
+
+G2. Shorter alternative that uses only what the steering figure already shows (no new numbers;
+    it leaves open whether the shift changes thresholded accuracy, which G1 closes):
+
+    Within-cell \AUROC cannot see a push that moves every margin together, which is why \autoref{fig:steer} reports the margins as well: at layer 24 they fall by about 9 logits, towards answering 0, while \AUROC stays flat, so the direction shifts every answer at once rather than separating the labels.
+
+    Numbers checked (2 Nov; p6/A grid + p6/B lens, the data of fig_steering; 12 held-out medical
+    tasks, random demonstrations, aligned and flipped names; accuracy = margin > 0 vs the rule label y_clean, as the figure's AUROC,
+    mean over tasks):
+      unsteered accuracy           aligned 0.517, flipped 0.506; answers "1" on 0.896 / 0.868
+      30 steering conditions       accuracy 0.492 to 0.546; best gain +0.029 (aligned), +0.024 (flipped)
+      layer 24, alpha 32           accuracy 0.546 / 0.492; answers "1" on 0.142 / 0.254
+      random direction, L24 a32    accuracy 0.515 / 0.507; answers "1" on 0.883 / 0.856
+      margin shift L24 a32         -9.59 / -9.27 logits (thesis "9.4 on average")
+      margin shift at a32, other layers: L8 -0.6/-0.8, L12 -1.1/-0.9, L16 +1.3/+1.1, L20 -3.0/-3.2
+        (mostly down, layer 16 up; so "fall" is said for layer 24 only)
+
+=====================================================================
+H. SATA ON THE STAND-IN LEARNER: "BEATS EVERY STRATEGY" IS TOO STRONG
+=====================================================================
+
+Why: Figure 5.1 (fig:sata-proxy) shows SATA with the best WORST environment, not the best in every
+environment. Under ID and covariate shift, similarity and rule_diversity are slightly above it.
+  - Chapter 5 finding (local selectors.tex line 63): "On the stand-in learner, \sata beats every
+    hand-designed strategy in every environment." Not true as written.
+  - Discussion 7.3 RQ4 critique: "beat every strategy there" reads the same way; "stand-in
+    learners" is plural, but SATA was judged by one stand-in learner (XGBoost); the second one
+    (the reader) belonged to SATA-MI.
+
+H1. Chapter 5 finding:
+
+    \finding{On the stand-in learner, \sata has the best worst environment of any strategy: it beats every hand-designed strategy under spurious reversal and stays within 0.03 of the best under ID and covariate shift.}
+
+H2. Discussion critique:
+
+    \critique{\sata failed because it was badly trained.}
+    {On the stand-in learner it reached its own oracle's level (worst environment 0.652 against 0.640) and had the best worst environment of any strategy (\autoref{fig:sata-proxy}); the base model benefits from the same checkpoints; and ranking instead of drawing does no better. The failure is in what the instruction-tuned model does with good evidence.}
+
+    Numbers checked (3 Nov; results/v3/synthetic/p5/gate_s3a.parquet + proxy_trained.parquet, the
+    data of fig_sata_proxy; XGBoost accuracy, 100 validation tasks):
+                         ID     covariate  reversal   worst
+      sata              0.669   0.654      0.652      0.652
+      oracle_matched    0.655   0.671      0.640      0.640
+      counter_spurious  0.581   0.555      0.595      0.555   (best strategy on worst env)
+      similarity        0.684   0.680      0.462      0.462   (best strategy on ID)
+      rule_diversity    0.680   0.684      0.368      0.368   (best strategy on covariate)
+      label_diversity   0.661   0.651      0.431      0.431
+    Gaps to the best strategy: ID -0.015, covariate -0.030, reversal +0.057.
+
+=====================================================================
+I. DEFINE "CLEAN" ONCE, AND SEPARATE LABEL NOISE FROM THE NOISE FEATURE
+=====================================================================
+
+Why: the main text uses "clean label" (methodology line 30), "clean rows" (methodology table,
+counter_prior; selectors.tex line 26) and "label-noise rows" (selectors.tex line 25) without ever
+defining "clean", and it also has "the noise feature" f_9 (methodology line 21; shift.tex line 126).
+A reader can mistake the 2% flipped labels for something to do with f_9. They are unrelated:
+f_9 is an input feature with random values in every row; label noise is a flipped label in 2% of rows.
+
+I1. Methodology 3.2, "Rules" paragraph (local methodology.tex line 27). Current:
+      Labels are then flipped with probability $\eta = 0.02$.
+    Suggested:
+      Labels are then flipped with probability $\eta = 0.02$. A row whose label was not flipped is \emph{clean}, and the rule's label is the \emph{clean label} $y_{\mathrm{clean}}$. This \emph{label noise} is separate from $f_9$, the noise feature, which is an input that has no bearing on the label.
+
+=====================================================================
+J. DISCUSSION 7.3 RQ4: "THE STAND-IN LEARNERS ARE POOR PROXIES" (local discussion.tex line 73)
+=====================================================================
+
+Why: the reply leans on SATA-MI ("the agreement check before the \satami evaluation failed"), which
+the user removed, and "stand-in learners" is plural although SATA had one (XGBoost). It also only
+concedes; the defence is that the proxy still targeted something real: SATA's sets carry the rule
+(the stand-in learns from them) and the base model uses the same sets.
+
+Where the measurement was made: P5 stage 5a, "LLM validation" (11 Oct). Qwen2.5-7B-Instruct was run
+on 8 held-out tasks from SATA's validation distribution (sata_llmval_0000-0007) with every strategy
+and all three namings: results/v3/synthetic/h200/p5/llmval.parquet. Reported in notebook 04 (the
+markdown under the LLM-validation chart), hiccups/22 and docs/research_plan.md as 0.68 abstract,
+0.46 aligned, 0.46 flipped. The code that produced those three numbers is NOT saved in the notebook.
+Recomputed on 3 Nov (XGBoost fitted on the exact 8 rows Qwen saw, same settings as xgb_proxy.py;
+Spearman over 10 strategies x 3 environments = 30 points): 0.73 abstract, 0.52 aligned, 0.46 flipped.
+Same picture, different decimals, so J1 rounds ("about 0.7", "about 0.5"), which both versions support.
+The "0.47" in the current text is SATA-MI's reader proxy (gate 5b: 0.60 / 0.48 / 0.47), not XGBoost.
+
+J1. Suggested reply:
+
+    \critique{The stand-in learner is a poor proxy for the model, so \sata was optimised for the wrong thing.}
+    {This is the main weakness of the selector chapter, and we measured it: on eight held-out tasks shown to Qwen, the stand-in orders the strategies and environments by how well they work much as Qwen does under abstract names (Spearman about 0.7) but only weakly under named features (about 0.5). Two results suggest the proxy still targeted something real. \sata's demonstrations carry the rule, since the stand-in learns from them in every environment, and Qwen2.5-7B (base) uses them too: with the same checkpoint it has the best worst-case \AUROC of any strategy (exploratory; \autoref{ch:sata}). What the proxy misses is how little the instruction-tuned model uses that evidence once the names and its prior pull the other way. The direct fix is to train the selector on Qwen's own answers rather than on a stand-in: run Qwen with many random demonstration sets and score each row by how much it helps, as \citet{chang2023data} do to find helpful demonstrations. That needs many runs of Qwen for every training task, so it was planned but not run within our budget.}
+
+    Script: scratchpad proxy_vs_qwen.py (session 3 Nov); per-strategy table in proxy_vs_qwen.csv.
+
+=====================================================================
+K. DISCUSSION 7.3 RQ4: "YOU CHOSE THE TARGET AND DRAWING RULE AFTER SEEING RESULTS"
+=====================================================================
+
+Why keep the critique: the design DID change after results were seen (the planned targets failed
+the oracle check; top-k reversed the shortcut), so an examiner can ask about it. The answer is that
+those results were on validation tasks with the stand-in, never on Qwen or the 24 evaluation tasks.
+The current reply says this but not plainly, and misses the strongest point: choosing after seeing
+results can only flatter a selector, and SATA still lost, so it cannot explain the null.
+
+Timeline (hiccups/21, 22): 10 Oct gate S3a on validation tasks -> matched targets chosen before any
+training; RQ4 family frozen 10 Oct; drawing rule chosen after the first training runs (stand-in,
+validation tasks, 0.558 vs 0.478 on 50 tasks); first SATA result on Qwen 11 Oct; top-k checked on
+Qwen 12 Oct (K1-K3: -0.005, -0.029, -0.028, every interval crossing zero).
+
+K1. Suggested reply:
+
+    \critique{You chose the matched target and the drawing rule after seeing results.}
+    {We did, but only results on the stand-in learner and on \sata's own validation tasks, which is what validation tasks are for; the planned targets stay in \autoref{fig:sata-proxy} for comparison. The 24 evaluation tasks were never used to design \sata, and its six contrasts on them were written down before any \sata result on Qwen. Choosing a design after seeing results can only make a selector look better than it is, and \sata still does not beat balanced random demonstrations. The drawing rule was also checked on the model afterwards: top-$k$ does no better (\autoref{sec:sata-topk}).}
+
+=====================================================================
+L. NAME THE LEARNABILITY CHECK WHERE IT IS DESCRIBED
+=====================================================================
+
+Why: methodology line 149 (gates) and discussion line 86 (limitations) say "learnability check",
+but the paragraph that describes it (methodology line 96, "The number of demonstrations") never
+uses the name, so a reader cannot connect them. It is also the direct test of Min et al.'s finding
+(background line 13) that random labels often cost little.
+
+L1. Methodology, "The number of demonstrations" (local methodology.tex line 96). Current:
+      On the pilot suite, $k = 8$ gold demonstrations beat the same rows with shuffled labels by ...
+    Suggested:
+      Before any experiment we ran a \emph{learnability check}: do the demonstrations' labels matter at all, which \citet{min2022rethinking} found they often do not? On the pilot suite, $k = 8$ gold demonstrations beat the same rows with shuffled labels by $\Delta\AUROC = 0.098$ (95\% CI [0.021, 0.188], 9 of 12 tasks), so the model does use the labels; $k = 32$ did not pass.
+
+    Numbers checked (results/v3/synthetic/p2/learnability_gate.csv; rule: gold - shuffled >= 0.05
+    with the CI above 0; 12 pilot tasks x 3 seeds, abstract names):
+      Qwen-Instruct  k=8   0.592 vs 0.494  +0.098 [0.021, 0.188]  9/12   pass  (used)
+                     k=16  0.613 vs 0.454  +0.159 [0.074, 0.238] 11/12   pass
+                     k=32  0.585 vs 0.499  +0.086 [-0.012, 0.183] 8/12   fail (CI includes 0)
+      Llama-3.1-8B   invalid at every k: label mass 0.01-0.11 (it did not answer 0 or 1)
+      Qwen-base      k=8 +0.103 [0.023, 0.186] (research_plan.md, P4 base check)
+
+=====================================================================
+M. "SCORE" AND "WITHIN-ENVIRONMENT": ONE TERM EACH
+=====================================================================
+
+Why: the blind-spot sentence says "every score", but the thesis calls Qwen's per-query number the
+margin (methodology 3.5); "score" is never defined. The metric is called "within-cell" in the
+methodology (lines 134-136) and "within-environment" in the limitations (discussion line 88).
+Use "margin" and "within-cell" throughout.
+
+M1. Methodology line 136. Current:
+      ... a shift that moves every score together cannot be seen.
+    Suggested:
+      ... a shift that moves every query's margin by the same amount cannot be seen.
+
+M2. Discussion, limitations, Metric item (line 88). Current begins:
+      Within-environment \AUROC cannot see shifts that move every score together;
+    Suggested:
+      Within-cell \AUROC cannot see a shift that moves every query's margin by the same amount;
+
+=====================================================================
+N. LIMITATIONS: THE BUDGET ITEM (local discussion.tex line 90)
+=====================================================================
+
+Why: "the datamodel variant of the selector (training on the model's own scores)" and "a
+reinforcement-learning selector" name methods without saying what they are or why they matter.
+Both are the same idea, learning from Qwen's own answers instead of a stand-in, and both were
+skipped for the same reason: many Qwen runs per training task. Saying so links this item to the
+Proxies item just above it. Zhang et al. (2022) is already in the bibliography (background line 65).
+
+N1. Suggested item:
+
+    \item \textbf{Budget.} The whole project used a few tens of US dollars of rented GPU time, and the later stages were sized to fit. Steering tested one kind of direction (a single averaged direction, added to the query). Two selectors that learn from Qwen's own answers rather than from a stand-in were planned but not run, because each needs many runs of Qwen for every training task: one that scores each candidate row by how much it helps Qwen \citep{chang2023data}, and one trained by reinforcement learning to add demonstrations one at a time \citep{zhang2022active}. They are the most direct test of whether the stand-in, rather than the model, held \sata back.
+
+    Facts checked (docs/research_plan.md): GPU spend P4 ~$3.30, P5 training + stage F ~$16,
+    top-k check ~$1.20, P6 ~$2.50 (+ SATA-MI ~$9.80, now removed) -> "a few tens" holds.
+    SATA-RL (Zhang et al.: offline Q-learning, reward = accuracy gain per added example) was
+    considered on 10 Oct as a 5c variant at about $20 more and deferred; never run.
+
+=====================================================================
+O. LIMITATIONS: "DECISIONS AFTER DATA" (local discussion.tex line 91)
+=====================================================================
+
+Why: the item lists four decisions but not what data each one saw, which is the whole point.
+Three never touched the evaluation tasks; one (the switch to AUROC) did, and it changed the
+statistic of a family already frozen with balanced accuracy. Saying that openly is stronger than
+the current blanket sentence. The drawing rule was also chosen after data and was missing.
+Note: Table B.1 reports AUROC only, so do not claim balanced accuracy is "still reported".
+
+Facts (hiccups 09, 14, 15, 21): shortcut direction randomised 28 Sep after the P2 pilot; names
+picked 30 Sep by measured contrast on 2,000 zero-shot profiles (P3); AUROC adopted 30 Sep after a
+check on the first 64 P4 units (11 evaluation tasks, seed 0, abstract names): calibration pinned
+36% of plain-random cells at BA = 0.5, so shift gaps were forced to 0; no contrast had been
+computed. Matched target 10 Oct (gate S3a, validation tasks, before training); drawing rule after
+the first training runs (validation tasks); RQ4 family frozen 10 Oct; first SATA result 11 Oct.
+
+Two different numbers (checked 3 Nov, P4 grids, random demonstrations, gold labels, calibrated p1 > 0.5):
+  - "about a third" = share of random-demonstration CELLS (prompts) whose 20 queries all land on one
+    side of the threshold, which pins balanced accuracy at 0.5. Hiccup 15 / methodology line 135
+    say 36% (early check); recomputed on the full H200 grid it is 30% (196 of 648 cells), on the
+    Mac grid 32%. "About a third" covers all three; methodology's exact "36%" cannot be reproduced
+    from the saved files, so "about a third" is safer there too.
+  - 72.7% = share of individual QUERIES predicted "1" (abstract, seed 0, first 11 tasks). It shows
+    the lean towards 1 but does not by itself pin balanced accuracy. Hiccup 15 reads it as "8 of 11
+    tasks predicted 1 for everything"; the saved data show 4 of 11 (eval_0000, 0001, 0004, 0007).
+
+Was the switch justified? (checked 3 Nov, H200 P4 grid, random demonstrations, abstract names,
+per task-seed pair; the overall gaps reproduce contrasts.csv's ba_estimate and estimate exactly)
+                                   ID - covariate        ID - reversal
+                                   BA      AUROC         BA      AUROC
+  all pairs                       +0.008  +0.024        +0.050  +0.115
+  neither cell pinned             +0.005  -0.005        +0.082  +0.092   (the two measures agree)
+  ID or shift cell pinned         +0.013  +0.066        -0.004  +0.154
+  both cells pinned (21%)          0      +0.101         0      +0.213   (BA gap forced to 0)
+  So BA does not just add noise: it scores exactly the cells where the shift does most damage as
+  "no change", and halves the reversal cost overall. The "4 of 11 tasks" figure is the wrong unit:
+  what matters is pinned cells (30% overall; 38-42% of the RQ1 pairs have at least one).
+
+O1. Suggested item (plain-language version, 3 Nov):
+
+    \item \textbf{Decisions after data.} Some design choices were made after seeing early data. Most never touched the evaluation tasks: the shortcut's direction was randomised per task after the pilot showed Qwen's ``bigger means 1'' habit backing it; the feature names were picked by their measured effect on Qwen's zero-shot answers on random profiles; and \sata's matched target and drawing rule were chosen on its own validation tasks, judged by the stand-in learner (gradient-boosted trees fitted on the chosen rows), not by Qwen. One choice did use the evaluation tasks. The ten planned tests for \RQ1--\RQ3 had been written down in advance with calibrated balanced accuracy as their measure: each query's margin is first corrected by Qwen's margin on a dummy query whose values are all ``N/A'' \citep{zhao2021calibrate}, and the answer is then counted as right or wrong. An early check on the first results of the main experiment (11 of the 24 evaluation tasks) showed that, with randomly chosen demonstrations, this correction gave the same answer to all 20 queries in about a third of the prompts. Balanced accuracy is then exactly 0.5 whatever the queries are, so no shift could lower it. We therefore switched those ten tests to \AUROC, which compares the queries' margins within a prompt and needs no right-or-wrong cut-off, before any of them had been computed; the switch was forced by the measure breaking, not by which way the results pointed. Every one of these choices was made before the planned tests it affects were computed.
+
+O2. Recommended instead (3 Nov, after discussion): DROP the "Decisions after data" item. Every
+    decision in it is already disclosed, with its reason, where it is made: shortcut direction
+    (methodology line 36), AUROC switch (methodology line 135), SATA's target and drawing rule
+    (chapter 5, plus the Proxies item). Listed as a limitation, a set of justified fixes reads as
+    unclear. The one real limitation hidden in it is that the names were SELECTED for strength
+    (5 of 8 candidate pairs per domain, by measured contrast; configs/lexicons.yaml), so add:
+
+    \item \textbf{Names.} The antonym pairs are not a random sample of domain names: in each domain we kept the 5 of 8 candidate pairs that moved Qwen's zero-shot answers most, and even these were strong mainly for loan approval (0.28 against 0.05 on the pilot). The naming cost of 0.20 is therefore the cost of strongly worded names for this model, not of domain names in general.
+
+=====================================================================
+P. CHAPTER 6 RESULTS, CONDENSED AND IN PLAIN LANGUAGE (user asked, 3 Nov)
+=====================================================================
+
+Full replacement for "\section{Results}" through the end of "What this chapter does not show":
+thesis/notes-ch6-results-condensed.tex (same labels, same four findings, same four figures).
+Changes beyond wording:
+  - SATA-MI removed (critical-layer list, final gap 0.119; Figures 6.1 and 6.2 redrawn without it).
+  - Figure 6.1 now uses fig_lens_strategies.pdf (every strategy coloured, no SATA-MI), label fig:lens.
+  - Figure 6.2 (fig_lens_gap.pdf) regenerated without the SATA-MI line.
+  - FIX: the old fig:lens-gap caption said the gap "crosses the 0.1 threshold at layer 23 for every
+    strategy, zero-shot included". Not so: random, label_diversity, counter_prior 23; zero-shot 24
+    (gap 0.099 at layer 23); SATA 25 (0.076 at 23, 0.098 at 24). The text already said 23/24/25.
+  - "At chance for 20 layers": layers 0-20 range 0.448-0.556, so "near chance (0.45-0.56)".
+  - The conflict-query margins (0.56 vs 6.08, 5.25 vs 0.41) dropped for brevity; the cosine stays.
+  - Steering caption: "up to 9 logits" -> "about 9 logits at layer 24" (max is 9.6).
+Numbers checked 3 Nov (scratchpad ch6_numbers.py, same loaders as figures.py):
+  final-layer AUROC aligned 0.627-0.667 with demos, 0.592 zero-shot; flipped 0.453-0.523, 0.451;
+  critical layers random/label_diversity/counter_prior 23, zero-shot 24, SATA 25;
+  final gaps zero-shot 0.141, random 0.192, counter_prior 0.174, SATA 0.104 (label_diversity 0.204);
+  probes prior 0.799-0.871 abstract, 0.654-0.738 named; rule 0.427-0.586, 0.586 at layer 28 aligned;
+  steering alpha <= 16: -0.006 to +0.008; L24 alpha 32 margin -9.59 / -9.27.
+
+=====================================================================
+Q. SUPERVISOR POINT 3: RENAME THE NAMING EXPERIMENT "SEMANTIC PRIOR CONFLICT"
+=====================================================================
+Locations are in Chenuka's PDF "When_Demonstrations_Lose_to_Priors___Thesis_final (4).pdf"
+(printed page numbers; main matter = PDF page - 10).
+
+Why: flipped names do not change P(y|x), so calling them "concept shift" invites the objection the
+thesis already has to answer in 7.3. What they create is a conflict between the model's semantic
+prior (what the names mean to it) and the rule the demonstrations show, Wei et al.'s (2023) term.
+Renaming removes the objection and matches the title.
+
+Q1. Abstract (p. iii). Replace "covariate shift, spurious-feature reversal and concept shift (realised
+    by giving features names whose everyday meaning agrees or disagrees with the rule) can each be
+    switched on alone, with known ground truth" with:
+      covariate shift and spurious-feature reversal can each be switched on alone, with known ground truth, and the features' names can be set to agree or conflict with the rule (semantic prior conflict)
+Q2. 1.1, RQ1 (p. 2):
+      Does in-context learning degrade under covariate shift, spurious-feature reversal and semantic prior conflict?
+    Same page, "Data shifts in focus ... Concept shift is realised by naming: the same task ..." ->
+      Covariate shift and reversal of the shortcut can each be switched on alone. Separately, we create semantic prior conflict by naming: the same task is shown with neutral names ($f_0, \ldots, f_9$), with everyday names whose meaning agrees with the rule (aligned), or with the antonyms of those names (flipped), so that the model's semantic prior points the wrong way while the data and the rule stay the same.
+Q3. 3.3 Environments, last paragraph (p. 12). Replace "Concept shift is realised by naming ..." with:
+      Names are a separate factor, not an environment: the rows, the rule and $P(y \mid x)$ stay the same, and only the meaning of three feature names changes (next section).
+Q4. 3.4 heading (p. 12): "Semantic prior conflict: setting the names against the rule". Add after
+    the first paragraph:
+      We call the flipped condition \emph{semantic prior conflict}: the everyday meaning of the names, which the model brings from pre-training, points against the rule that the demonstrations show \citep{wei2023larger}.
+Q5. Figure 4.1 caption (p. 17): "Flipping the names (semantic prior conflict) is the largest effect."
+Q6. 4.4 (p. 18), paragraph "The third row is how we realise concept shift ...". First sentence ->
+      The third row tests semantic prior conflict, and it cannot be built like the other two:
+    Last sentence ("From the model's point of view ... never does") ->
+      It is not concept shift, since $P(y \mid x)$ in the data never changes; what changes is the meaning the model attaches to the features.
+Q7. 7.1, RQ1 answer (p. 35): "Yes, and concept shift realized by naming causes the most degradation"
+    -> "Yes, and semantic prior conflict, created by flipping the feature names, causes the most degradation."
+Q8. 7.3 RQ1 critique "Naming is not concept shift; P(y|x) never changes" (p. 37): DELETE (moot).
+    If space is wanted, the "Names" limitation (note O2) is the better use of it.
+Q9. Conclusion (p. 43): "which covariate shift, spurious reversal, and concept shifts can be switched
+    on alone. Sets the model's semantic price against the rule by naming the features" ->
+      in which covariate shift and spurious reversal can be switched on alone, and set the model's semantic prior against the rule by naming the features
+    ("semantic price" is a typo for "semantic prior".)
+Keep: 2.3's textbook definition of concept shift (p. 7) is background and can stay. Table B.1, the
+figures and the appendices do not use "concept shift". The result files label C1c and C2d with
+"concept shift"; only matters if a table is regenerated from them.
+
+=====================================================================
+R. SUPERVISOR POINT 4: METHOD DESCRIPTIONS THAT DO NOT MATCH WHAT RAN
+=====================================================================
+Each checked against the code and result files on 4 Nov.
+
+R1. 3.6 (p. 14): "Every strategy except random and similarity takes k/2 demonstrations of each label".
+    similarity takes the k/2 nearest rows OF EACH LABEL (Table 3.1 says so; every similarity set in
+    the grid is 4/4). -> "Every strategy except \strat{random} takes $k/2$ ..." (same as C11.)
+R2. 3.7 Inference (p. 14) and 4.3 Setup (p. 17-18): "Demonstration sets depend only on (task,
+    strategy, seed), so the same sets are reused across namings and environments". False for three
+    strategies: similarity picks a new set for every query (60 per task), SATA likewise (60), and
+    counter_prior's set depends on the naming (up to 3 per task and seed) because it uses the prior
+    measured under that naming. Suggested for 3.7:
+      For most strategies the demonstration set depends only on the task, strategy and seed, so the same rows are shown under every naming and environment and contrasts are paired. \strat{similarity} and \sata choose a set for each query, and \strat{counter\_prior}'s set depends on the naming, because it uses the prior measured under that naming.
+    and in 4.3 replace "Because a demonstration set depends only on ... never differences in the
+    demonstrations." with "Except for \strat{similarity} and \strat{counter\_prior}, the same rows are shown under every naming and environment (\autoref{sec:stats})."
+R3. 3.7 The metric (p. 14): "AUROC ... of the margin". The code scores the calibrated probability of
+    "1" (contextual calibration with an "N/A" query, Zhao et al. 2021; analysis.py prepare/cell_metrics)
+    against the label shown in the data (2% flipped). When every query in a cell shares one prompt
+    this ranks exactly as the margin (random: 0.557 both ways); for similarity and SATA, with a prompt
+    per query, it differs (similarity mean cell AUROC 0.568 calibrated vs 0.573 raw). Chapter 6's
+    logit lens and probes use the rule label y_clean instead. Suggested first sentence:
+      The primary statistic is \AUROC \citep{hanley1982meaning,fawcett2006introduction} of Qwen's calibrated probability of answering 1, computed within each cell of (task, strategy, seed, naming, environment) over its 20 label-balanced queries; when every query in a cell shares one prompt, as for all strategies except \strat{similarity} and \sata, this ranks the queries exactly as the margin does.
+    Also: "36% of plain-random cells" was the early check; on the full grid it is 30%: write
+    "about a third". And "which ?? measures" is a broken reference.
+R4. Table 3.1, counter_prior (p. 14): it keeps only rows whose label was not flipped (protocols.py
+    line 230 reads y_clean), which a deployed selector could not know, yet it is not marked GT. Also
+    it falls back to label_diversity's set where conflict <= 1/2 (nine tasks). Suggested cell:
+      counter\_prior (GT) & Rows whose label contradicts the model's measured prior, excluding flipped-label rows, when the pool shows prior--data conflict (otherwise \strat{label\_diversity}'s set); related to misconfidence-based selection \citep{xu2024misconfidence}. \\
+R5. SATA-MI leftovers (its section is gone, so these describe something no longer reported):
+    abstract (p. iii, two places), contribution (3) (p. 3), Table 3.1 row "SATA, SATA-MI" (p. 14),
+    3.7 "and four for SATA-MI" (p. 14), Figure 6.1 axis label (p. 33; use fig_lens_strategies.pdf, P),
+    Appendix A rows R7-R10 and lambda (p. 51), B.5 "and four for SATA-MI (R7-R10)" (p. 55), and the
+    R7-R10 rows of Table B.1 if still there.
+R6. 4.6 RQ3 (p. 22): "a query whose feature names are N/A" -> "whose feature values are N/A" (names
+    are kept; calibration.py replaces every value with "N/A").
+R7. 5.2 Drawing instead of ranking (p. 27): "with AUROC high under reversal (0.657) but at chance on
+    ID queries (0.478)" -> these are the stand-in learner's ACCURACIES, not AUROC. Also "checked in ??"
+    (p. 28) is a broken reference (should point to the top-k section/figure).
+R8. 6.2 Critical layer (p. 33): "accuracy of the median-centred prediction is reported alongside" -
+    it is not reported anywhere. Delete the clause (same as C4).
+R9. 6.2 Steering (p. 34): "re-run under abstract, aligned and flipped names" -> steering was applied
+    under aligned and flipped names only (the vector was fitted on random-demonstration runs).
+    "Using contrastive activation Minder et al. (2025)": contrastive activation addition is
+    Rimsky et al. (2024) (activation addition: Turner et al. 2023); Minder et al. is the Llama result
+    cited later. Check the citation.
+R10. Other broken references: chapter 2 intro bullet "observed(??)" (p. 5) and 7.3 "which is why ??
+    reports the margins" (p. 39).
+Checked and consistent: covariate shift (two rule features to opposite labels + one distractor,
+|delta| 1.02-1.98, all 24 tasks); 256-row pool, 20 label-balanced queries per environment; 86,400
+prompts; three seeds (one for similarity); RQ3 uses label_diversity, three seeds, nudge +-0.5;
+probes 15 layers x 2 targets x 3 namings x 4 folds = 360, C = 0.1; steering layers 8-24, alpha 1-32,
+fitted on loan, tested on medical; SATA 1,000/100 tasks, KL loss, drawing; 2,000 name profiles.
+
+=====================================================================
+S. EVERY SATA-MI MENTION LEFT IN CHENUKA'S PDF (4 Nov), WITH REPLACEMENTS
+=====================================================================
+Direct mentions (say "SATA-MI", "R7-R10", "reader", "lambda") and indirect ones (plural
+"selectors" / "stand-in learners", "measured priors", "ten selector contrasts"), which only make
+sense with two selectors. Printed page numbers.
+
+S1. Abstract, sentence 4: "We then train a set-transformer selector (SATA), first on structural
+    targets and then on the model's own measured priors (SATA-MI), and look inside ..." ->
+      We then train a set-transformer selector (\sata) on targets computed from the ground truth, and look inside the model with the logit lens, linear probes and activation steering.
+S2. Abstract, results: "none of the six pre-registered SATA contrasts, and none of the four SATA-MI
+    contrasts, favours the selector after Holm correction" ->
+      none of the six pre-registered \sata contrasts favours the selector after Holm correction
+S3. 1.2 Approach, item (2) (p. 3): "It beats every strategy on stand-in learners" ->
+      It has the best worst case of any strategy on a stand-in learner
+S4. 1.3 Contribution (3) (p. 3): the whole item is SATA-MI's claim ("model-informed targets",
+    "first selector trained on a model's measured semantic priors"). Drop the "first" claim (it was
+    SATA-MI's and was never novelty-checked for SATA). Replace with (4 Nov):
+      (3) \sata, a set-transformer selector that picks demonstrations for each query from the whole pool and is trained on targets computed from the ground truth rather than on the language model's scores, so its training never touches the model it is tested on (\autoref{ch:sata}). An oracle check on a stand-in learner caught that the first targets taught the shortcut backwards, before any training. The pre-registered evaluation on the instruction-tuned model is null and reported as such; on the base model, whose priors pull less, its weakest environment is better than any other strategy's (exploratory).
+    Short version:
+      (3) \sata, a demonstration selector trained on ground-truth targets rather than on the model's scores, with an oracle check that caught a target teaching the shortcut backwards, and a pre-registered evaluation whose null result on the instruction-tuned model is reported as such (\autoref{ch:sata}).
+S5. 1.4 Summary of findings (p. 4): "none of the ten pre-registered selector contrasts" -> "none of the six".
+S6. 3.2 Suites (p. 11), full sentence. Minimal:
+      The selector of \autoref{ch:sata} is trained and validated on further tasks from the same distribution with disjoint seeds.
+    Plainer (says what "disjoint seeds" buys):
+      The selector of \autoref{ch:sata} is trained and validated on further tasks from the same generator, drawn with different random seeds, so it never sees an evaluation task.
+S7. Table 3.1, last row (p. 14): "SATA, SATA-MI & Learned selectors (Chapter 5)" -> "\sata & Learned selector (\autoref{ch:sata}). \\"
+S8. 3.7 Inference (p. 14): "ten contrasts for RQ1-RQ3, six for SATA and four for SATA-MI" ->
+    "ten contrasts for \RQ1--\RQ3 and six for \sata".
+S9. Figure 6.1 (p. 33): the x-axis label lists SATA-MI and the plot draws its line. Swap the image
+    for figures/fig_lens_strategies.pdf (no SATA-MI) and use the caption from note P.
+S10. 7.3 RQ4 critiques (p. 40): "It reached its own oracle's level on the stand-in learners" ->
+    "on the stand-in learner"; and the next critique's title "The stand-in learners are poor proxies
+    for the model, so the selectors were optimized ..." -> "The stand-in learner is a poor proxy for
+    the model, so \sata was optimised for the wrong thing." (as in note J1).
+S11. 7.4 Limitations, Proxies (p. 41): ->
+      \item \textbf{Proxies.} The selector was trained against a stand-in learner that tracks the model only moderately under named features.
+S12. Conclusion (p. 43): "A learn selector that beats every strategy on stand-in learners ties on the
+    model. Whether it reads only the data or also the model's measured priors. Though it does help
+    the base model, ..." ->
+      A learned selector with the best worst case on a stand-in learner ties on the model, though it does help the base model, whose priors are weaker.
+S13. Appendix A intro (p. 50): "Three letters carry more than one meaning ...; w is the logit-lens
+    label direction, and \hat{w} the reader's fitted weights." -> delete the w / \hat{w} clause and
+    say "Two letters carry more than one meaning".
+S14. Appendix A table (p. 51): "R1-R6, R7-R10 | The confirmatory contrasts for SATA and SATA-MI" ->
+    "R1--R6 | The confirmatory contrasts for \sata (\autoref{tab:contrasts})". Delete the rows for
+    lambda (p. 51), \hat{w} and a_0, a_1, a_2 (the reader, p. 52).
+S15. Appendix B.5 Multiplicity (p. 55): "ten contrasts for RQ1-RQ3, six for SATA (R1-R6) and four for
+    SATA-MI (R7-R10)" -> "ten contrasts for \RQ1--\RQ3 and six for \sata (R1--R6)".
+S16. Table B.1 (p. 56): delete rows R7, R8, R9, R10.
+S17. Contrast IDs (C1a-C3b, R1-R6) are never used in the main text, only as Table B.1 row labels, in
+    its caption ("C1-C2 and R are differences in AUROC ...") and in Appendix A / B.5. They are code
+    names (src/evaluation/analysis.py), so drop them (4 Nov, user agreed): delete the two Appendix A
+    rows, drop "(R1--R6)" from B.5, and use descriptive row labels in Table B.1 (as the local
+    design.tex already does; full LaTeX given in chat on 4 Nov).
+Not SATA-MI (keep): "the six SATA contrasts give the same ceiling" (7.3, p. 38); \tilde{m}_0, C_t and
+counter_prior's measured prior (Appendix A); 2.4's "learned selectors" (that is the literature).
+After these, search the Overleaf project for "satami", "sata_mi", "R7", "reader" and "lambda" to
+catch anything the PDF text did not show (e.g. commented-out text, macros in thesis.tex).
+
+=====================================================================
+T. SUPERVISOR POINT 2: EVERY ABSTRACT CLAIM NEEDS A RESULT IN THE BODY (PDF v5, 4 Nov)
+=====================================================================
+Abstract claim -> where (if anywhere) the body shows it:
+  T1. seven strategies vs zero-shot ............ Figure 4.2, chapter 4. OK.
+  T2. logit lens, "answer forms in last layers" . Figure 6.1 + Finding 6.1 only; 6.3 ends at the
+      placeholder "[Complete Chapter 6 final bits]", so no numbers. -> paste note P's section.
+  T3. linear probes, "zero-shot guess decodable from layer 2, rule hardly at all" ... MISSING
+      (method only). -> note P adds Finding + Figure (fig_probes.pdf). Or delete from abstract.
+  T4. activation steering, "moves outputs without making them more correct" ... MISSING (method
+      only). -> note P adds Finding + Figure (fig_steering.pdf). Or delete from abstract.
+  T5. "SATA does help the base model" ... one sentence in 5.3, NO numbers. -> add T7 paragraph.
+  T6. "beats every strategy on a stand-in learner" ... contradicted by Figure 5.1 (see H, U2).
+  Also: abstract "(SATA), (SATA)" is duplicated; note P's section already contains Figure 6.1, so
+  drop the copy that now sits inside 6.2 Method.
+
+T7. 5.3, new paragraph with the base-model results (replaces "Hence, on an exploratory study ...
+    as shown in figure 5.1 with the stand in learner."). Numbers checked 4 Nov from
+    p4/grid_base.parquet + p5/grid_sata_base.parquet + p5/base_sata_contrasts.parquet:
+
+    \paragraph{The base model (exploratory).}
+    We ran the same \sata checkpoint on Qwen2.5-7B (base), under abstract and flipped names only. There, \sata's weakest environment is better than any other strategy's: 0.589 under abstract names, against 0.550 for \strat{counter\_spurious} and 0.504 for \strat{random}, and 0.551 under flipped names, against 0.471 and 0.461. Against random demonstrations it gains under spurious reversal ($+0.085$ [0.015, 0.155] with abstract names, $+0.094$ [0.031, 0.159] with flipped names) with no clear cost on ID queries ($-0.027$ and $+0.008$, both intervals crossing zero). Only the flipped-name gain survives a Holm correction over the twelve base-model comparisons we ran, so this is a lead rather than a confirmed result. The base model also loses less to flipped names than the instruction-tuned model (random demonstrations, ID: $-0.065$ against $-0.119$ \AUROC).
+
+=====================================================================
+U. SUPERVISOR: SOFTEN VERDICTS; REPORT WHAT WAS OBSERVED AND ITS LIMITS (PDF v5, 4 Nov)
+=====================================================================
+Rule of thumb: replace a verdict ("cannot", "fails", "the issue is", "the answer is no", "beats",
+"ties", "exactly") with what was measured, on what, and how sure we are.
+
+U1. Abstract, last paragraph: "selection alone cannot route around a strong prior." ->
+      none of the selection methods we tried overcame the names' pull on the instruction-tuned model, although the learned selector did help its base model in an exploratory comparison.
+U2. Abstract: "A trained selector beats every strategy on a stand-in learner, but not on the
+    instruction-tuned model: none of the six pre-registered SATA contrasts, favours ..." ->
+      A trained selector is the only method with no weak environment on a stand-in learner, but on the instruction-tuned model none of its six pre-registered contrasts favours it after Holm correction.
+U3. 1.2 item (2) (p. 3): "but it ties on Qwen-Instruct. SATA does help the base model as expected." ->
+      but on Qwen-Instruct it does no better than balanced random demonstrations. In an exploratory comparison it does help the base model.
+    ("as expected" reads as hindsight; nothing predicted it beforehand.)
+U4. 1.2 item (3) (p. 3), garbled and over-attributes to probes/steering ->
+      (3) Inside the model (Chapter 6; RQ3). The logit lens shows that Qwen's answer forms only in its last few layers and that the names decide it there; linear probes read Qwen's own guess from layer 2 but hardly any trace of the demonstrated rule; and a steering direction for ``follow the demonstrations'' shifts every answer without making it more correct. Limitation: one 7B model, eight numeric demonstrations, synthetic tasks.
+U5. 1.3 contribution (4) (p. 4): "A mechanistic diagnosis of why selection fails at this scale" ->
+      (4) Evidence from inside the model on where the names take over and how little of the demonstrated rule is visible there, and a negative result for one steering direction (Chapter 6).
+U6. Finding 5.2 (p. 28): see H1 ("best worst environment", not "every environment").
+U7. 5.3 (p. 30), "This lead to the conclusion that the issue was not with SATA but with Qwen. It
+    doesn't fit the demonstrations. At the 7B scale, ICL works mostly by ... clealy shown by Pan et
+    al. (2023) and Wei et al. (2023)." ->
+      These results cannot fully separate a weakness of \sata from a property of the model, but they point towards the model. \sata's demonstrations carry the rule, since the stand-in learner learns it from them, yet the instruction-tuned model does not use them. This is consistent with \citet{pan2023what} and \citet{wei2023larger}, who find that models of this size lean more on recognising the task and on their priors than on the mapping the demonstrations show.
+    (pan2023what is in references.bib.) Then T7's paragraph, and delete "This is also why we saw
+    significantly better results as shown in figure 5.1" (the stand-in was never tested for
+    significance, and the link is a guess).
+U8. Finding 5.4 (p. 30): "SATA helps exactly as far as the learner reads the evidence" ->
+      \finding{\sata helped the learners that read their demonstrations, the stand-in learner and, in an exploratory comparison, the base model, but not the instruction-tuned model.}
+U9. 5.3 last paragraph (p. 31): "for the better or worse with larger models that can override its
+    priors" is fine; "with enough compute there is potential" is fine. Keep.
+U10. 7.1 RQ3 (p. 36): "The prior wins because it is present in the model's state from layer 2, while
+    ..." (the lens and probes are not causal) ->
+      The internal evidence fits the prior winning: Qwen's own guess can be read from its state from layer 2, the demonstrated rule hardly at all, and the answer forms in the last six layers, where the names decide it (Chapter 6).
+U11. 7.1 RQ4 (p. 36): "Not on the instruction tune model ... SATA beats every stratergy on the
+    stand-in learner however, the selection rule does not change this." ->
+      \textbf{\RQ4: does a learned selector help?} Not on Qwen2.5-7B-Instruct: none of the six pre-registered contrasts favours \sata, and taking its top-$k$ rows instead of drawing does no better. On the stand-in learner it is the only method with no weak environment, and in an exploratory comparison it helps the base model.
+U12. 7.2 (p. 36): "we can affirm that the cost of conflict is set by the names more than by any
+    choice of evidence" -> "in what we tested, the cost of conflict depended more on the names than on which demonstrations were chosen". And "our results on the other hand reveal that a selectors values are bound mostly by how much the model reads the evidence at all" -> "our results suggest that a selector's value depends on how much the model reads the evidence at all".
+U13. 7.3 RQ4 critique (p. 40): "The failure is in what the instruction-tuned model does with good
+    evidence as discussed earlier." -> "The results point instead to what the instruction-tuned model does with the evidence it is given (\autoref{sec:sata})." Also "stand-in learner's" -> "stand-in learner" (twice; no apostrophe).
+U14. Conclusion (p. 43), second and third paragraphs ->
+      For Qwen2.5-7B-Instruct with eight numeric demonstrations, none of the selection methods we tried did so. The feature names decided most of what the model predicted, more than any shift of the data. The hand-designed strategies differed little from balanced random demonstrations; the one clear effect is that neutralising the shortcut fares better under its reversal than under covariate shift. A learned selector, the only method with no weak environment on a stand-in learner, did no better than balanced random demonstrations on the model, although in an exploratory comparison it helped the base model, whose priors pull less. Inside the model, the answer forms in the last few layers and the names decide it there; the model's own guess is visible from the start and the demonstrated rule hardly at all; and one steering direction moved the answers without making them more correct.
+
+      Selection chooses evidence; in our experiments it did not make the instruction-tuned model read evidence it largely ignored. Within the scale we could study, that appears to be the binding constraint. The testbed, the pre-registered contrast families and the diagnosis give future work, at larger scale and with the model's own training signal, a controlled place to find out when it stops being one.
+    (Also first paragraph: "concept shifts" -> Q9; "semantic price" -> "semantic prior".)
+Keep (already observed-and-scoped): 1.4 bullets; 1.2 item (1) "no strategy overcomes flipped
+names"; 6.1 "no choice of demonstration seemed to be able to overturn the names" ("sync" -> "sink").
+
+Figures to upload to Overleaf if used:
+  figures/fig_rq2_interaction.pdf     (A1)
+  figures/fig_covariate_dose.pdf      (D-ALT, recommended)
+  figures/fig_covariate_strength.pdf  (D1, only if D-ALT is not used)
+  figures/fig_variance_shift.pdf      (D1b, only if D-ALT is not used)
+  figures/fig_lens_strategies.pdf     (C8 / P: Figure 6.1)
+  figures/fig_lens_gap.pdf            (P: Figure 6.2, regenerated without SATA-MI)

@@ -1,72 +1,69 @@
 \chapter{Introduction}
 \label{ch:intro}
 
-A large language model can be taught a new classification task without changing a single weight.
-Place a few labelled examples (\emph{demonstrations}) in the prompt, follow them with an unlabelled \emph{query}, and the model will usually answer in kind \citep{brown2020language,dong2024survey}.
-This \emph{in-context learning} is cheap, which is why it is used so widely, and it is fragile: which demonstrations are shown, in what order and with what label balance, changes the answer \citep{zhao2021calibrate,lu2022fantastically,min2022rethinking}.
-A body of work therefore \emph{selects} demonstrations, by similarity to the query \citep{liu2022what}, by diversity and coverage \citep{levy2023diverse,gupta2023coverage}, or with retrievers trained on the model's own feedback \citep{rubin2022learning,li2023unified,ye2023compositional}.
+Large Language Model's (LLM's) have shown a remarkable ability to learn classification tasks without being specifically trained for that task hence, without changing its internal weights. By placing a few labeled examples (\emph{demonstrations}) along with the prompt, the model can be seen to answer the query prompt sufficiently \citep{brown2020language, dong2024survey}. This phenomena known formally as \emph{in context learning} has been widely used by both users and professionals during training, testing and inference largely due to its ease of use and setup. However, due it's fragile nature it brings about challenges and varying results upon how such challenges are faced, from which demonstrations are shows, their format, order and with what label balance \citep{zhao2021calibrate, lu2022fantastically, min2022rethinking}. Hence, a body of work therefore arose to investigate \emph{selections of} demonstrations, by similarity to the query \citep{liu2022what}, to diversity and coverage \citep{levy2023diverse,gupta2023coverage}, or with retrievers trained on the model's own feedback \citep{rubin2022learning,li2023unified,ye2023compositional}.
 
-Two things that matter in practice are missing from most of that work.
+
+To the extent of the work that follows here, there are two things in practice that have been overlooked by most of the current work out there. 
 The first is \textbf{distribution shift}: the queries a deployed model sees are rarely drawn from the same distribution as the demonstrations.
-The second is \textbf{prior conflict}: a model brings its own beliefs about what a feature means, and what the demonstrations teach can disagree with them.
-\citet{wei2023larger} found that following in-context evidence that contradicts semantic priors emerges with scale, and models of 7--8B parameters follow contradicting demonstrations only partially \citep{krishnakumar2025semantic,kossen2024incontext}.
-Yet these are the models that most practitioners can afford to run.
+The second is \textbf{prior conflict}: a model brings its own beliefs about what a feature means, and what the demonstrations teach can disagree with them. Works by \citet{wei2023larger} found out that following in-context evidence that contradicts semantic priors emerges with scale, and models of 7 to 8B parameters follow contradicting demonstrations only partially (not being able to override there priors and learn from the demos teachings) \citep{krishnakumar2025semantic,kossen2024incontext}.
 
+
+\newpage
 \section{The question}
 
-This thesis asks a single question:
+This thesis aims to asks a single question:
 
 \begin{quote}
 \textit{Can the choice of demonstrations help a 7B language model follow in-context evidence over its own priors, under controlled distribution shift?}
 \end{quote}
 
-It is broken into four research questions, each answered on Qwen2.5-7B-Instruct \citep{qwen2024qwen25} with $k = 8$ demonstrations.
+The question is then broken into four sub research questions where each is answered on Qwen2.5-7B-Instruct \citep{qwen2024qwen25} with $k = 8$ demonstrations.
 
 \begin{description}[leftmargin=2.4em, style=nextline]
   \item[\RQ1] Does in-context learning degrade under covariate shift, spurious-feature reversal and concept shift?
   \item[\RQ2] Do different selection strategies help under different kinds of shift?
-  \item[\RQ3] Does the model rely on the features that actually determine the label, and why does its prior win when it conflicts with the demonstrations?
-  \item[\RQ4] Does a learned selector (\sata) beat the hand-designed strategies, and do signals measured from the model itself help it?
+  \item[\RQ3] Does the models of this size rely on the features that actually determine the label, and why does its prior in them win when it conflicts with the demonstrations?
+  \item[\RQ4] Does a learned selector (\sata) beat the hand-designed strategies, and do signals measured from the base model itself help it?
 \end{description}
 
-Answering these questions on real data is not possible, because real benchmarks mix several kinds of shift and give no ground truth for which features matter (\autoref{sec:bg-shift}).
-We therefore build a \textbf{synthetic tabular testbed} (\autoref{ch:method}).
-Every task has three features that determine its label, a spurious ``shortcut'' feature that agrees with the label 80--90\% of the time, and distractors.
-Covariate shift, reversal of the shortcut and concept shift can each be switched on alone.
-Concept shift is realised by \emph{naming}: the same task is shown with neutral names ($f_0, \ldots, f_9$), with everyday names whose meaning agrees with the rule (\emph{aligned}), or with the antonyms of those names (\emph{flipped}), so that the model's semantic prior points the wrong way.
 
+It is significantly difficult to attempt to answer these questions on real data as the real data and there bench marks that follow mix several kinds of shifts and give no ground truth for which features matter (\autoref{sec:bg-shift}). Therefor the works here that follow have built a \textbf{synthetic tabular testbed} (\autoref{ch:method}) where every task has three features that determine its label, a spurious ``shortcut'' feature that agrees with the label 80--90\% of the time, and distractors. Data shifts in focus here that are, covariate shift, reversal of the shortcut and concept can each be switched on alone. Concept shift is realised by \emph{naming}: the same task is shown with neutral names ($f_0, \ldots, f_9$), with everyday names whose meaning agrees with the rule (\emph{aligned}), or with the antonyms of those names (\emph{flipped}), so that the model's semantic prior points the wrong way.
+
+\newpage
 \section{Approach and the story of this thesis}
 
-The experiments form a chain, and each chapter of Part~II starts from the limitation of the one before it.
+The experiments here form a chain of sorts, and each chapter of Part~II aims to start from the limitation of the one before proceeding it.
 
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{Shift, names and the prior} (\autoref{ch:shift}; \RQ1--\RQ3).
         We measure how each shift hurts and whether seven hand-designed strategies help.
         The names dominate: no strategy overcomes flipped names, and the model's ``bigger numbers mean 1'' habit explains much of what remains.
-        \emph{Limitation:} hand-designed heuristics see only the data, not what the model makes of it.
+        \emph{Limitation:} hand-designed heuristics see only the data, not what the model makes of it (information about the model internal bias via the priors).
   \item \textbf{Learning to select} (\autoref{ch:sata}; \RQ4).
-        We train a set transformer, \sata, to choose demonstrations that teach the rule rather than the shortcut, and then a variant, \satami, that also reads the model's own measured prior for every candidate and the query.
-        Both beat every strategy on stand-in learners and tie on Qwen-Instruct; \sata does help the base model.
-        \emph{Limitation:} behaviour alone cannot tell us \emph{why} no choice of evidence works.
+        We train a set transformer, \sata (Shift Aware Task Adapter), to choose demonstrations that teach the rule rather than the known shortcut, and then a variant, \satami, that also reads the model's own measured prior for every candidate and the query.
+        Both beat every strategy on stand-in learners and tie on Qwen-Instruct; \sata does help the base model as expected.
+        \emph{Limitation:} behaviour alone cannot tell us why none of the demonstration sets we tried moves the instruction-tuned model.
+
   \item \textbf{Inside the model} (\autoref{ch:mechanism}; \RQ3).
-        The logit lens, linear probes and steering show that the answer forms in the last few layers, that the names decide it there, and that the demonstrated rule barely reaches the residual stream.
-        \emph{Limitation:} our scale: one 7B model, eight numeric demonstrations, synthetic tasks.
+        We use an approach, The logit lens, where we saw that linear probes and steering show that the answer forms in the last few layers, that the names decide it there, and that the demonstrated rule barely reaches the residual stream.
+        \emph{Significant Limitation:} our scale: one 7B model, eight numeric demonstrations, synthetic tasks.
 \end{enumerate}
 
 \section{Contributions}
 
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{A controlled testbed for in-context learning under shift and prior conflict}, with each shift isolated, ground-truth feature roles, a naming factor matched on measured prior strength, and a statistical protocol (within-cell \AUROC, a hierarchical bootstrap over tasks, Holm-corrected contrast families frozen before the data) (\autoref{ch:method}).
-  \item \textbf{A measured account of how a 7B model trades demonstrations against priors}: names outweigh every data shift, and the model's numeric prior explains most of the cost of reversing the shortcut (\autoref{ch:shift}).
+  \item \textbf{A measured account of how the 7B model here trades demonstrations against priors}: names outweigh every data shift, and the model's numeric prior explains most of the cost of reversing the shortcut (\autoref{ch:shift}).
   \item \textbf{\sata and \satami}, demonstration selectors trained on structural and model-informed targets, with pre-registered evaluations whose null results on the instruction-tuned model are reported as such (\autoref{ch:sata}).
-        As far as our literature search reached, this is the first selector trained on a model's measured semantic priors and tested under controlled shift.
+        As far as the literature search reached for this work, this is the first selector trained on a model's measured semantic priors and tested under controlled shift.
   \item \textbf{A mechanistic diagnosis} of why selection fails at this scale, and a negative result for single-direction steering (\autoref{ch:mechanism}).
 \end{enumerate}
 
 \section{Summary of findings}
 
-Findings are stated in bold throughout, numbered by chapter, and always for the conditions we tested.
-The main ones are these.
+The findings are stated in bold throughout, numbered by chapter, and always for the conditions we tested.
+The main ones are these below.
 
 \begin{itemize}[leftmargin=1.5em]
   \item \textbf{Flipping feature names hurts more than any shift of the data}: 0.20 \AUROC, against 0.12 for reversing the shortcut and 0.02 (not significant) for covariate shift (\autoref{ch:shift}).
@@ -74,12 +71,3 @@ The main ones are these.
   \item \textbf{A trained selector that wins on a stand-in learner does not win on the model}; none of the ten pre-registered selector contrasts favours it (\autoref{ch:sata}).
   \item \textbf{The answer forms in the last six of 28 layers, and the names decide it there}; the model's prior is decodable from layer 2, while the demonstrated rule hardly is (\autoref{ch:mechanism}).
 \end{itemize}
-
-\section{How to read this thesis}
-
-\autoref{ch:background} reviews in-context learning, priors, shift and selection.
-\autoref{ch:method} describes the testbed and the statistical protocol shared by every experiment.
-Part~II holds the three experimental chapters.
-Each opens with the question left by the previous chapter and closes with its own limitations.
-\autoref{ch:discussion} draws the results together, answers the anticipated criticism of each research question and sets out the limitations of the study as a whole, and \autoref{ch:conclusion} concludes.
-The appendices list the notation, the design details behind each claim, and how to reproduce every result.

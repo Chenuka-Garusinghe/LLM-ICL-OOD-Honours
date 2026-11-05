@@ -333,6 +333,43 @@
       \verb https://openreview.net/forum?id=HLoWN6m4fS
       \endverb
     \endentry
+    \entry{breiman2001random}{article}{}{}
+      \name{author}{1}{}{%
+        {{hash=132b7100417675d55d5d4d8b244f7a34}{%
+           family={Breiman},
+           familyi={B\bibinitperiod},
+           given={Leo},
+           giveni={L\bibinitperiod}}}%
+      }
+      \strng{namehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{fullhash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{fullhashraw}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{bibnamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorbibnamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authornamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorfullhash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorfullhashraw}{132b7100417675d55d5d4d8b244f7a34}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Machine Learning}
+      \field{number}{1}
+      \field{title}{Random Forests}
+      \field{volume}{45}
+      \field{year}{2001}
+      \field{pages}{5\bibrangedash 32}
+      \range{pages}{28}
+      \verb{urlraw}
+      \verb https://doi.org/10.1023/A:1010933404324
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1023/A:1010933404324
+      \endverb
+    \endentry
     \entry{brown2020language}{article}{}{}
       \true{moreauthor}
       \true{morelabelname}
@@ -665,6 +702,54 @@
       \endverb
       \verb{url}
       \verb https://www.wiley.com/en-us/Sampling+Techniques,+3rd+Edition-p-9780471162407
+      \endverb
+    \endentry
+    \entry{covert2021explaining}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=da0114911788f6c818e3ff395876d348}{%
+           family={Covert},
+           familyi={C\bibinitperiod},
+           given={Ian},
+           giveni={I\bibinitperiod}}}%
+        {{hash=b659ebc88023a12a732b4db9afdede3d}{%
+           family={Lundberg},
+           familyi={L\bibinitperiod},
+           given={Scott},
+           giveni={S\bibinitperiod}}}%
+        {{hash=ee964079d93879aaef2382a5fff343d3}{%
+           family={Lee},
+           familyi={L\bibinitperiod},
+           given={Su-In},
+           giveni={S\bibinithyphendelim I\bibinitperiod}}}%
+      }
+      \strng{namehash}{91eca63a644829852718ec0af6acecce}
+      \strng{fullhash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{fullhashraw}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{bibnamehash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authorbibnamehash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authornamehash}{91eca63a644829852718ec0af6acecce}
+      \strng{authorfullhash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authorfullhashraw}{36bf12d34925e49b7e800e7cc329bbef}
+      \field{sortinit}{C}
+      \field{sortinithash}{4d103a86280481745c9c897c925753c0}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Machine Learning Research}
+      \field{number}{209}
+      \field{subtitle}{A Unified Framework for Model Explanation}
+      \field{title}{Explaining by Removing}
+      \field{volume}{22}
+      \field{year}{2021}
+      \field{pages}{1\bibrangedash 90}
+      \range{pages}{90}
+      \verb{urlraw}
+      \verb https://jmlr.org/papers/v22/20-1316.html
+      \endverb
+      \verb{url}
+      \verb https://jmlr.org/papers/v22/20-1316.html
       \endverb
     \endentry
     \entry{davison1997bootstrap}{book}{}{}
@@ -2232,6 +2317,68 @@
       \verb https://aclanthology.org/2021.emnlp-main.564/
       \endverb
     \endentry
+    \entry{huang2023can}{misc}{}{}
+      \name{author}{5}{}{%
+        {{hash=d2aad98e3c6d4d89a70f9bd34b1799b7}{%
+           family={Huang},
+           familyi={H\bibinitperiod},
+           given={Shiyuan},
+           giveni={S\bibinitperiod}}}%
+        {{hash=c179c49d8064b9da2613a748acf07f80}{%
+           family={Mamidanna},
+           familyi={M\bibinitperiod},
+           given={Siddarth},
+           giveni={S\bibinitperiod}}}%
+        {{hash=710203badee949003d6e81930d5b8121}{%
+           family={Jangam},
+           familyi={J\bibinitperiod},
+           given={Shreedhar},
+           giveni={S\bibinitperiod}}}%
+        {{hash=b95bd6bfa3c880dcb579d4efad77a3bf}{%
+           family={Zhou},
+           familyi={Z\bibinitperiod},
+           given={Yilun},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=5ee638794fa56f3270e2f92ce36abd3d}{%
+           family={Gilpin},
+           familyi={G\bibinitperiod},
+           given={Leilani\bibnamedelima H.},
+           giveni={L\bibinitperiod\bibinitdelim H\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{3fbcd0a7429b822e4ea5bb035f82dad2}
+      \strng{fullhash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{fullhashraw}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{bibnamehash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authorbibnamehash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authornamehash}{3fbcd0a7429b822e4ea5bb035f82dad2}
+      \strng{authorfullhash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authorfullhashraw}{58bfe3a7940df0cda74f649ca06aaa60}
+      \field{sortinit}{H}
+      \field{sortinithash}{23a3aa7c24e56cfa16945d55545109b5}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprinttype}{arXiv}
+      \field{title}{Can Large Language Models Explain Themselves? {A} Study of {LLM}-Generated Self-Explanations}
+      \field{year}{2023}
+      \verb{doi}
+      \verb 10.48550/arXiv.2310.11207
+      \endverb
+      \verb{eprint}
+      \verb 2310.11207
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2310.11207
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2310.11207
+      \endverb
+    \endentry
     \entry{idrissi2022simple}{inbook}{}{}
       \name{author}{4}{}{%
         {{hash=7b5d0c34cf0df2fc1b5286481bc4fe41}{%
@@ -2776,6 +2923,58 @@
       \verb https://aclanthology.org/2023.acl-long.78/
       \endverb
     \endentry
+    \entry{li2025stads}{misc}{}{}
+      \name{author}{3}{}{%
+        {{hash=b772118efaca4fba98a6f04c451b05e5}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Sichao},
+           giveni={S\bibinitperiod}}}%
+        {{hash=1f71ab0ca29413ca694f897ff3e5d58c}{%
+           family={Xu},
+           familyi={X\bibinitperiod},
+           given={Xinyue},
+           giveni={X\bibinitperiod}}}%
+        {{hash=ca933f3690ebc33fbe9dee805d0a28d5}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Xiaomeng},
+           giveni={X\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{e53de52758e98b0ee4a34e4e95453412}
+      \strng{fullhash}{874079da4521a2a818ab77a87438dfae}
+      \strng{fullhashraw}{874079da4521a2a818ab77a87438dfae}
+      \strng{bibnamehash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authorbibnamehash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authornamehash}{e53de52758e98b0ee4a34e4e95453412}
+      \strng{authorfullhash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authorfullhashraw}{874079da4521a2a818ab77a87438dfae}
+      \field{extraname}{1}
+      \field{sortinit}{L}
+      \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprinttype}{arXiv}
+      \field{title}{Evaluating {LLM} Understanding via Structured Tabular Decision Simulations}
+      \field{year}{2025}
+      \verb{doi}
+      \verb 10.48550/arXiv.2511.10667
+      \endverb
+      \verb{eprint}
+      \verb 2511.10667
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2511.10667
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2511.10667
+      \endverb
+    \endentry
     \entry{li2023unified}{article}{}{}
       \name{author}{9}{}{%
         {{hash=84a428ee45e1aa81000746a0a1dcb818}{%
@@ -2838,11 +3037,11 @@
       \strng{authornamehash}{b55832d97f09af971c8b4770d642e320}
       \strng{authorfullhash}{05bfd0191dd59d75a126bb79f0cdfc36}
       \strng{authorfullhashraw}{05bfd0191dd59d75a126bb79f0cdfc36}
+      \field{extraname}{2}
       \field{sortinit}{L}
       \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
       \field{extradatescope}{labelyear}
       \field{labeldatesource}{}
-      \true{uniqueprimaryauthor}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)}
@@ -3014,6 +3213,71 @@
       \endverb
       \verb{url}
       \verb https://proceedings.neurips.cc/paper_files/paper/2023/hash/a134eaebd55b7406ff29cd75d5f1a622-Abstract-Datasets_and_Benchmarks.html
+      \endverb
+    \endentry
+    \entry{liu2021synthetic}{inbook}{}{}
+      \name{author}{4}{}{%
+        {{hash=621013bf54d3546375ad71f17f020b5b}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Yang},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=dc15fb09e78d0915f5a1002741acf435}{%
+           family={Khandagale},
+           familyi={K\bibinitperiod},
+           given={Sujay},
+           giveni={S\bibinitperiod}}}%
+        {{hash=06b08277491e42a0282f55e671cd7327}{%
+           family={White},
+           familyi={W\bibinitperiod},
+           given={Colin},
+           giveni={C\bibinitperiod}}}%
+        {{hash=cb1889b535f5e3414808403a8cb0c85c}{%
+           family={Neiswanger},
+           familyi={N\bibinitperiod},
+           given={Willie},
+           giveni={W\bibinitperiod}}}%
+      }
+      \name{editor}{2}{}{%
+        {{hash=e7b269ce0cc524b52556c54f801032b0}{%
+           family={Vanschoren},
+           familyi={V\bibinitperiod},
+           given={J.},
+           giveni={J\bibinitperiod}}}%
+        {{hash=57fdf5020af51b5d3029ff3c18506641}{%
+           family={Yeung},
+           familyi={Y\bibinitperiod},
+           given={S.},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{df83681b9acfd53a0c867d0eb509f8f3}
+      \strng{fullhash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{fullhashraw}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{bibnamehash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authorbibnamehash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authornamehash}{df83681b9acfd53a0c867d0eb509f8f3}
+      \strng{authorfullhash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authorfullhashraw}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{editorbibnamehash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editornamehash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editorfullhash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editorfullhashraw}{5a4208ca357ef920ecae6fec35c4c22d}
+      \field{extraname}{3}
+      \field{sortinit}{L}
+      \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks}
+      \field{title}{Synthetic Benchmarks for Scientific Research in Explainable Machine Learning}
+      \field{volume}{1}
+      \field{year}{2021}
+      \verb{urlraw}
+      \verb https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/hash/c16a5320fa475530d9583c34fd356ef5-Abstract-round2.html
+      \endverb
+      \verb{url}
+      \verb https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/hash/c16a5320fa475530d9583c34fd356ef5-Abstract-round2.html
       \endverb
     \endentry
     \entry{longpre2021entity}{article}{}{}
@@ -5822,6 +6086,43 @@
       \verb https://openreview.net/forum?id=HLoWN6m4fS
       \endverb
     \endentry
+    \entry{breiman2001random}{article}{}{}
+      \name{author}{1}{}{%
+        {{hash=132b7100417675d55d5d4d8b244f7a34}{%
+           family={Breiman},
+           familyi={B\bibinitperiod},
+           given={Leo},
+           giveni={L\bibinitperiod}}}%
+      }
+      \strng{namehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{fullhash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{fullhashraw}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{bibnamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorbibnamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authornamehash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorfullhash}{132b7100417675d55d5d4d8b244f7a34}
+      \strng{authorfullhashraw}{132b7100417675d55d5d4d8b244f7a34}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Machine Learning}
+      \field{number}{1}
+      \field{title}{Random Forests}
+      \field{volume}{45}
+      \field{year}{2001}
+      \field{pages}{5\bibrangedash 32}
+      \range{pages}{28}
+      \verb{urlraw}
+      \verb https://doi.org/10.1023/A:1010933404324
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1023/A:1010933404324
+      \endverb
+    \endentry
     \entry{brown2020language}{article}{}{}
       \true{moreauthor}
       \true{morelabelname}
@@ -6154,6 +6455,54 @@
       \endverb
       \verb{url}
       \verb https://www.wiley.com/en-us/Sampling+Techniques,+3rd+Edition-p-9780471162407
+      \endverb
+    \endentry
+    \entry{covert2021explaining}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=da0114911788f6c818e3ff395876d348}{%
+           family={Covert},
+           familyi={C\bibinitperiod},
+           given={Ian},
+           giveni={I\bibinitperiod}}}%
+        {{hash=b659ebc88023a12a732b4db9afdede3d}{%
+           family={Lundberg},
+           familyi={L\bibinitperiod},
+           given={Scott},
+           giveni={S\bibinitperiod}}}%
+        {{hash=ee964079d93879aaef2382a5fff343d3}{%
+           family={Lee},
+           familyi={L\bibinitperiod},
+           given={Su-In},
+           giveni={S\bibinithyphendelim I\bibinitperiod}}}%
+      }
+      \strng{namehash}{91eca63a644829852718ec0af6acecce}
+      \strng{fullhash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{fullhashraw}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{bibnamehash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authorbibnamehash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authornamehash}{91eca63a644829852718ec0af6acecce}
+      \strng{authorfullhash}{36bf12d34925e49b7e800e7cc329bbef}
+      \strng{authorfullhashraw}{36bf12d34925e49b7e800e7cc329bbef}
+      \field{sortinit}{C}
+      \field{sortinithash}{4d103a86280481745c9c897c925753c0}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Machine Learning Research}
+      \field{number}{209}
+      \field{subtitle}{A Unified Framework for Model Explanation}
+      \field{title}{Explaining by Removing}
+      \field{volume}{22}
+      \field{year}{2021}
+      \field{pages}{1\bibrangedash 90}
+      \range{pages}{90}
+      \verb{urlraw}
+      \verb https://jmlr.org/papers/v22/20-1316.html
+      \endverb
+      \verb{url}
+      \verb https://jmlr.org/papers/v22/20-1316.html
       \endverb
     \endentry
     \entry{davison1997bootstrap}{book}{}{}
@@ -7721,6 +8070,68 @@
       \verb https://aclanthology.org/2021.emnlp-main.564/
       \endverb
     \endentry
+    \entry{huang2023can}{misc}{}{}
+      \name{author}{5}{}{%
+        {{hash=d2aad98e3c6d4d89a70f9bd34b1799b7}{%
+           family={Huang},
+           familyi={H\bibinitperiod},
+           given={Shiyuan},
+           giveni={S\bibinitperiod}}}%
+        {{hash=c179c49d8064b9da2613a748acf07f80}{%
+           family={Mamidanna},
+           familyi={M\bibinitperiod},
+           given={Siddarth},
+           giveni={S\bibinitperiod}}}%
+        {{hash=710203badee949003d6e81930d5b8121}{%
+           family={Jangam},
+           familyi={J\bibinitperiod},
+           given={Shreedhar},
+           giveni={S\bibinitperiod}}}%
+        {{hash=b95bd6bfa3c880dcb579d4efad77a3bf}{%
+           family={Zhou},
+           familyi={Z\bibinitperiod},
+           given={Yilun},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=5ee638794fa56f3270e2f92ce36abd3d}{%
+           family={Gilpin},
+           familyi={G\bibinitperiod},
+           given={Leilani\bibnamedelima H.},
+           giveni={L\bibinitperiod\bibinitdelim H\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{3fbcd0a7429b822e4ea5bb035f82dad2}
+      \strng{fullhash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{fullhashraw}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{bibnamehash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authorbibnamehash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authornamehash}{3fbcd0a7429b822e4ea5bb035f82dad2}
+      \strng{authorfullhash}{58bfe3a7940df0cda74f649ca06aaa60}
+      \strng{authorfullhashraw}{58bfe3a7940df0cda74f649ca06aaa60}
+      \field{sortinit}{H}
+      \field{sortinithash}{23a3aa7c24e56cfa16945d55545109b5}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprinttype}{arXiv}
+      \field{title}{Can Large Language Models Explain Themselves? {A} Study of {LLM}-Generated Self-Explanations}
+      \field{year}{2023}
+      \verb{doi}
+      \verb 10.48550/arXiv.2310.11207
+      \endverb
+      \verb{eprint}
+      \verb 2310.11207
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2310.11207
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2310.11207
+      \endverb
+    \endentry
     \entry{idrissi2022simple}{inbook}{}{}
       \name{author}{4}{}{%
         {{hash=7b5d0c34cf0df2fc1b5286481bc4fe41}{%
@@ -8265,6 +8676,58 @@
       \verb https://aclanthology.org/2023.acl-long.78/
       \endverb
     \endentry
+    \entry{li2025stads}{misc}{}{}
+      \name{author}{3}{}{%
+        {{hash=b772118efaca4fba98a6f04c451b05e5}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Sichao},
+           giveni={S\bibinitperiod}}}%
+        {{hash=1f71ab0ca29413ca694f897ff3e5d58c}{%
+           family={Xu},
+           familyi={X\bibinitperiod},
+           given={Xinyue},
+           giveni={X\bibinitperiod}}}%
+        {{hash=ca933f3690ebc33fbe9dee805d0a28d5}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Xiaomeng},
+           giveni={X\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{e53de52758e98b0ee4a34e4e95453412}
+      \strng{fullhash}{874079da4521a2a818ab77a87438dfae}
+      \strng{fullhashraw}{874079da4521a2a818ab77a87438dfae}
+      \strng{bibnamehash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authorbibnamehash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authornamehash}{e53de52758e98b0ee4a34e4e95453412}
+      \strng{authorfullhash}{874079da4521a2a818ab77a87438dfae}
+      \strng{authorfullhashraw}{874079da4521a2a818ab77a87438dfae}
+      \field{extraname}{1}
+      \field{sortinit}{L}
+      \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprinttype}{arXiv}
+      \field{title}{Evaluating {LLM} Understanding via Structured Tabular Decision Simulations}
+      \field{year}{2025}
+      \verb{doi}
+      \verb 10.48550/arXiv.2511.10667
+      \endverb
+      \verb{eprint}
+      \verb 2511.10667
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2511.10667
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2511.10667
+      \endverb
+    \endentry
     \entry{li2023unified}{article}{}{}
       \name{author}{9}{}{%
         {{hash=84a428ee45e1aa81000746a0a1dcb818}{%
@@ -8327,11 +8790,11 @@
       \strng{authornamehash}{b55832d97f09af971c8b4770d642e320}
       \strng{authorfullhash}{05bfd0191dd59d75a126bb79f0cdfc36}
       \strng{authorfullhashraw}{05bfd0191dd59d75a126bb79f0cdfc36}
+      \field{extraname}{2}
       \field{sortinit}{L}
       \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
       \field{extradatescope}{labelyear}
       \field{labeldatesource}{}
-      \true{uniqueprimaryauthor}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)}
@@ -8503,6 +8966,71 @@
       \endverb
       \verb{url}
       \verb https://proceedings.neurips.cc/paper_files/paper/2023/hash/a134eaebd55b7406ff29cd75d5f1a622-Abstract-Datasets_and_Benchmarks.html
+      \endverb
+    \endentry
+    \entry{liu2021synthetic}{inbook}{}{}
+      \name{author}{4}{}{%
+        {{hash=621013bf54d3546375ad71f17f020b5b}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Yang},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=dc15fb09e78d0915f5a1002741acf435}{%
+           family={Khandagale},
+           familyi={K\bibinitperiod},
+           given={Sujay},
+           giveni={S\bibinitperiod}}}%
+        {{hash=06b08277491e42a0282f55e671cd7327}{%
+           family={White},
+           familyi={W\bibinitperiod},
+           given={Colin},
+           giveni={C\bibinitperiod}}}%
+        {{hash=cb1889b535f5e3414808403a8cb0c85c}{%
+           family={Neiswanger},
+           familyi={N\bibinitperiod},
+           given={Willie},
+           giveni={W\bibinitperiod}}}%
+      }
+      \name{editor}{2}{}{%
+        {{hash=e7b269ce0cc524b52556c54f801032b0}{%
+           family={Vanschoren},
+           familyi={V\bibinitperiod},
+           given={J.},
+           giveni={J\bibinitperiod}}}%
+        {{hash=57fdf5020af51b5d3029ff3c18506641}{%
+           family={Yeung},
+           familyi={Y\bibinitperiod},
+           given={S.},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{df83681b9acfd53a0c867d0eb509f8f3}
+      \strng{fullhash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{fullhashraw}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{bibnamehash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authorbibnamehash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authornamehash}{df83681b9acfd53a0c867d0eb509f8f3}
+      \strng{authorfullhash}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{authorfullhashraw}{176941c3da2f55fc16eec4d19fae459a}
+      \strng{editorbibnamehash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editornamehash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editorfullhash}{5a4208ca357ef920ecae6fec35c4c22d}
+      \strng{editorfullhashraw}{5a4208ca357ef920ecae6fec35c4c22d}
+      \field{extraname}{3}
+      \field{sortinit}{L}
+      \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks}
+      \field{title}{Synthetic Benchmarks for Scientific Research in Explainable Machine Learning}
+      \field{volume}{1}
+      \field{year}{2021}
+      \verb{urlraw}
+      \verb https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/hash/c16a5320fa475530d9583c34fd356ef5-Abstract-round2.html
+      \endverb
+      \verb{url}
+      \verb https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/hash/c16a5320fa475530d9583c34fd356ef5-Abstract-round2.html
       \endverb
     \endentry
     \entry{longpre2021entity}{article}{}{}

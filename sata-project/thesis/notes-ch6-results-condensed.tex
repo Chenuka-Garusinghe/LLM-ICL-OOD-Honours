@@ -1,0 +1,57 @@
+\section{Results}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_lens_strategies.pdf}
+\caption{Logit-lens \AUROC against the rule label at every layer (24 tasks, seed 0), one line per strategy. The read-out stays near chance for 20 layers and splits by naming from layer 22 (dotted line: layer 23).}
+\label{fig:lens}
+\end{figure}
+
+\finding{Qwen settles its answer only in its last few layers, and there the names, not the demonstrations, decide it.}
+
+For the first 20 of Qwen's 28 layers the logit lens, which reads the answer Qwen would give if it stopped at that layer, is near chance (\AUROC 0.45--0.56) under every naming and strategy (\autoref{fig:lens}).
+From layer 22 it splits by naming: with aligned names it rises to 0.63--0.67 (0.59 zero-shot), and with flipped names it falls to 0.45--0.52 (0.45 zero-shot).
+The gap between the two passes 0.1 at layer 23 with random demonstrations, 24 zero-shot and 25 with \sata (\autoref{fig:lens-gap}).
+Since the split appears without demonstrations too, the names cause it.
+Demonstrations only change its size: random ones widen the final gap from 0.141 to 0.192, and the strategies built against the prior narrow it (\strat{counter\_prior} 0.174, \sata 0.104) without moving it earlier.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\textwidth]{\figpath/fig_lens_gap.pdf}
+\caption{Aligned minus flipped logit-lens \AUROC by layer, with a 95\% band over tasks for random demonstrations. The gap passes 0.1 at layer 23 with random demonstrations, 24 zero-shot and 25 with \sata; zero-shot shows the same jump, so the names drive it.}
+\label{fig:lens-gap}
+\end{figure}
+
+\finding{Qwen's own guess can be read from its hidden states from layer 2 onward; the demonstrated rule hardly at all.}
+
+Probes, simple classifiers trained to read one thing from the hidden states on some tasks and tested on others, read Qwen's zero-shot answer from layer 2 (\AUROC 0.80--0.87 with abstract names, 0.65--0.74 with named features), but the rule's label hardly at all (0.43--0.59; \autoref{fig:probes}).
+A probe shows that information is present, not that it is used \citep{belinkov2022probing}, and a probe across tasks with different rules is a hard test; still, the contrast is stark: Qwen carries its own guess from its first layers, and the demonstrated rule barely registers.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_probes.pdf}
+\caption{Linear probes on the hidden states (random demonstrations, tested on held-out tasks). Qwen's zero-shot answer is readable from layer 2; the rule label stays near chance.}
+\label{fig:probes}
+\end{figure}
+
+\finding{Within the steering we could test (one averaged direction, five layers, a 7B model with eight demonstrations), pushing Qwen towards ``follow the demonstrations'' moves its answers without making them more correct.}
+
+The steering direction is the average difference between Qwen's hidden states when it followed the demonstrations and when it followed its own guess; we added it, at strength $\alpha$, while Qwen read each query on 12 held-out tasks (the direction is small, 1--2\% of the hidden state's size, so the planned maximum of $\alpha = 4$ was raised to 32).
+Up to $\alpha = 16$, \AUROC changes by at most 0.008; at $\alpha = 32$ a few results move by 0.02--0.04 either way, as they do for a random direction (\autoref{fig:steer}, top).
+Yet at layer 24 the margins fall by about 9 logits (\autoref{fig:steer}, bottom): the push moves every answer the same way, so their order, which is all \AUROC measures, stays put.
+It has to: following the demonstrations means lowering the margin when they imply 0 and raising it when they imply 1, and at layers 20 and 24 these two directions point almost opposite ways (cosine $-0.82$ to $-0.96$), so their average is a small leftover that shifts every answer together.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_steering.pdf}
+\caption{Steering on the 12 held-out tasks: change in final \AUROC (top) and in the margin (bottom), with 95\% intervals over tasks. Blue shades are the ``follow the demonstrations'' direction at increasing strength $\alpha$; grey diamonds are a random direction of the same size. The margins fall by about 9 logits at layer 24 while \AUROC barely changes: the direction shifts every answer together.}
+\label{fig:steer}
+\end{figure}
+
+\section{What this chapter does not show}
+
+Neither the logit lens nor the probes is causal, and the lens can be biased in early layers \citep{belrose2023eliciting}, although the probes, which avoid that bias, agree with it.
+Steering is the causal test, and it covers one kind of direction: a single averaged direction at five layers, added to the query.
+It was fitted on the loan tasks and tested on the medical ones; refitting it on the medical tasks shows that this split does not explain the result.
+\citet{minder2025controllable} find a context-versus-prior direction in Llama-3.1-8B; ours shows only that a direction built this way is not usable for this task and model, not that none exists.
+A direction specific to each label, a learned one, steering of the demonstrations rather than the query, or a larger model could behave differently; the wider limitations are in \autoref{sec:limitations}.

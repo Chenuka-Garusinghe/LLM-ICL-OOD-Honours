@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linear Probe Explorer</title>
+<style>
+:root {
+  --bg: #fbfbfa; --surface: #ffffff; --ink: #1f1f1d; --ink2: #5c5b57; --muted: #8a8984;
+  --grid: #e7e6e2; --axis: #b9b8b3; --border: #dcdbd6; --accent: #0072B2;
+  --rule: #0072B2; --prior: #E69F00; --c1: #009E73; --c0: #D55E00; --sel: #1f1f1d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413; --surface: #1a1a19; --ink: #ecebe7; --ink2: #b3b2ad; --muted: #8a8984;
+    --grid: #2c2c2a; --axis: #4a4a47; --border: #34342f; --accent: #3A8FD6;
+    --rule: #3A8FD6; --prior: #BF8500; --c1: #1FA27E; --c0: #E0662A; --sel: #ecebe7;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 24px; font-weight: 600; margin: 0 0 6px; }
+h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+p { margin: 0 0 10px; color: var(--ink2); max-width: 76ch; }
+.lede { font-size: 15.5px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 14px 0 18px; }
+.step { flex: 1 1 140px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--ink2); }
+.step b { display: block; color: var(--ink); font-size: 13.5px; margin-bottom: 2px; }
+.arrow { align-self: center; color: var(--muted); font-size: 18px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 18px; margin-bottom: 14px; }
+.ctl label { display: block; font-size: 12.5px; color: var(--ink2); margin-bottom: 4px; }
+.ctl .val { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--ink2); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.tile .k { font-size: 12px; color: var(--ink2); }
+.tile .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .s { font-size: 12px; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { fill: var(--ink2); font-size: 11px; font-family: inherit; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink2); margin: 4px 0 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.note { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.warn { font-size: 13px; color: var(--ink); background: color-mix(in srgb, var(--prior) 16%, transparent); border-radius: 6px; padding: 6px 10px; margin: 6px 0 0; display: none; }
+#tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 10; max-width: 260px; }
+details { margin-top: 8px; font-size: 13px; color: var(--ink2); }
+table { border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+td, th { padding: 2px 10px; border-bottom: 1px solid var(--grid); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+.status { font-size: 12px; color: var(--muted); min-height: 1.2em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Linear probe explorer</h1>
+  <p class="lede">A probe asks a simple question of one layer of Qwen2.5-7B-Instruct: <em>can a straight-line classifier read this label from the hidden state?</em> It is trained on some tasks and tested on others, so a high score means the information is written in the layer in a form that carries over between tasks. Everything below runs on Qwen's real hidden states from the thesis (random demonstrations, 24 evaluation tasks, 60 queries each).</p>
+
+  <div class="flow" aria-label="How a probe works">
+    <div class="step"><b>1. Hidden state h<sub>l</sub></b><span id="f1">3,584 numbers at the prompt's last position, after layer l</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>2. Standardise</b>each number to mean 0 and spread 1</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>3. Compress (this page only)</b><span id="f3">keep the top 32 principal components</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>4. Weighted sum</b><span id="f4">score = w·z + b, with 33 parameters</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><b>5. Probability</b>P(target = 1) = σ(score)</div>
+    <div class="arrow">→</div>
+    <div class="step"><b>6. Grade on held-out tasks</b>AUROC per task, averaged</div>
+  </div>
+
+  <div class="card">
+    <div class="controls">
+      <div class="ctl"><label>Feature names</label>
+        <div class="seg" id="namingSeg">
+          <button data-v="abstract" aria-pressed="true">abstract</button><button data-v="aligned">aligned</button><button data-v="flipped">flipped</button>
+        </div></div>
+      <div class="ctl"><label>What the probe tries to read</label>
+        <div class="seg" id="targetSeg">
+          <button data-v="prior" aria-pressed="true">Qwen's own answer</button><button data-v="rule">the rule label</button>
+        </div></div>
+      <div class="ctl"><label>How tasks are split for testing</label>
+        <div class="seg" id="splitSeg">
+          <button data-v="task" aria-pressed="true">by task (thesis)</button><button data-v="row">random rows</button>
+        </div></div>
+      <div class="ctl"><label for="layer">Layer <span class="val" id="layerV">22</span> of 28</label>
+        <input type="range" id="layer" min="0" max="28" step="2" value="22"></div>
+      <div class="ctl"><label for="k">Components kept <span class="val" id="kV">32</span></label>
+        <input type="range" id="k" min="1" max="32" step="1" value="32"></div>
+      <div class="ctl"><label for="c">Regularisation C <span class="val" id="cV">0.1</span> <span style="color:var(--muted)">(smaller = simpler probe)</span></label>
+        <input type="range" id="c" min="-3" max="2" step="0.25" value="-1"></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Held-out AUROC (this page)</div><div class="v" id="tTest">–</div><div class="s">tested on tasks it never saw</div></div>
+      <div class="tile"><div class="k">Thesis probe, all 3,584 numbers</div><div class="v" id="tThesis">–</div><div class="s">same layer, naming and target</div></div>
+      <div class="tile"><div class="k">Training AUROC</div><div class="v" id="tTrain">–</div><div class="s">on the tasks it was fitted to</div></div>
+      <div class="tile"><div class="k">Probe size</div><div class="v" id="tParams">–</div><div class="s" id="tParamsS">weights + bias (thesis: 3,585)</div></div>
+    </div>
+    <div class="warn" id="warn"></div>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <div class="card">
+      <h2>The hidden states, flattened to two numbers</h2>
+      <p style="font-size:13px">Each dot is one query at the chosen layer, placed by its first two principal components and coloured by the target. The probe sees all the kept components, not just these two.</p>
+      <div class="legend"><span><i class="sw" style="background:var(--c1)"></i>target = 1 (●)</span><span><i class="sw" style="background:var(--c0);border-radius:2px"></i>target = 0 (▲)</span></div>
+      <svg id="scatter" viewBox="0 0 520 380" role="img" aria-label="Scatter of queries on the first two principal components"></svg>
+    </div>
+    <div class="card">
+      <h2>What the probe says about held-out queries</h2>
+      <p style="font-size:13px">Probe scores for queries from tasks it was not trained on. Target-1 queries are drawn above the line, target-0 below. The less the two piles overlap left to right, the higher the AUROC.</p>
+      <div class="legend"><span><i class="sw" style="background:var(--c1)"></i>target = 1</span><span><i class="sw" style="background:var(--c0)"></i>target = 0</span></div>
+      <svg id="hist" viewBox="0 0 520 380" role="img" aria-label="Histogram of held-out probe scores by target"></svg>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Held-out AUROC at every layer</h2>
+    <p style="font-size:13px">Solid lines are probes trained on this page with the settings above; dashed lines are the thesis probes on all 3,584 numbers. Click a point to look at that layer.</p>
+    <div class="legend"><span><i class="sw" style="background:var(--prior)"></i>Qwen's own answer</span><span><i class="sw" style="background:var(--rule)"></i>the rule label</span><span>— this page &nbsp;&nbsp;- - - thesis (3,584 numbers)</span></div>
+    <svg id="curve" viewBox="0 0 1060 330" role="img" aria-label="Held-out AUROC by layer for both targets"></svg>
+    <div class="status" id="status"></div>
+    <details><summary>Show as a table</summary><div id="table"></div></details>
+  </div>
+
+  <p class="note" style="margin-top:14px">How this page differs from the thesis: each layer's 3,584 numbers are compressed to their top 32 principal components (computed once over all 1,440 queries of a naming, without using any labels), and stored at 8-bit precision. With 32 components the probe lands close to the thesis curves. Everything else follows the thesis: logistic regression with an L2 penalty set by C, four folds by task (train on 18 tasks, test on 6), and AUROC computed within each task and averaged. Data: <code>probe_data.js</code>, built by <code>build_probe_explorer.py</code>.</p>
+</main>
+<div id="tip"></div>
+
+<script src="probe_data.js"></script>
+<script>
+"use strict";
+const D = window.PROBE_DATA;
+const K = D.K, LAYERS = D.layers;
+const ENV = ["ID", "covariate", "spurious reversal"];
+const state = { naming: "abstract", target: "prior", split: "task", layer: 22, k: 32, logC: -1 };
+const cache = {};
+
+// ---------- data ----------
+function layerMatrix(naming, layer) {
+  const key = naming + "|" + layer;
+  if (cache[key]) return cache[key];
+  const L = D.data[naming].layers[String(layer)];
+  const bytes = Uint8Array.from(atob(L.z), c => c.charCodeAt(0));
+  const n = bytes.length / K, Z = new Float32Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) { const b = bytes[i]; Z[i] = (b > 127 ? b - 256 : b) * L.scale[i % K]; }
+  return (cache[key] = { Z, n, constant: L.constant, varRatio: L.var });
+}
+function targets(naming, target) { return D.data[naming][target === "rule" ? "rule" : "prior"]; }
+
+// ---------- folds ----------
+function folds(naming, split) {
+  const task = D.data[naming].task, n = task.length, f = new Int8Array(n);
+  if (split === "task") { for (let i = 0; i < n; i++) f[i] = task[i] % 4; }
+  else { let s = 12345; const idx = [...Array(n).keys()];
+    for (let i = n - 1; i > 0; i--) { s = (s * 1103515245 + 12345) % 2147483648; const j = s % (i + 1); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+    idx.forEach((r, p) => f[r] = p % 4); }
+  return f;
+}
+
+// ---------- logistic regression (Newton with step halving), minimises 0.5|w|^2 + C * logloss ----------
+function fitLogistic(Z, y, rows, k, C) {
+  const p = k + 1, w = new Float64Array(p);
+  const xrow = (r, j) => (j === k ? 1 : Z[r * K + j]);
+  const objective = (wv) => { let o = 0; for (let j = 0; j < k; j++) o += 0.5 * wv[j] * wv[j];
+    for (const r of rows) { let s = wv[k]; for (let j = 0; j < k; j++) s += wv[j] * Z[r * K + j];
+      o += C * (s > 0 ? s + Math.log1p(Math.exp(-s)) - y[r] * s : Math.log1p(Math.exp(s)) - y[r] * s); }
+    return o; };
+  let obj = objective(w);
+  for (let it = 0; it < 30; it++) {
+    const g = new Float64Array(p), H = new Float64Array(p * p);
+    for (let j = 0; j < k; j++) { g[j] = w[j]; H[j * p + j] = 1; }
+    H[k * p + k] = 1e-8;
+    for (const r of rows) {
+      let s = w[k]; for (let j = 0; j < k; j++) s += w[j] * Z[r * K + j];
+      const pr = 1 / (1 + Math.exp(-s)), e = C * (pr - y[r]), h = C * pr * (1 - pr);
+      for (let a = 0; a < p; a++) { const xa = xrow(r, a); g[a] += e * xa; if (h > 1e-12) for (let b = 0; b <= a; b++) H[a * p + b] += h * xa * xrow(r, b); }
+    }
+    for (let a = 0; a < p; a++) for (let b = 0; b < a; b++) H[b * p + a] = H[a * p + b];
+    const step = solve(H, g, p);
+    let t = 1, wn;
+    for (let ls = 0; ls < 20; ls++) { wn = w.map((v, j) => v - t * step[j]); const on = objective(wn); if (on <= obj + 1e-12) { obj = on; break; } t /= 2; }
+    let delta = 0; for (let j = 0; j < p; j++) { delta = Math.max(delta, Math.abs(wn[j] - w[j])); w[j] = wn[j]; }
+    if (delta < 1e-7) break;
+  }
+  return w;
+}
+function solve(A, b, n) { // Cholesky solve of the symmetric positive-definite system A x = b
+  const L = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) {
+    let s = A[i * n + j]; for (let q = 0; q < j; q++) s -= L[i * n + q] * L[j * n + q];
+    L[i * n + j] = i === j ? Math.sqrt(Math.max(s, 1e-12)) : s / L[j * n + j]; }
+  const z = new Float64Array(n), x = new Float64Array(n);
+  for (let i = 0; i < n; i++) { let s = b[i]; for (let q = 0; q < i; q++) s -= L[i * n + q] * z[q]; z[i] = s / L[i * n + i]; }
+  for (let i = n - 1; i >= 0; i--) { let s = z[i]; for (let q = i + 1; q < n; q++) s -= L[q * n + i] * x[q]; x[i] = s / L[i * n + i]; }
+  return x;
+}
+function scoreRow(w, Z, r, k) { let s = w[k]; for (let j = 0; j < k; j++) s += w[j] * Z[r * K + j]; return s; }
+
+// ---------- AUROC (Mann-Whitney, ties count half), per task then averaged, as in the thesis ----------
+function auroc(scores, ys) {
+  const pos = [], neg = [];
+  scores.forEach((s, i) => (ys[i] ? pos : neg).push(s));
+  if (!pos.length || !neg.length) return NaN;
+  let wins = 0; for (const a of pos) for (const b of neg) wins += a > b ? 1 : a === b ? 0.5 : 0;
+  return wins / (pos.length * neg.length);
+}
+function perTaskAuroc(score, y, task, mask) {
+  const by = {};
+  for (let i = 0; i < y.length; i++) { if (mask && !mask[i]) continue; (by[task[i]] ||= { s: [], y: [] }); by[task[i]].s.push(score[i]); by[task[i]].y.push(y[i]); }
+  const v = Object.values(by).map(g => auroc(g.s, g.y)).filter(x => !Number.isNaN(x));
+  return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+// ---------- one probe run: out-of-fold scores for a layer ----------
+function runProbe(naming, target, layer, k, C, split) {
+  const M = layerMatrix(naming, layer), y = targets(naming, target), task = D.data[naming].task;
+  const f = folds(naming, split), n = M.n, oof = new Float64Array(n), trainA = [];
+  for (let fold = 0; fold < 4; fold++) {
+    const tr = [], te = [];
+    for (let i = 0; i < n; i++) (f[i] === fold ? te : tr).push(i);
+    const w = fitLogistic(M.Z, y, tr, k, C);
+    for (const r of te) oof[r] = scoreRow(w, M.Z, r, k);
+    const trScore = new Float64Array(n), mask = new Uint8Array(n);
+    for (const r of tr) { trScore[r] = scoreRow(w, M.Z, r, k); mask[r] = 1; }
+    trainA.push(split === "task" ? perTaskAuroc(trScore, y, task, mask) : auroc(tr.map(r => trScore[r]), tr.map(r => y[r])));
+  }
+  return { oof, y, test: perTaskAuroc(oof, y, task), train: trainA.reduce((a, b) => a + b, 0) / 4, M };
+}
+
+// ---------- drawing helpers ----------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const a in attrs) e.setAttribute(a, attrs[a]); if (parent) parent.appendChild(e); return e; }
+function txt(parent, x, y, s, attrs = {}) { const t = el("text", { x, y, ...attrs }, parent); t.textContent = s; return t; }
+const tip = document.getElementById("tip");
+function showTip(ev, html) { tip.innerHTML = html; tip.style.display = "block"; const x = Math.min(ev.clientX + 14, innerWidth - 270); tip.style.left = x + "px"; tip.style.top = (ev.clientY + 14) + "px"; }
+function hideTip() { tip.style.display = "none"; }
+const fmt = v => (Number.isNaN(v) || v === undefined ? "–" : v.toFixed(3));
+function niceTicks(lo, hi, n) { const step = Math.pow(10, Math.floor(Math.log10((hi - lo) / n))); const m = [1, 2, 5, 10].find(m => (hi - lo) / (step * m) <= n) * step; const out = []; for (let v = Math.ceil(lo / m) * m; v <= hi + 1e-9; v += m) out.push(+v.toFixed(6)); return out; }
+
+function drawScatter(res) {
+  const svg = document.getElementById("scatter"); svg.innerHTML = "";
+  const W = 520, H = 380, m = { l: 44, r: 12, t: 10, b: 36 };
+  const { Z, n, constant } = res.M, y = res.y, d = D.data[state.naming];
+  const xs = [], ys = []; for (let i = 0; i < n; i++) { xs.push(Z[i * K]); ys.push(Z[i * K + 1]); }
+  const pad = (a) => { const lo = Math.min(...a), hi = Math.max(...a); const p = (hi - lo || 1) * 0.06; return [lo - p, hi + p]; };
+  const [x0, x1] = pad(xs), [y0, y1] = pad(ys);
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), Y = v => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  for (const t of niceTicks(x0, x1, 6)) { el("line", { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, stroke: "var(--grid)" }, svg); txt(svg, X(t), H - m.b + 15, t, { "text-anchor": "middle" }); }
+  for (const t of niceTicks(y0, y1, 5)) { el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: "var(--grid)" }, svg); txt(svg, m.l - 6, Y(t) + 4, t, { "text-anchor": "end" }); }
+  txt(svg, (m.l + W - m.r) / 2, H - 4, "principal component 1", { "text-anchor": "middle" });
+  txt(svg, 12, (m.t + H - m.b) / 2, "component 2", { "text-anchor": "middle", transform: `rotate(-90 12 ${(m.t + H - m.b) / 2})` });
+  if (constant) { txt(svg, W / 2, H / 2, "Every query has the same state at layer 0", { "text-anchor": "middle", fill: "var(--ink)" }); return; }
+  const g = el("g", {}, svg);
+  for (let i = 0; i < n; i++) {
+    const cx = X(xs[i]), cy = Y(ys[i]), c = y[i] ? "var(--c1)" : "var(--c0)";
+    const mk = y[i] ? el("circle", { cx, cy, r: 3.2, fill: c, "fill-opacity": 0.75, stroke: "var(--surface)", "stroke-width": 0.6 }, g)
+                    : el("path", { d: `M${cx},${cy - 3.8}L${cx + 3.4},${cy + 2.4}L${cx - 3.4},${cy + 2.4}Z`, fill: c, "fill-opacity": 0.75, stroke: "var(--surface)", "stroke-width": 0.6 }, g);
+    mk.addEventListener("mousemove", ev => showTip(ev, `<b>${D.tasks[d.task[i]]}</b>, ${ENV[d.env[i]]} query<br>target = ${y[i]}<br>held-out probe score ${res.oof[i].toFixed(2)}`));
+    mk.addEventListener("mouseleave", hideTip);
+  }
+}
+
+function drawHist(res) {
+  const svg = document.getElementById("hist"); svg.innerHTML = "";
+  const W = 520, H = 380, m = { l: 72, r: 12, t: 14, b: 40 }, mid = (m.t + H - m.b) / 2;
+  const s = Array.from(res.oof), y = res.y, sorted = [...s].sort((a, b) => a - b);
+  let lo = sorted[Math.floor(0.01 * s.length)], hi = sorted[Math.ceil(0.99 * s.length) - 1];
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const B = 32, w = (hi - lo) / B, c1 = new Array(B).fill(0), c0 = new Array(B).fill(0);
+  s.forEach((v, i) => { const b = Math.max(0, Math.min(B - 1, Math.floor((v - lo) / w))); (y[i] ? c1 : c0)[b]++; });
+  const top = Math.max(...c1, ...c0, 1);
+  const X = v => m.l + (v - lo) / (hi - lo) * (W - m.l - m.r), hgt = c => c / top * (mid - m.t - 4);
+  for (const t of niceTicks(lo, hi, 6)) { el("line", { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, stroke: "var(--grid)" }, svg); txt(svg, X(t), H - m.b + 15, t, { "text-anchor": "middle" }); }
+  if (lo < 0 && hi > 0) { el("line", { x1: X(0), x2: X(0), y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-dasharray": "3 3" }, svg); txt(svg, X(0) + 4, H - m.b - 6, "score 0 = 50/50", {}); }
+  el("line", { x1: m.l, x2: W - m.r, y1: mid, y2: mid, stroke: "var(--axis)" }, svg);
+  txt(svg, m.l - 6, mid - 6, "target 1 ↑", { "text-anchor": "end" }); txt(svg, m.l - 6, mid + 14, "target 0 ↓", { "text-anchor": "end" });
+  const bw = (W - m.l - m.r) / B;
+  for (let b = 0; b < B; b++) {
+    const x = m.l + b * bw + 1, range = `${(lo + b * w).toFixed(2)} to ${(lo + (b + 1) * w).toFixed(2)}`;
+    if (c1[b]) { const r = el("rect", { x, y: mid - hgt(c1[b]) - 1, width: bw - 2, height: hgt(c1[b]), rx: 1.5, fill: "var(--c1)" }, svg);
+      r.addEventListener("mousemove", ev => showTip(ev, `scores ${range}<br>${c1[b]} target-1 queries`)); r.addEventListener("mouseleave", hideTip); }
+    if (c0[b]) { const r = el("rect", { x, y: mid + 1, width: bw - 2, height: hgt(c0[b]), rx: 1.5, fill: "var(--c0)" }, svg);
+      r.addEventListener("mousemove", ev => showTip(ev, `scores ${range}<br>${c0[b]} target-0 queries`)); r.addEventListener("mouseleave", hideTip); }
+  }
+  txt(svg, (m.l + W - m.r) / 2, H - 6, "probe score (log-odds that the target is 1)", { "text-anchor": "middle" });
+  txt(svg, m.l + 6, m.t + 10, `held-out AUROC ${fmt(res.test)}`, { fill: "var(--ink)", "font-weight": 600 });
+}
+
+let curveData = { prior: {}, rule: {} };
+function drawCurve() {
+  const svg = document.getElementById("curve"); svg.innerHTML = "";
+  const W = 1060, H = 330, m = { l: 50, r: 150, t: 12, b: 36 }, y0 = 0.3, y1 = 0.95;
+  const X = l => m.l + l / 28 * (W - m.l - m.r), Y = v => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  for (const t of [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) { el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t === 0.5 ? "var(--axis)" : "var(--grid)" }, svg); txt(svg, m.l - 8, Y(t) + 4, t.toFixed(1), { "text-anchor": "end" }); }
+  txt(svg, m.l + 6, Y(0.5) - 5, "chance", {});
+  for (const l of LAYERS) txt(svg, X(l), H - m.b + 16, l, { "text-anchor": "middle" });
+  txt(svg, (m.l + W - m.r) / 2, H - 4, "layer", { "text-anchor": "middle" });
+  el("line", { x1: X(state.layer), x2: X(state.layer), y1: m.t, y2: H - m.b, stroke: "var(--sel)", "stroke-width": 1, "stroke-opacity": 0.35 }, svg);
+  const tname = { prior: "prior prediction", rule: "rule label" }, col = { prior: "var(--prior)", rule: "var(--rule)" }, lab = { prior: "Qwen's own answer", rule: "the rule label" };
+  const ends = {};
+  for (const t of ["prior", "rule"]) {
+    const th = LAYERS.map(l => [l, D.thesis[`${state.naming}|${tname[t]}|${l}`]]).filter(p => p[1] !== undefined);
+    el("path", { d: th.map((p, i) => (i ? "L" : "M") + X(p[0]) + "," + Y(p[1])).join(""), fill: "none", stroke: col[t], "stroke-width": 1.5, "stroke-dasharray": "5 4", "stroke-opacity": 0.8 }, svg);
+    const pts = LAYERS.filter(l => curveData[t][l] !== undefined).map(l => [l, curveData[t][l]]);
+    if (pts.length) el("path", { d: pts.map((p, i) => (i ? "L" : "M") + X(p[0]) + "," + Y(p[1])).join(""), fill: "none", stroke: col[t], "stroke-width": 2 }, svg);
+    for (const [l, v] of pts) {
+      const c = el("circle", { cx: X(l), cy: Y(v), r: l === state.layer && t === state.target ? 6 : 4, fill: col[t], stroke: "var(--surface)", "stroke-width": 2, style: "cursor:pointer" }, svg);
+      c.addEventListener("mousemove", ev => showTip(ev, `<b>layer ${l}</b>, ${lab[t]}<br>this page ${fmt(v)}<br>thesis (3,584 numbers) ${fmt(D.thesis[`${state.naming}|${tname[t]}|${l}`])}`));
+      c.addEventListener("mouseleave", hideTip);
+      c.addEventListener("click", () => { state.target = t; setSeg("targetSeg", t); setLayer(l); });
+    }
+    const last = pts.length ? pts[pts.length - 1] : th[th.length - 1];
+    if (last) ends[t] = Y(last[1]);
+  }
+  if (ends.prior !== undefined && ends.rule !== undefined && Math.abs(ends.prior - ends.rule) < 14) { const mid = (ends.prior + ends.rule) / 2; ends.prior = mid - 8; ends.rule = mid + 8; }
+  for (const t of ["prior", "rule"]) if (ends[t] !== undefined) txt(svg, W - m.r + 8, ends[t] + 4, lab[t], { fill: "var(--ink)" });
+  // table view
+  const rows = LAYERS.map(l => `<tr><td>${l}</td><td>${fmt(curveData.prior[l])}</td><td>${fmt(D.thesis[`${state.naming}|prior prediction|${l}`])}</td><td>${fmt(curveData.rule[l])}</td><td>${fmt(D.thesis[`${state.naming}|rule label|${l}`])}</td></tr>`).join("");
+  document.getElementById("table").innerHTML = `<table><tr><th>layer</th><th>Qwen's answer (page)</th><th>(thesis)</th><th>rule label (page)</th><th>(thesis)</th></tr>${rows}</table>`;
+}
+
+// ---------- update loop ----------
+let curveJob = 0;
+function computeCurve() {
+  const job = ++curveJob, C = Math.pow(10, state.logC), todo = [];
+  curveData = { prior: {}, rule: {} };
+  for (const t of [state.target, state.target === "prior" ? "rule" : "prior"]) for (const l of LAYERS) todo.push([t, l]);
+  const status = document.getElementById("status");
+  const step = () => {
+    if (job !== curveJob) return;
+    const [t, l] = todo.shift();
+    curveData[t][l] = runProbe(state.naming, t, l, state.k, C, state.split).test;
+    drawCurve();
+    status.textContent = todo.length ? `training probes for every layer… ${LAYERS.length * 2 - todo.length} of ${LAYERS.length * 2}` : "";
+    if (todo.length) setTimeout(step, 0);
+  };
+  setTimeout(step, 0);
+}
+function updateLayer() {
+  const C = Math.pow(10, state.logC);
+  const res = runProbe(state.naming, state.target, state.layer, state.k, C, state.split);
+  const tname = state.target === "prior" ? "prior prediction" : "rule label";
+  document.getElementById("tTest").textContent = fmt(res.test);
+  document.getElementById("tTrain").textContent = fmt(res.train);
+  document.getElementById("tThesis").textContent = fmt(D.thesis[`${state.naming}|${tname}|${state.layer}`]);
+  document.getElementById("tParams").textContent = (state.k + 1).toLocaleString();
+  document.getElementById("f3").textContent = `keep the top ${state.k} principal component${state.k > 1 ? "s" : ""} (${Math.round(100 * res.M.varRatio.slice(0, state.k).reduce((a, b) => a + b, 0))}% of the variation)`;
+  document.getElementById("f4").textContent = `score = w·z + b, with ${state.k + 1} parameters`;
+  const warn = document.getElementById("warn");
+  const msgs = [];
+  if (res.M.constant) msgs.push("At layer 0 the last position holds only the embedding of the prompt's final token, which is the same for every query, so there is nothing to read: every score ties and AUROC is 0.5.");
+  if (state.split === "row") msgs.push("Random rows put queries from the same task in both training and testing, so the probe can learn each task's quirks; scores here are optimistic. The thesis splits by task.");
+  if (res.train - res.test > 0.15 && !res.M.constant) msgs.push(`The probe fits its training tasks much better (${fmt(res.train)}) than new ones (${fmt(res.test)}): it is memorising tasks. Try a smaller C or fewer components.`);
+  warn.innerHTML = msgs.join("<br>"); warn.style.display = msgs.length ? "block" : "none";
+  drawScatter(res); drawHist(res); drawCurve();
+}
+function setSeg(id, v) { document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v))); }
+function setLayer(l) { state.layer = l; document.getElementById("layer").value = l; document.getElementById("layerV").textContent = l; updateLayer(); }
+let deb; const debounce = (fn) => { clearTimeout(deb); deb = setTimeout(fn, 120); };
+function wireSeg(id, key, full) { document.querySelectorAll(`#${id} button`).forEach(b => b.addEventListener("click", () => { state[key] = b.dataset.v; setSeg(id, b.dataset.v); updateLayer(); if (full) computeCurve(); else drawCurve(); })); }
+wireSeg("namingSeg", "naming", true); wireSeg("targetSeg", "target", false); wireSeg("splitSeg", "split", true);
+document.getElementById("layer").addEventListener("input", e => { document.getElementById("layerV").textContent = e.target.value; state.layer = +e.target.value; debounce(updateLayer); });
+document.getElementById("k").addEventListener("input", e => { state.k = +e.target.value; document.getElementById("kV").textContent = state.k; debounce(() => { updateLayer(); computeCurve(); }); });
+document.getElementById("c").addEventListener("input", e => { state.logC = +e.target.value; const C = Math.pow(10, state.logC); document.getElementById("cV").textContent = C < 0.01 ? C.toExponential(0) : +C.toPrecision(2); debounce(() => { updateLayer(); computeCurve(); }); });
+updateLayer(); computeCurve();
+</script>
+</body>
+</html>

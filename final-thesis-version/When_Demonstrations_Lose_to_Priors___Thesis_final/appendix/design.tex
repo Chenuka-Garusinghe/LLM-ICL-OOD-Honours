@@ -1,0 +1,124 @@
+\chapter{Design details}
+\label{app:design}
+
+This appendix gives the definitions and properties that the chapters rely on.
+
+\section{Tasks and environments}
+
+\paragraph{Rows.}
+Features are drawn as $x \sim \mathcal{N}(0, I_{10})$, the environment's perturbation is applied, the clean label is computed from the load-bearing features $C$, the shortcut $x_8$ is generated from the clean label, $x_9 \sim \mathcal{N}(0,1)$, and labels are flipped with probability $\eta = 0.02$.
+Features are standardised with the pool's statistics and shown in a random order $\pi_t$ per task, so no role can be read from a position.
+
+\paragraph{Rules.}
+A \emph{linear} task has $y_{\mathrm{clean}} \sim \mathrm{Bernoulli}\big(\sigma(c^\top x_C)\big)$ with $c_j = u_j r_j$, $u_j \sim \mathrm{U}(1,2)$, $r_j \in \{\pm 1\}$; $P(y_{\mathrm{clean}} = 1 \mid x)$ is strictly monotone in each $x_j$, so feature $j$ has the direction $s_j = \operatorname{sign} c_j$.
+A \emph{tree} task splits each of three features at zero and labels the eight leaves; the leaf tables allowed (complement-antisymmetric, neither a dictator nor parity) are exactly the signed majorities $y_{\mathrm{clean}} = \mathbb{1}\big[\mathrm{Maj}(s_1 x_1, s_2 x_2, s_3 x_3) > 0\big]$, so tree tasks are monotone too.
+
+\paragraph{The shortcut.}
+With $d = \Phi^{-1}(s)$, $x_8 = \sigma_t\big((2y_{\mathrm{clean}} - 1)d + \varepsilon\big)$, $\varepsilon \sim \mathcal{N}(0,1)$.
+
+\begin{proposition}[Sign agreement]
+$P\big(\operatorname{sign}(\sigma_t x_8) = \operatorname{sign}(2y_{\mathrm{clean}}-1)\big) = s$; under spurious reversal ($d \to -d$) it is $1 - s$.
+\end{proposition}
+\begin{proof}
+For $y = 1$, $P(\sigma_t x_8 > 0) = P(Z > -d) = \Phi(d) = s$; $y = 0$ is symmetric. Reversal replaces $d$ by $\Phi^{-1}(1-s) = -d$.
+\end{proof}
+
+\paragraph{Covariate shift.}
+Two load-bearing features $i, j$ are moved in opposite label directions and a distractor $d \notin C$ at random:
+$\delta_i = s_i m/|c_i|$, $\delta_j = -s_j m/|c_j|$, $\delta_d \sim \pm\mathrm{U}(1,2)$, with the push $m$ chosen so that every shifted feature moves by 1--2 standard deviations (for trees $|c| = 1$, $m \sim \mathrm{U}(1,2)$).
+
+\begin{lemma}[The label rate is unchanged]
+(a) For linear tasks, $c^\top(x + \delta) = c^\top x$ for every row. (b) For tree tasks, $P(y_{\mathrm{clean}} = 1)$ stays $1/2$.
+\end{lemma}
+\begin{proof}
+(a) $c_i\delta_i = m$, $c_j\delta_j = -m$, and the distractor carries no weight. (b) The three votes are independent. After the shift the two moved votes are 1 with probabilities $p_i = \Phi(m)$ and $p_j = 1 - \Phi(m)$, and the third with $\tfrac12$, so the majority is 1 with probability $p_i p_j + \tfrac12[p_i(1-p_j) + (1-p_i)p_j] = \tfrac12(p_i + p_j) = \tfrac12$.
+\end{proof}
+
+\section{Naming}
+
+Each domain has antonym pairs $(p, q)$, where $p$ is associated in everyday language with label 1 and $q$ with label 0, and a set of weak-prior names.
+Each load-bearing feature $j$ is assigned a pair: \emph{aligned} names it $p$ if $s_j = +1$ and $q$ if $s_j = -1$; \emph{flipped} uses the other member.
+Every other feature gets a weak-prior name, the same in both conditions.
+
+\begin{proposition}[Identification]
+For a fixed task, demonstration set and query, the aligned and flipped prompts differ only in the names of the three load-bearing features. A predictor that ignores names has the same expected accuracy under both, so a difference in the model's accuracy is attributable to the meaning of the names.
+\end{proposition}
+
+\section{Counter-spurious selection}
+
+Balancing the four (label, shortcut agrees) cells is not enough: agreeing rows lie further from zero ($\mathbb{E}[|x_8| \mid \text{agree}] = d + \phi(d)/\Phi(d) > \mathbb{E}[|x_8| \mid \text{disagree}] = \phi(d)/(1-\Phi(d)) - d$), so $x_8$ still correlates with the label (about 0.33 at $s = 0.85$).
+\strat{counter\_spurious} therefore takes, within each label, $k/4$ clean disagreeing rows and pairs each with the clean agreeing row of the same label nearest in $|x_8|$ \citep{rubin1973matching,stuart2010matching}.
+With perfect matching, sign agreement is $\tfrac12$ and $\mathrm{Cov}(x_8, 2y-1) = 0$; on the evaluation tasks the implementation gives $\mathrm{corr}(x_8, y) = 0.005$.
+\sata's matched target (\autoref{sec:sata-targets}) is each row's probability $\pi_i$ of appearing in such a set built for the query, with rows in the query's regime (the sign pattern of its three load-bearing features) taken first, normalised: $q_i = \pi_i / \sum_j \pi_j$; label-noise rows have $\pi_i = 0$, and nothing reads the query's label.
+\sata is trained with the loss $\mathrm{KL}(q \,\Vert\, p_\theta)$.
+
+\section{Scoring and caching}
+
+\begin{lemma}[Margin]
+With $p_1 = e^{\ell_1}/(e^{\ell_0} + e^{\ell_1})$ and $m = \ell_1 - \ell_0$, $p_1 = \sigma(m)$, and $m$ is the same whether computed from logits or from full-vocabulary log-probabilities.
+\end{lemma}
+\begin{proof}
+$p_1/(1 - p_1) = e^{\ell_1 - \ell_0}$; log-probabilities subtract a common log-sum-exp, which cancels.
+\end{proof}
+
+\begin{proposition}[Prefix caching is exact]
+For a decoder-only transformer with causal attention, running the prefix $P$ once and each suffix $S$ against its cached keys and values gives the same final-position logits as a full pass on $P \Vert S$, provided $\mathrm{tok}(P \Vert S) = \mathrm{tok}(P) \Vert \mathrm{tok}(S)$.
+\end{proposition}
+\begin{proof}
+States at positions $< |P|$ depend only on those positions' tokens (attention reads positions $\le t$), so appending $S$ does not change them, and the states of $S$ are computed from the same inputs either way. The runner checks the tokenisation condition for every suffix.
+\end{proof}
+
+\begin{lemma}[Logit lens at the last layer]
+With $w = W_U[\texttt{1}] - W_U[\texttt{0}]$ and $h_L$ the final (normalised) state, $m_L = w^\top h_L = \ell_1 - \ell_0 = m$.
+\end{lemma}
+
+\section{Statistics}
+
+\paragraph{Cells and contrasts.}
+\AUROC is computed within each cell (task, strategy, seed, naming, environment) over its 20 label-balanced queries and averaged over seeds.
+A contrast is a per-task difference of such values (for example, strategy $A$ minus strategy $B$ on the same queries, or ID minus a shifted environment), averaged over the 24 tasks.
+
+\paragraph{Hierarchical bootstrap.}
+Each of $B = 2000$ draws resamples tasks with replacement and, within each resampled task, its positive and negative queries separately; the percentile interval of the resampled estimates is reported, with one-sided $p$-values from the share of draws on the wrong side of zero.
+Because tasks differ in their rules, the variance of the mean is dominated by the between-task term ($\sigma_T^2/T + \sigma_W^2/(Tn)$; \citealp{cochran1977sampling}), so tasks are the unit of resampling.
+
+\paragraph{Multiplicity.}
+Holm's step-down correction \citep{holm1979simple} is applied within each pre-registered family: ten contrasts for \RQ1--\RQ3 and six for \sata.
+\autoref{tab:contrasts} lists every confirmatory estimate.
+
+\begin{table}[h]
+\centering\small
+\caption{Every confirmatory contrast (Qwen2.5-7B-Instruct, 24 tasks; one-sided hierarchical bootstrap, Holm within each family). All are differences in \AUROC except demo-following (in the demo-following index) and feature reliance (in Spearman $\rho$). Bold: significant after correction.}
+\label{tab:contrasts}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Contrast} & \textbf{Estimate [95\% CI]} & \textbf{Holm $p$} & \textbf{Tasks} \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Shift, names and the prior (\RQ1--\RQ3)}} \\
+Covariate shift: ID $-$ covariate (random, abstract) & $+0.024$ [$-0.044$, 0.093] & 0.95 & 15/24 \\
+Shortcut reversal: ID $-$ reversal (random, abstract) & $+0.115$ [0.017, 0.218] & 0.063 & 16/24 \\
+\textbf{Flipped names: aligned $-$ flipped (random, ID)} & $\mathbf{+0.204}$ [0.131, 0.280] & \textbf{0.005} & 22/24 \\
+counter\_spurious $-$ label\_diversity, reversal & $+0.035$ [$-0.019$, 0.086] & 0.59 & 16/24 \\
+similarity $-$ label\_diversity, covariate & $-0.029$ [$-0.110$, 0.048] & 1.00 & 11/24 \\
+feature\_range $-$ label\_diversity, covariate & $-0.078$ [$-0.141$, $-0.018$] & 1.00 & 6/24 \\
+counter\_prior $-$ label\_diversity, flipped, ID & $+0.023$ [$-0.015$, 0.064] & 0.70 & 7/24 \\
+\textbf{counter\_spurious's gain: reversal $-$ covariate} & $\mathbf{+0.111}$ [0.033, 0.196] & \textbf{0.024} & 17/24 \\
+\textbf{Demo-following index: abstract $-$ flipped} & $\mathbf{+0.123}$ [0.079, 0.175] & \textbf{0.005} & 23/24 \\
+Feature reliance $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$: abstract $-$ flipped & $+0.026$ [$-0.141$, 0.174] & 1.00 & 13/24 \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{\sata (\RQ4)}} \\
+\sata{} $-$ label\_diversity, reversal & $+0.032$ [$-0.024$, 0.089] & 0.79 & 14/24 \\
+\sata{} $-$ label\_diversity, covariate & $-0.096$ [$-0.154$, $-0.041$] & 1.00 & 5/24 \\
+\sata{} $-$ label\_diversity, ID & $-0.040$ [$-0.102$, 0.023] & 1.00 & 8/24 \\
+\sata{} $-$ similarity, mean of 3 environments & $-0.020$ [$-0.064$, 0.026] & 1.00 & 11/24 \\
+\sata{} $-$ \sata{} without the query, mean of 3 & $-0.025$ [$-0.063$, 0.010] & 1.00 & 10/24 \\
+\sata{} $-$ label\_diversity, flipped, ID & $-0.014$ [$-0.077$, 0.048] & 1.00 & 13/24 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Reproducibility}
+\label{app:repro}
+
+The code, configuration and pre-registered contrast families accompany this thesis, with tests covering the invariants of the generator, the selection engine, the model runner and the probes.
+Every prediction is stored with its demonstration rows, order and prompt, so every number and figure here can be recomputed from the result files.\todo{Add the repository link.}

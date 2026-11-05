@@ -83,39 +83,42 @@ Each of $B = 2000$ draws resamples tasks with replacement and, within each resam
 Because tasks differ in their rules, the variance of the mean is dominated by the between-task term ($\sigma_T^2/T + \sigma_W^2/(Tn)$; \citealp{cochran1977sampling}), so tasks are the unit of resampling.
 
 \paragraph{Multiplicity.}
-Holm's step-down correction \citep{holm1979simple} is applied within each pre-registered family: ten contrasts for \RQ1--\RQ3, six for \sata (R1--R6) and four for \satami (R7--R10).
+Holm's step-down correction \citep{holm1979simple} is applied within each pre-registered family: ten contrasts for \RQ1--\RQ3, six for \sata and four for \satami.
 \autoref{tab:contrasts} lists every confirmatory estimate.
 
 \begin{table}[h]
 \centering\small
-\caption{Every confirmatory contrast (Qwen2.5-7B-Instruct, 24 tasks; one-sided hierarchical bootstrap, Holm within each family). C1--C2 and R are differences in \AUROC; C3a in the demo-following index; C3b in Spearman $\rho$. Bold: significant after correction.}
+\caption{Every confirmatory contrast (Qwen2.5-7B-Instruct, 24 tasks; one-sided hierarchical bootstrap, Holm within each family). All are differences in \AUROC except demo-following (in the demo-following index) and feature reliance (in Spearman $\rho$). Bold: significant after correction.}
 \label{tab:contrasts}
-\begin{tabular}{@{}llrrr@{}}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-& \textbf{Contrast} & \textbf{Estimate [95\% CI]} & \textbf{Holm $p$} & \textbf{Tasks} \\
+\textbf{Contrast} & \textbf{Estimate [95\% CI]} & \textbf{Holm $p$} & \textbf{Tasks} \\
 \midrule
-C1a & ID $-$ covariate (random, abstract) & $+0.024$ [$-0.044$, 0.093] & 0.95 & 15/24 \\
-C1b & ID $-$ spurious reversal (random, abstract) & $+0.115$ [0.017, 0.218] & 0.063 & 16/24 \\
-\textbf{C1c} & \textbf{aligned $-$ flipped (random, ID)} & $\mathbf{+0.204}$ [0.131, 0.280] & \textbf{0.005} & 22/24 \\
-C2a & counter\_spurious $-$ label\_diversity, reversal & $+0.035$ [$-0.019$, 0.086] & 0.59 & 16/24 \\
-C2b & similarity $-$ label\_diversity, covariate & $-0.029$ [$-0.110$, 0.048] & 1.00 & 11/24 \\
-C2c & feature\_range $-$ label\_diversity, covariate & $-0.078$ [$-0.141$, $-0.018$] & 1.00 & 6/24 \\
-C2d & counter\_prior $-$ label\_diversity, flipped, ID & $+0.023$ [$-0.015$, 0.064] & 0.70 & 7/24 \\
-\textbf{C2e} & \textbf{C2a under reversal $-$ under covariate} & $\mathbf{+0.111}$ [0.033, 0.196] & \textbf{0.024} & 17/24 \\
-\textbf{C3a} & \textbf{demo-following index, abstract $-$ flipped} & $\mathbf{+0.123}$ [0.079, 0.175] & \textbf{0.005} & 23/24 \\
-C3b & $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$, abstract $-$ flipped & $+0.026$ [$-0.141$, 0.174] & 1.00 & 13/24 \\
+\multicolumn{4}{@{}l}{\emph{Shift, names and the prior (\RQ1--\RQ3)}} \\
+Covariate shift: ID $-$ covariate (random, abstract) & $+0.024$ [$-0.044$, 0.093] & 0.95 & 15/24 \\
+Shortcut reversal: ID $-$ reversal (random, abstract) & $+0.115$ [0.017, 0.218] & 0.063 & 16/24 \\
+\textbf{Flipped names: aligned $-$ flipped (random, ID)} & $\mathbf{+0.204}$ [0.131, 0.280] & \textbf{0.005} & 22/24 \\
+counter\_spurious $-$ label\_diversity, reversal & $+0.035$ [$-0.019$, 0.086] & 0.59 & 16/24 \\
+similarity $-$ label\_diversity, covariate & $-0.029$ [$-0.110$, 0.048] & 1.00 & 11/24 \\
+feature\_range $-$ label\_diversity, covariate & $-0.078$ [$-0.141$, $-0.018$] & 1.00 & 6/24 \\
+counter\_prior $-$ label\_diversity, flipped, ID & $+0.023$ [$-0.015$, 0.064] & 0.70 & 7/24 \\
+\textbf{counter\_spurious's gain: reversal $-$ covariate} & $\mathbf{+0.111}$ [0.033, 0.196] & \textbf{0.024} & 17/24 \\
+\textbf{Demo-following index: abstract $-$ flipped} & $\mathbf{+0.123}$ [0.079, 0.175] & \textbf{0.005} & 23/24 \\
+Feature reliance $\rho(\pi_{\mathrm{true}}, \pi_{\mathrm{behav}})$: abstract $-$ flipped & $+0.026$ [$-0.141$, 0.174] & 1.00 & 13/24 \\
 \midrule
-R1 & sata $-$ label\_diversity, reversal & $+0.032$ [$-0.024$, 0.089] & 0.79 & 14/24 \\
-R2 & sata $-$ label\_diversity, covariate & $-0.096$ [$-0.154$, $-0.041$] & 1.00 & 5/24 \\
-R3 & sata $-$ label\_diversity, ID & $-0.040$ [$-0.102$, 0.023] & 1.00 & 8/24 \\
-R4 & sata $-$ similarity, mean of 3 environments & $-0.020$ [$-0.064$, 0.026] & 1.00 & 11/24 \\
-R5 & sata $-$ sata without the query, mean of 3 & $-0.025$ [$-0.063$, 0.010] & 1.00 & 10/24 \\
-R6 & sata $-$ label\_diversity, flipped, ID & $-0.014$ [$-0.077$, 0.048] & 1.00 & 13/24 \\
+\multicolumn{4}{@{}l}{\emph{\sata (\RQ4)}} \\
+\sata{} $-$ label\_diversity, reversal & $+0.032$ [$-0.024$, 0.089] & 0.79 & 14/24 \\
+\sata{} $-$ label\_diversity, covariate & $-0.096$ [$-0.154$, $-0.041$] & 1.00 & 5/24 \\
+\sata{} $-$ label\_diversity, ID & $-0.040$ [$-0.102$, 0.023] & 1.00 & 8/24 \\
+\sata{} $-$ similarity, mean of 3 environments & $-0.020$ [$-0.064$, 0.026] & 1.00 & 11/24 \\
+\sata{} $-$ \sata{} without the query, mean of 3 & $-0.025$ [$-0.063$, 0.010] & 1.00 & 10/24 \\
+\sata{} $-$ label\_diversity, flipped, ID & $-0.014$ [$-0.077$, 0.048] & 1.00 & 13/24 \\
 \midrule
-R7 & sata\_mi $-$ sata, flipped, ID & $+0.005$ [$-0.050$, 0.062] & 1.00 & 11/24 \\
-R8 & sata\_mi $-$ sata\_names, flipped, ID & $-0.010$ [$-0.066$, 0.047] & 1.00 & 10/24 \\
-R9 & sata\_mi $-$ counter\_prior, flipped, ID & $-0.032$ [$-0.099$, 0.036] & 1.00 & 11/24 \\
-R10 & sata\_mi $-$ sata, flipped, mean of 3 & $+0.001$ [$-0.031$, 0.032] & 1.00 & 12/24 \\
+\multicolumn{4}{@{}l}{\emph{\satami (\RQ4)}} \\
+\satami $-$ \sata{}, flipped, ID & $+0.005$ [$-0.050$, 0.062] & 1.00 & 11/24 \\
+\satami $-$ sata\_names, flipped, ID & $-0.010$ [$-0.066$, 0.047] & 1.00 & 10/24 \\
+\satami $-$ counter\_prior, flipped, ID & $-0.032$ [$-0.099$, 0.036] & 1.00 & 11/24 \\
+\satami $-$ \sata{}, flipped, mean of 3 & $+0.001$ [$-0.031$, 0.032] & 1.00 & 12/24 \\
 \bottomrule
 \end{tabular}
 \end{table}

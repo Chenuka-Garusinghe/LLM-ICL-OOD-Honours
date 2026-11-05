@@ -30,7 +30,9 @@ When feature names carry meaning, the prior is semantic: a feature called ``cred
 
 \citet{wei2023larger} tested what happens when the demonstrations contradict the prior, by flipping labels or replacing them with semantically unrelated ones: only large models follow the flipped labels, and smaller models stay with their priors.
 At the scale studied here the picture is graded rather than all-or-nothing.
+
 Llama-3.1-8B-Instruct agrees with fully flipped sentiment labels about half the time \citep{krishnakumar2025semantic}, and with flipped labels in-context accuracy plateaus below its level with the original labels \citep{kossen2024incontext}.
+
 Related work on knowledge conflicts studies when a model trusts its context over its parametric memory \citep{longpre2021entity,xie2024adaptive}; the statistical notion of prior--data conflict goes back further \citep{evans2006checking}.
 This thesis treats the question as a contest between prior and demonstrations whose outcome can be shifted, and asks whether the demonstrations themselves can be chosen to shift it.
 
@@ -43,11 +45,11 @@ On real tabular benchmarks, most of the large performance drops are dominated by
 Benchmarks such as TableShift \citep{gardner2023tableshift} collect natural shifts, but each mixes several kinds, so the effect of one kind cannot be isolated.
 
 \paragraph{Spurious features and shortcuts.}
-A spurious feature predicts the label in the training environment for reasons that do not hold elsewhere.
+A spurious feature is a feature with strong predictive power that predicts the label in the training environment for reasons that do not hold elsewhere.
 Colored MNIST pairs a noisy causal signal with a colour whose correlation with the label reverses at test time \citep{arjovsky2019invariant}, and \citet{rosenfeld2021risks} model environmental features as class-conditional Gaussians.
 Learners adopt such shortcuts readily \citep{geirhos2020shortcut,nagarajan2021understanding}.
 Worst-group robustness is measured over (label, spurious attribute) groups \citep{sagawa2020distributionally}, and simple group balancing is a strong baseline \citep{idrissi2022simple}.
-In-context learning inherits the problem: when demonstrations are consistent with several features, models show systematic preferences among them \citep{si2023measuring}, exploit shortcuts in the prompt \citep{tang2023large}, and in-context learners trained on tasks with spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}.
+In-context learning inherits the problem: when demonstrations are tend to be consistent with several features, models show systematic preferences among them \citep{si2023measuring} and exploit shortcuts in the prompt \citep{tang2023large}, and in-context learners trained on tasks with spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}.
 Restricting a predictor to causal features is not automatically better: on tabular shifts, \citet{nastl2024causal} found predictors using all features generalised as well or better.
 
 \section{Demonstration selection}

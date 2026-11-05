@@ -25,7 +25,7 @@ Logistic probes on $h_l$ \citep{alain2017understanding}, trained on some tasks a
 
 \paragraph{Steering.}
 On queries where the rule label and Qwen's zero-shot prediction disagree, $v_l$ is the mean residual of predictions that follow the demonstrations minus the mean of those that follow the prior, averaged over the two rule labels, in the manner of activation addition \citep{turner2023activation,rimsky2024steering}.
-It is fitted on the 12 even-indexed tasks and applied, as $h_l \leftarrow h_l + \alpha v_l$ during the query only, on the 12 odd-indexed tasks at layers 8, 12, 16, 20 and 24, with $\alpha$ from 1 to 32 and a random direction of the same norm as a control.
+It is fitted on the 12 even-indexed tasks, which are the loan tasks, and applied, as $h_l \leftarrow h_l + \alpha v_l$ during the query only, on the 12 odd-indexed tasks, which are the medical ones, at layers 8, 12, 16, 20 and 24, with $\alpha$ from 1 to 32 and a random direction of the same norm as a control.
 
 \section{Results}
 
@@ -75,9 +75,9 @@ At $\alpha = 32$ a few cells move by 0.02--0.04 in both directions, as the rando
 Yet the margins move a lot, by 9.4 logits on average at layer 24 and $\alpha = 32$ (\autoref{fig:steer}, bottom).
 The reason is in how the vector was built.
 On conflict queries whose rule label is 0, following the demonstrations means a lower margin (0.56 against 6.08); on those whose rule label is 1, a higher one (5.25 against 0.41).
-Averaged over the two labels these halves point in opposite directions and mostly cancel, leaving a push of all margins together.
+At layers 20 and 24 the two per-label differences point in nearly opposite directions (cosine $-0.82$ to $-0.96$), so their average is a small remainder that pushes all margins together.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{\figpath/fig_steering.pdf}
 \caption{Steering on the 12 held-out tasks: change in final \AUROC (top) and in the margin (bottom), with 95\% intervals over tasks. Blue shades are the ``follow the demonstrations'' direction at increasing strength $\alpha$; grey diamonds are a random direction of the same norm. Margins move by up to 9 logits while \AUROC stays at zero: the direction shifts every answer together.}
@@ -88,6 +88,8 @@ Averaged over the two labels these halves point in opposite directions and mostl
 
 The logit lens can be biased at early layers \citep{belrose2023eliciting}; the probes avoid that bias and tell the same story, but neither is causal.
 Steering is the causal test, and it covers one family of directions only: a single mean difference, at five layers, applied to the query.
+Because the evaluation suite alternates domains, the vector was fitted on loan tasks and tested on medical ones.
+Refitting it on the medical tasks shows that this does not explain the null: at layers 8--16 the direction transfers across domains as well as between two halves of one domain, and at layers 20--24 it is unstable even within a domain.
 \citet{minder2025controllable} find a context-versus-prior direction in Llama-3.1-8B; our result says that a direction built this way does not exist in a usable form for this task and model, not that none exists.
 A label-specific or learned direction, steering of the demonstration prefix, or a larger model could behave differently, and our budget did not reach them.
 The broader limitations of the study are the subject of \autoref{sec:limitations}.

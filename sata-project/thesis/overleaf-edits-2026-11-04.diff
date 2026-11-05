@@ -1,0 +1,704 @@
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/abstract/abstract.tex edited/abstract/abstract.tex
+--- overleaf_backup/abstract/abstract.tex	2026-11-04 12:03:39
++++ edited/abstract/abstract.tex	2026-11-04 12:10:21
+@@ -8,15 +8,15 @@
+ This thesis asks whether choosing the demonstrations can help a 7B model follow them over its own priors under controlled distribution shift.
+ We build a synthetic tabular testbed in which covariate shift, spurious-feature reversal and concept shift (realised by giving features names whose everyday meaning agrees or disagrees with the rule) can each be switched on alone, with known ground truth.
+ On Qwen2.5-7B-Instruct with eight demonstrations, we compare seven hand-designed selection strategies against a zero-shot baseline.
+-We then train a set-transformer selector (\sata), (\sata), trained on targets computed from the ground truth, and look inside the model with the logit lens, linear probes and activation steering.
++We then train a set-transformer selector (\sata) on targets computed from the ground truth, and look inside the model with the logit lens, linear probes and activation steering.
+ Every confirmatory test was written down before its data were seen.
+ 
+ \textbf{Feature names, not demonstrations, decide most of what the model predicts.}
+ Flipping the names costs 0.20 \AUROC (95\% CI [0.13, 0.28], 22 of 24 tasks), more than any shift of the data.
+ No hand-designed strategy overcomes it.
+-\textbf{A trained selector beats every strategy on a stand-in learner, but not on the instruction-tuned model}: none of the six pre-registered \sata contrasts, favours the selector after Holm correction.
++\textbf{A trained selector is the only method with no weak environment on a stand-in learner, but it does no better on the instruction-tuned model}: none of the six pre-registered \sata contrasts favours the selector after Holm correction.
+ In an exploratory comparison, \sata does help the base model, whose priors pull less.
+ \textbf{Inside the model, the answer forms only in its last few layers, and that is where the names take over}: its zero-shot guess is decodable from layer 2, the demonstrated rule hardly at all, and a steering direction for ``follow the demonstrations'' moves its outputs without making them more correct.
+ 
+-Within the scale we could study (7B models, eight numeric demonstrations, synthetic tasks, a small compute budget), selection alone cannot route around a strong prior.
++Within the scale we could study (7B models, eight numeric demonstrations, synthetic tasks, a small compute budget), none of the selection methods we tried overcame the names' pull on the instruction-tuned model.
+ The testbed, the contrast families and the diagnosis give future work at larger scale a controlled place to test what can.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/appendix/exploratory.tex edited/appendix/exploratory.tex
+--- overleaf_backup/appendix/exploratory.tex	1970-01-01 10:00:00
++++ edited/appendix/exploratory.tex	2026-11-04 12:10:07
+@@ -0,0 +1,56 @@
++\chapter{Exploratory results: \sata on the base model}
++\label{app:base}
++
++This appendix reports the exploratory comparison summarised in \autoref{sec:sata}.
++It was not part of a pre-registered family, so it is a lead for future work rather than a confirmed result.
++
++\paragraph{Setup.}
++We ran the same \sata checkpoint on Qwen2.5-7B (base), on the 24 evaluation tasks, as part of the reduced base-model grid of \autoref{ch:shift}: abstract and flipped names only, and three of the hand-designed strategies (\strat{random}, \strat{counter\_spurious} and \strat{counter\_prior}) besides zero-shot.
++\strat{label\_diversity} was not run on the base model, so \sata is compared here with \strat{random} and \strat{counter\_spurious}.
++
++\begin{figure}[H]
++\centering
++\includegraphics[width=0.8\textwidth]{\figpath/fig_base_sata.pdf}
++\caption{Every strategy run on Qwen2.5-7B (base), by naming (panels) and environment (dot colour), as mean \AUROC over 24 tasks. The grey line joins one strategy's three environments, and rows are sorted by each strategy's weakest environment under abstract names. \sata's three environments sit close together and its weakest one is the highest of any strategy; the hand-designed strategies trade one environment against another.}
++\label{fig:base-sata}
++\end{figure}
++
++\paragraph{What the figure shows.}
++Under both namings, \sata's three environments sit close together, and its weakest environment is higher than any other strategy's (\autoref{fig:base-sata}).
++The hand-designed strategies trade one environment against another: \strat{random} and \strat{counter\_prior} do well on ID and covariate queries and fall under spurious reversal, the same pattern as on the instruction-tuned model (\autoref{tab:sata-flattening}), while \strat{counter\_spurious} is flatter but lower.
++This is the flattening \sata showed on the instruction-tuned model, but on the base model it comes without a clear loss on ID and covariate queries.
++
++\paragraph{The paired comparisons.}
++\autoref{tab:base-contrasts} compares \sata with the two strategies on the same queries.
++Against \strat{random}, its gains come under spurious reversal, with no clear cost on ID or covariate queries.
++Against \strat{counter\_spurious}, it is ahead in all six cells, with intervals above zero in two.
++Only one comparison, the gain over \strat{random} under spurious reversal with flipped names, survives a Holm correction over the twelve.
++
++\begin{table}[H]
++\centering\small
++\caption{\sata against the two hand-designed strategies run on the base model (24 tasks; hierarchical bootstrap as in \autoref{sec:stats}; Holm over these twelve comparisons). Exploratory. Tasks: the number of tasks in which \sata is ahead. Bold: survives correction.}
++\label{tab:base-contrasts}
++\begin{tabular}{@{}llrrr@{}}
++\toprule
++\textbf{Names} & \textbf{Comparison, environment} & \textbf{Estimate [95\% CI]} & \textbf{Holm $p$} & \textbf{Tasks} \\
++\midrule
++abstract & \sata{} $-$ random, ID & $-0.027$ [$-0.095$, 0.040] & 1.00 & 13/24 \\
++ & \sata{} $-$ random, covariate & $-0.014$ [$-0.080$, 0.051] & 1.00 & 12/24 \\
++ & \sata{} $-$ random, reversal & $+0.085$ [0.015, 0.155] & 0.11 & 15/24 \\
++ & \sata{} $-$ counter\_spurious, ID & $+0.048$ [$-0.017$, 0.110] & 0.45 & 17/24 \\
++ & \sata{} $-$ counter\_spurious, covariate & $+0.050$ [$-0.011$, 0.108] & 0.45 & 14/24 \\
++ & \sata{} $-$ counter\_spurious, reversal & $+0.029$ [$-0.028$, 0.087] & 0.94 & 14/24 \\
++\midrule
++flipped & \sata{} $-$ random, ID & $+0.008$ [$-0.060$, 0.077] & 1.00 & 16/24 \\
++ & \sata{} $-$ random, covariate & $0.000$ [$-0.072$, 0.076] & 1.00 & 12/24 \\
++ & \textbf{\sata{} $-$ random, reversal} & $\mathbf{+0.094}$ [0.031, 0.159] & \textbf{0.024} & 19/24 \\
++ & \sata{} $-$ counter\_spurious, ID & $+0.077$ [0.012, 0.136] & 0.12 & 19/24 \\
++ & \sata{} $-$ counter\_spurious, covariate & $+0.079$ [0.003, 0.152] & 0.18 & 18/24 \\
++ & \sata{} $-$ counter\_spurious, reversal & $+0.020$ [$-0.038$, 0.077] & 1.00 & 15/24 \\
++\bottomrule
++\end{tabular}
++\end{table}
++
++\paragraph{Limits.}
++These comparisons were not pre-registered; the base grid covers two namings and three of the seven hand-designed strategies; and the comparison is between two models only, so it cannot show that instruction tuning is what makes the difference.
++The base model also loses less to flipped names than the instruction-tuned model (\autoref{ch:shift}), which fits the reading that \sata helps a model only as far as it reads its demonstrations, but does not establish it.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/background/background.tex edited/background/background.tex
+--- overleaf_backup/background/background.tex	2026-11-04 12:03:39
++++ edited/background/background.tex	2026-11-04 12:29:24
+@@ -1,28 +1,28 @@
+ \chapter{Background}
+-The goal of this chapter is to build on the 5 strands of work the thesis aims for, that is as follows:
++The goal of this chapter is to build on the five strands of work the thesis draws on, as follows:
+ 
+ \begin{itemize}
+-    \item in-context learning and what it learns (\autoref{sec:bg-icl}), 
+-    \item the contest between priors and demonstrations (\autoref{sec:bg-priors}), 
+-    \item distribution shift and shortcuts (\autoref{sec:bg-shift}), 
+-    \item demonstration selection (\autoref{sec:bg-selection})
+-    \item the tools for looking inside a model of this size and what it reveals about how demonstrations are observed(\autoref{sec:bg-mech}).
++    \item in-context learning and what it learns (\autoref{sec:bg-icl}),
++    \item the contest between priors and demonstrations (\autoref{sec:bg-priors}),
++    \item distribution shift and shortcuts (\autoref{sec:bg-shift}),
++    \item demonstration selection (\autoref{sec:bg-selection}), and
++    \item the tools for looking inside a model of this size, and what they reveal about how demonstrations are used (\autoref{sec:bg-mech}).
+ \end{itemize}
+ 
+ \section{In-context learning}
+ \label{sec:bg-icl}
+-Works by \citet{brown2020language} showed that a sufficiently large language model can perform a new tasks from a few demonstrations in its prompt, with no gradient updates; \citet{dong2024survey} has survey the area ever since this. However, given current progress in this area, what models seem to learn from demonstrations are being contested actively in the community. \cite{min2022rethinking} found that if the demonstration labels are replaced with random ones, there is often a cost that is surprisingly little, suggesting that the demonstrations mainly conveyed the input distribution, the label space and the format. The works of \citet{pan2023what} and \citet{xie2022explanation} matter here because they
++Work by \citet{brown2020language} showed that a sufficiently large language model can perform a new task from a few demonstrations in its prompt, with no gradient updates; \citet{dong2024survey} survey the area since. However, given current progress in this area, what models seem to learn from demonstrations is being actively contested in the community. \citet{min2022rethinking} found that if the demonstration labels are replaced with random ones, the cost is often surprisingly small, suggesting that the demonstrations mainly convey the input distribution, the label space and the format. The works of \citet{pan2023what} and \citet{xie2022explanation} matter here because they
+ explain why a model may follow its priors when it recognises a task whose demonstrations disagree with them. \citet{pan2023what} separate \emph{task recognition}, in which the demonstrations only signal a task the model already knows from pre-training and the model answers from that knowledge (so even incorrect labels work), from \emph{task learning}, in which the model acquires a new input--label mapping from the demonstrations themselves.
+ They find that task recognition is present even in small models and does not improve with scale or more demonstrations, whereas task learning emerges only in larger models and improves as demonstrations are added. \citet{xie2022explanation} offer a complementary view: in-context learning as implicit Bayesian inference, in which the demonstrations update the model's prior over latent concepts, so a strong prior needs strong evidence to be overturned. A 7B model shown eight demonstrations is therefore expected to rely mostly on recognition, and to follow its priors whenever the demonstrations contradict them.
+ 
+-There have been several controlled studies that train or probe models on syntheitc function classes. \citet{garg2022what} showed that transformers trained from scractc can learn linear functoin and decision trees in context and \citet{zhang2024trained} found that suc in-context learners of linear functions tend to be brittle under covariate shifts. In this same spirit there have been several tabular foundational models that have been trained as well \citet{hollmann2023tabpfn, muller2022transformers, hollmann2025accurate}. Due to the auto-regressive nature of LLM's we follow a similar technique to \citet{brown2020language} in which they read classification from the probabilities of label tokens, where we serialized tabular rows following \citet{dinh2022lift, hegselmann2023tabllm}, however this method of reading the probaility of tokens is affected by surface-form competition \cite{holtzman2021surface} and bias towards particular labels. We aim to correct this via contextual calibration \citet{zhao2021calibrate} and avoid public datasets due to the open possibility of memorization of them during training of models like Qwen \citet{bordt2024elephants}.
++There have been several controlled studies that train or probe models on synthetic function classes. \citet{garg2022what} showed that transformers trained from scratch can learn linear functions and decision trees in context, and \citet{zhang2024trained} found that such in-context learners of linear functions tend to be brittle under covariate shift. In this same spirit, several tabular foundation models have been trained as well \citep{hollmann2023tabpfn, muller2022transformers, hollmann2025accurate}. Due to the autoregressive nature of LLMs, we follow a similar technique to \citet{brown2020language}, in which classification is read from the probabilities of label tokens, and we serialise tabular rows following \citet{dinh2022lift, hegselmann2023tabllm}; however, this method of reading the probability of tokens is affected by surface-form competition \citep{holtzman2021surface} and by bias towards particular labels. We aim to correct this via contextual calibration \citep{zhao2021calibrate}, and we avoid public datasets because of the open possibility that they were memorised during the training of models like Qwen \citep{bordt2024elephants}.
+ 
+ \section{Priors against demonstrations}
+ \label{sec:bg-priors}
+ 
+-The deifinition of a \emph{models prior} is what it would predict with no demonstrations. When feature names carry meaning, the prior is semantic: a feature called ''credit score'' suggests a direction before any example is seen. \citet{dinh2022lift} and \citet{choi2022lmpriors} have shown this effect where feature names change what the language model does with tabular data. 
++A model's \emph{prior} is defined as what it would predict with no demonstrations. When feature names carry meaning, the prior is semantic: a feature called ``credit score'' suggests a direction before any example is seen. \citet{dinh2022lift} and \citet{choi2022lmpriors} have shown this effect where feature names change what the language model does with tabular data. 
+ 
+-\citet{wei2023larger} tested what happens when the demonstrations contradict the prior, by flipping labels or replacing them with semantically unrelated ones: only large models follow the flipped labels, and smaller models stay with their priors. At the scale of this study, we have found that this is indeed true partly to some degree. Further studies by \citet{krishnakumar2025semantic} have shown that models like Llama-3.1-8B-Instruct agrees with fully flipped sentiment labels about half the time and while the statistical notion of prior data goes way back \citet{evans2006checking} related work on knowledge conflict studies have been done by \citet{longpre2021entity, xie2024adaptive} when a model model trusts its context over its parametric memory. This thesis treats the question as a contest between prior and demonstrations whose outcome can be shifted, and asks whether the demonstrations themselves can be chosen to shift these outcomes.
++\citet{wei2023larger} tested what happens when the demonstrations contradict the prior, by flipping labels or replacing them with semantically unrelated ones: only large models follow the flipped labels, and smaller models stay with their priors. At the scale of this study, we found this to be partly true. Further studies by \citet{krishnakumar2025semantic} have shown that models like Llama-3.1-8B-Instruct agree with fully flipped sentiment labels about half the time, and while the statistical notion of prior--data conflict goes back to \citet{evans2006checking}, related work on knowledge conflicts \citep{longpre2021entity, xie2024adaptive} studies when a model trusts its context over its parametric memory. This thesis treats the question as a contest between prior and demonstrations whose outcome can be shifted, and asks whether the demonstrations themselves can be chosen to shift these outcomes.
+ 
+ \section{Distribution shift and shortcuts}
+ \label{sec:bg-shift}
+@@ -33,28 +33,29 @@
+ Benchmarks such as TableShift \citep{gardner2023tableshift} collect natural shifts, but each mixes several kinds, so the effect of one kind cannot be isolated.
+ 
+ \paragraph{Spurious features and shortcuts.}
+-A spurious feature is a feature with strong predictive power that predicts the label in the training environment for reasons that do not hold elsewhere, particularly when real world situations and it has been shown that learns adopt this feature as a shortcut for prediction \citet{geirhos2020shortcut, nagarajan2021understanding}. In-context learning inherits the problem: when demonstrations are tend to be consistent with several features, models show systematic preferences among them \citep{si2023measuring} and exploit shortcuts in the prompt \citep{tang2023large}, and in-context learners trained on tasks with spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}. Taking action to restict a predicot to only causal feature is not autoamtically better either, on tabular shifts \citet{nastl2024causal} have found that predictors using all the features generalized as well or at times better.
++A spurious feature is a feature with strong predictive power that predicts the label in the training environment for reasons that do not hold elsewhere, particularly in real-world situations, and it has been shown that learners adopt such a feature as a shortcut for prediction \citep{geirhos2020shortcut, nagarajan2021understanding}. In-context learning inherits the problem: when demonstrations are consistent with several features, models show systematic preferences among them \citep{si2023measuring} and exploit shortcuts in the prompt \citep{tang2023large}, and in-context learners trained on tasks with spurious features adopt them \citep{harutyunyan2026incontext,chen2026incontext}. Restricting a predictor to only causal features is not automatically better either: on tabular shifts, \citet{nastl2024causal} found that predictors using all the features generalised as well or, at times, better.
+ 
+ \section{Demonstration selection}
+ \label{sec:bg-selection}
+ \paragraph{Heuristic selection.}
+-The strategies we build up for demonstration selection follow general rule's of thumb that the research community has worked on over the years. The simplest of these is retrieving the training examples nearest to the query \citet{liu2022what} while others cover the input space with diversified examples, showing demonstrations that  make the shortcut uninformative via comparable demonstrations to techniques focusing on robustness of the heuristic such as showing models examples that correct its mistakes after querying and controlling label balance.
++The strategies we build for demonstration selection follow general rules of thumb that the research community has worked on over the years. The simplest of these is retrieving the training examples nearest to the query \citep{liu2022what}, while others cover the input space with diversified examples, show demonstrations that make the shortcut uninformative, show the model examples that correct its mistakes, or control label balance.
+ 
+ \newpage
+ \paragraph{Learned selection.}
+-Several works have been done on training a selector based on a base models own feedback. EPR \citep{rubin2022learning} and UDR \citep{li2023unified} train a separate retriever to choose demonstrations: each candidate is scored by how much it raises the language model’s probability of the correct answer, and the retriever learns to rank the most helpful candidates first, while others like CEIL \citet{ye2023compositional} learn to choose whole sets (grouping examples) and \citet{zhang2022active} learn a selection policy by reinforcement learning. Techiniques involving regressing a modelss outut on which training examples where present \citet{ilyas2022datamodels} to learned judges from models internal signals have also been proposed \citet{kato2025affinity, wang2026disp}; \citet{kato2025affinity} show that scores computed from induction head representation track in-context accurate but leave selection with them to future work.
++Several works train a selector based on a model's own feedback. EPR \citep{rubin2022learning} and UDR \citep{li2023unified} train a separate retriever to choose demonstrations: each candidate is scored by how much it raises the language model's probability of the correct answer, and the retriever learns to rank the most helpful candidates first, while others like CEIL \citep{ye2023compositional} learn to choose whole sets (grouping examples), and \citet{zhang2022active} learn a selection policy by reinforcement learning. Techniques ranging from regressing a model's output on which training examples were present \citep{ilyas2022datamodels} to learned judges built from a model's internal signals \citep{kato2025affinity, wang2026disp} have also been proposed; \citet{kato2025affinity} show that scores computed from induction-head representations track in-context accuracy, but leave selection with them to future work.
+ 
+ \paragraph{Set-based architectures.}
+ The selector built in this thesis reads the whole pool of candidates at once.
+-It draws on In-Context Risk Minimization \citep{gupta2024context}, in which a transformer adapts to an environment by attending over other inputs from it, ont the style of TabPFN where the tokenization is done at the row level of the table \citep{hollmann2023tabpfn}, and on attention over sets \citep{lee2019set}.
++It draws on In-Context Risk Minimization \citep{gupta2024context}, in which a transformer adapts to an environment by attending over other inputs from it, on the style of TabPFN, where the tokenisation is done at the row level of the table \citep{hollmann2023tabpfn}, and on attention over sets \citep{lee2019set}.
+ 
+ \section{Looking inside the model}
+-The runnin representation of what every layer reads and writes from and to respectivley can be observerd in the residual stream of the transformer \citet{elhage2021mathematical}, \citet{vaswani2017attention}. The \emph{logit lens} reads an intermediate layer's prediction by applying the final normalization and un-embedding to it \citep{nostalgebraist2020logit}; its readings can be biased at early layers \citep{belrose2023eliciting}.
+-\citet{halawi2024overthinking} used it to find a \emph{critical layer} after which models given false demonstrations switch to the demonstrated labels. The idea of linear probing as stated ealier comes by to test where information is linearly decodable from a layer \citet{alain2017understanding} but only that the information is present, not used \citet{belinkov2022probing}. To add direction to the residual stream to change the behavious we take the difference of mean activations, actication addition \citet{turner2023activation} and contrastive activation addtion \citet{rimsky2024steering}. Other works have found a single directoin that contrls whether a model follows its context or its priors \citet{minder2025controllable}.
++\label{sec:bg-mech}
++The running representation that every layer reads from and writes to can be observed in the residual stream of the transformer \citep{vaswani2017attention, elhage2021mathematical}. The \emph{logit lens} reads an intermediate layer's prediction by applying the final normalisation and unembedding to it \citep{nostalgebraist2020logit}; its readings can be biased at early layers \citep{belrose2023eliciting}.
++\citet{halawi2024overthinking} used it to find a \emph{critical layer} after which models given false demonstrations switch to the demonstrated labels. Linear probing tests whether information is linearly decodable from a layer \citep{alain2017understanding}, but shows only that the information is present, not that it is used \citep{belinkov2022probing}. To change behaviour by adding a direction to the residual stream, one can take the difference of mean activations, as in activation addition \citep{turner2023activation} and contrastive activation addition \citep{rimsky2024steering}. Other work has found a single direction that controls whether a model follows its context or its priors \citep{minder2025controllable}.
+ 
+ \section{The gap}
+ \label{sec:bg-gap}
+ 
+ Three gaps meet in this thesis.
+ First, selection methods are almost always evaluated in distribution, with no control over what kind of shift the queries undergo.
+-Second, the conflict between semantic priors and demonstrations has been studied by flipping \emph{labels}, not by changing what the \emph{features} mean, and not under shift. Third, the learned selectors above are trained on the model's scores of whole prompts; none, as far as our search reached, uses the model's measured prior on each candidate, and none is tested on whether it helps a small model overcome that prior. The nearest work, \citet{kato2025affinity}, is correlational and builds no selector. This thesis builds the testbed that the first two gaps require, and uses it to test the third.
+\ No newline at end of file
++Second, the conflict between semantic priors and demonstrations has been studied by flipping \emph{labels}, not by changing what the \emph{features} mean, and not under shift. Third, the learned selectors above are trained on the model's scores of whole prompts; none, as far as our search reached, uses the model's measured prior on each candidate, and none is tested on whether it helps a small model overcome that prior. The nearest work, \citet{kato2025affinity}, is correlational and builds no selector. This thesis builds the testbed that the first two gaps require, and uses it to test the third.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/conclusion/conclusion.tex edited/conclusion/conclusion.tex
+--- overleaf_backup/conclusion/conclusion.tex	2026-11-04 12:03:39
++++ edited/conclusion/conclusion.tex	2026-11-04 12:11:02
+@@ -1,8 +1,8 @@
+ \chapter{Conclusion}
+ \label{ch:conclusion}
+ 
+-The thesis asked whether choosing demonstrations can help a relatively small model at 7b follow them over its own priors under a control distribution shift. To answer it, we built a synthetic tabular testbed which covariate shift, spurious reversal, and concept shifts can be switched on alone. Sets the model's semantic price against the rule by naming the features and tested every claim against a contrast family frozen before its data. 
++The thesis asked whether choosing demonstrations can help a relatively small model, at 7B, follow them over its own priors under controlled distribution shift. To answer it, we built a synthetic tabular testbed in which covariate shift, spurious reversal and concept shift can each be switched on alone, set the model's semantic prior against the rule by naming the features, and tested every confirmatory claim against a contrast family frozen before its data were seen.
+ 
+-The answer for Qwen 2.5-7B-instruct with 8 numeric demonstrations is no. The feature names decide most of what the model predicts, more than any shift of the data. Hand design strategies do help, only where they neutralize a shortcut. A learned selector that beats every strategy on stand-in learner ties on the model. Though it does help the base model, whose priors are known to be weaker, when we tested it in an exploratory study. Inside the model, the answers form in the last few layers. The names decided there. The prior is present from the start and the demonstrated rule hardly at all. And a single steering direction moves the answers without making them more correct. 
++For Qwen2.5-7B-Instruct with 8 numeric demonstrations, none of the selection methods we tried did so. The feature names decided most of what the model predicted, more than any shift of the data. The hand-designed strategies differed little from balanced random demonstrations; the one clear effect is that neutralising the shortcut fares better under its reversal than under covariate shift. A learned selector, the only method with no weak environment on a stand-in learner, did no better than balanced random demonstrations on the model, though in an exploratory study it did help the base model, whose priors pull less. Inside the model, the answers form in the last few layers, and the names decide them there. The prior is present from the start and the demonstrated rule hardly at all, and a single steering direction moves the answers without making them more correct.
+ 
+-Selection chooses evidence. It cannot make a model read that evidence it largely ignores. Within the scale we could study, this becomes the binding constraint. The testbed we have constructed here, including the pre-registered families and the diagnosis give future work, at a larger scale and with the models own training signal a controled place to find out when it stops becoming a constraint as here.
+\ No newline at end of file
++Selection chooses evidence; in our experiments, it did not make the instruction-tuned model read evidence it largely ignored. Within the scale we could study, this appears to be the binding constraint. The testbed we have constructed here, including the pre-registered families and the diagnosis, gives future work, at a larger scale and with the model's own training signal, a controlled place to find out when it stops being a constraint.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/discussion/discussion.tex edited/discussion/discussion.tex
+--- overleaf_backup/discussion/discussion.tex	2026-11-04 12:03:39
++++ edited/discussion/discussion.tex	2026-11-04 12:12:29
+@@ -4,7 +4,7 @@
+ \section{Answers to the research questions}
+ 
+ \paragraph{\RQ1: does in-context learning degrade under shift?}
+-Yes, and concept shift realized by naming causes the most degradation. We also saw that reversing the shortcut costs about half as much, and unevenly, where the model’s numeric prior go to agree with the shortcut the cost is large, and where it opposes it there is almost none, because the prior reads the shortcut in the query with or without demonstrations. Averaged over tasks the prior’s part cancels, and what remains is the shortcut the demonstrations taught; hiding it from the demonstrations shrinks the cost in every strategy and naming.
++Yes, and concept shift, realised by naming, causes the most degradation. We also saw that reversing the shortcut costs about half as much, and unevenly: where the model's numeric prior agrees with the shortcut the cost is large, and where it opposes it there is almost none, because the prior reads the shortcut in the query with or without demonstrations. Averaged over tasks the prior's part cancels, and what remains is the shortcut the demonstrations taught; hiding it from the demonstrations shrinks the cost in every strategy and naming.
+ 
+ \begin{figure}[H]
+ \centering
+@@ -19,17 +19,17 @@
+ 
+ \paragraph{\RQ3: does the model rely on the right features, and why does the prior win?}
+ 
+-Under the abstract names it tends to rely on the shortcut whereas under alined names its the rule features and under flipped names its on the rule feature but in the direction shown to by the names. It can not report which feature it uses. The prior wins because it is present in the model's state from layer 2, while the demonstrated rule barely appears there, and the answer is formed in the last six layers, where the names decide it (\autoref{ch:mechanism}).
++Under abstract names it tends to rely on the shortcut, whereas under aligned names it relies on the rule features, and under flipped names on the rule features but in the direction the names suggest. Its self-reports do not match the features it uses. The internal evidence fits the prior winning: the prior is present in the model's state from layer 2, while the demonstrated rule barely appears there, and the answer forms in the last six layers, where the names decide it (\autoref{ch:mechanism}).
+ 
+-\paragraph{\RQ4: does a learned selector help?} 
+-Not on the instruction tune model, here that is Qwen2.5-7B-Instruct. SATA beats every stratergy on the stand-in learner however, the selection rule does not change this. 
++\paragraph{\RQ4: does a learned selector help?}
++Not on the instruction-tuned model, here Qwen2.5-7B-Instruct: none of the six pre-registered contrasts favours \sata, and taking its top-$k$ rows instead of drawing does no better. On the stand-in learner it is the only method with no weak environment, and in an exploratory comparison it helps the base model (\autoref{app:base}).
+ 
+ \section{The results in context}
+-\cite{wei2023larger} found out that overriding sematic priors with in context evidence emerges with scale. Our results are consistent with that picture and sharpen it for Qwen2.5-7B-Instruct and Base. The instruction tuned model is more held tightly by its prirors (the base model loses less to flipped names, and a selector helps it), although two models cannot show that instruction tuning is the cause, we can affirm that the cost of conflict is set by the names more than by any choice of evidence (demonstrations). The graded picture of \citet{krishnakumar2025semantic} and \citet{kossen2024incontext}, in whjich mid-sized models follow flipped labels part of the time fits the fact that demonstration labels still matter here (gold minus shuffled labels: +0.06 to +0.11 \AUROC as seen in section 4.4 of chapter 4) without being able to overturn the names.
++\citet{wei2023larger} found that overriding semantic priors with in-context evidence emerges with scale. Our results are consistent with that picture and sharpen it for Qwen2.5-7B-Instruct and its base model. The instruction-tuned model is held more tightly by its priors (the base model loses less to flipped names, and a selector helps it). Although two models cannot show that instruction tuning is the cause, in what we tested the cost of conflict depended more on the names than on which evidence (demonstrations) was chosen. The graded picture of \citet{krishnakumar2025semantic} and \citet{kossen2024incontext}, in which mid-sized models follow flipped labels part of the time, fits the fact that demonstration labels still matter here (gold minus shuffled labels: +0.06 to +0.11 \AUROC, as seen in \autoref{ch:shift}) without being able to overturn the names.
+ 
+-\citet{halawi2024overthinking} find outu that under false demonstrations, the later layers tend to swiutch to the demonstrated labels. We find a late critacal layer as well in this sense. but the switch it marks is driven significantly by names and the zero-shot clearly shows this: the later layers are where the semantic priors are applied, not where the demonstrations take over. \citet{minder2025controllable} report a single context-versus-prior direction in Llama-3.1-8B but, for our numeric task, a mean-difference direction of that kind was a bias rather than a switch.
++\citet{halawi2024overthinking} find that under false demonstrations, the later layers tend to switch to the demonstrated labels. We find a late critical layer as well, but the switch it marks is driven mainly by the names, as the zero-shot runs show: in our setting the later layers are where the semantic priors are applied, not where the demonstrations take over. \citet{minder2025controllable} report a single context-versus-prior direction in Llama-3.1-8B but, for our numeric task, a mean-difference direction of that kind was a bias rather than a switch.
+ 
+-\citet{nastl2024causal} found that restricting predictors to causal features did not improve generalization on real tabular shifts, although we did find the same for demonstrations without the shortcut on ID queries, a clear gain under reversal was also found in our works. Finally on the learned selectors' trained on model feedback \cite{rubin2022learning, ye2023compositional} are seen to be evaluated usually in distribution and on tasks the model already knows, our results on the other hand reveal that a selectors values are bound mostly by how much the model reads the evidence at all.
++\citet{nastl2024causal} found that restricting predictors to causal features did not improve generalisation on real tabular shifts. We found the same for demonstrations without the shortcut on ID queries, although we also found a clear gain under reversal. Finally, learned selectors trained on model feedback \citep{rubin2022learning, ye2023compositional} are usually evaluated in distribution and on tasks the model already knows; our results, on the other hand, suggest that a selector's value depends on how much the model reads the evidence at all.
+ 
+ \section{Anticipated criticism}
+ \label{sec:criticism}
+@@ -42,7 +42,7 @@
+ % \label{fig:rq2-interaction}
+ % \end{figure}
+ 
+-\critique{Co-variate shift showing no effect means your co-variate shift is too weak.}
++\critique{Covariate shift showing no effect means your covariate shift is too weak.}
+ 
+ \critique{Naming is not concept shift; $P(y \mid x)$ never changes.}
+ {From the model's side it does: the same numbers under antonym names imply the opposite mapping, which is what concept shift means for a learner whose prior is semantic. We use the term in that operational sense and say so (\autoref{sec:environments}).}
+@@ -56,7 +56,7 @@
+ 
+ \critique{24 tasks are too few to detect anything.}
+ 
+-They are too few to detect small effects, and we do not claim otherwise. The intervals for the strategy contrasts are about 0.1 \AUROC wide, so effects below about 0.05 would usually be missed; halving that width would take roughly four times as many tasks (assuming that the interval width shrinks with the $\sqrt{n_T}$ where $n_T$ is the number of tasks). The design does detect effects of about 0.1: the cost of flipped names (0.20) and the \strat{counter\_spurious} interaction (0.11) both survive Holm correction, and \strat{feature\_range}'s loss under covariate shift ($-0.08$) has an interval entirely below zero (\autoref{tab:contrasts}). What the null results rule out is a large benefit. For the four strategies tested against \strat{label\_diversity} under their target shifts, the largest gain inside any interval is 0.09 \AUROC, under half the cost of flipped names, and two of the four exclude any gain above 0.05; the six \sata contrasts give the same ceiling (\autoref{ch:sata}). A strategy that helps by a few hundredths of \AUROC may exist at $k = 8$ on this model; one that helps as much as the names hurt is ruled out though.
++They are too few to detect small effects, and we do not claim otherwise. The intervals for the strategy contrasts are about 0.1 \AUROC wide, so effects below about 0.05 would usually be missed; halving that width would take roughly four times as many tasks (assuming that the interval width shrinks with $\sqrt{n_T}$, where $n_T$ is the number of tasks). The design does detect effects of about 0.1: the cost of flipped names (0.20) and the \strat{counter\_spurious} interaction (0.11) both survive Holm correction, and \strat{feature\_range}'s loss under covariate shift ($-0.08$) has an interval entirely below zero (\autoref{tab:contrasts}). What the null results rule out is a large benefit. For the four strategies tested against \strat{label\_diversity} under their target shifts, the largest gain inside any interval is 0.09 \AUROC, under half the cost of flipped names, and two of the four exclude any gain above 0.05; the six \sata contrasts give the same ceiling (\autoref{ch:sata}). A strategy that helps by a few hundredths of \AUROC may exist at $k = 8$ on this model; one that helps as much as the names hurt is ruled out though.
+ 
+ \newpage
+ 
+@@ -64,12 +64,12 @@
+ 
+ \critique{The logit lens is unreliable for early layers.}
+ 
+-There is a possibility that it can be biased for early layers \citet{belrose2023eliciting}.
+-The final layer matches the models output exactly and the linear probes avoid that bias. The probes tell the same story, that is that the priors are active more earlier in the models and the rule stays weak throughout.
++There is a possibility that it can be biased for early layers \citep{belrose2023eliciting}.
++The final layer matches the model's output exactly, and the linear probes avoid that bias. The probes tell the same story: the prior is active early in the model, and the rule stays weak throughout.
+ 
+ \critique{Steering failing proves nothing about steering in general.}
+ 
+-Agreed. We tested one family of directions (a label-averaged mean difference at five layers, applied to the query) on one 7B model with eight numeric demonstrations, within a small budget. We claim only that this direction acts as a bias at this scale becauase steering add the same steering vector $v_l$ to every query, whatever the label, and we explain why it must: following the demonstrations means opposite things for the two labels; When the demonstrations imply label 0, following them means pushing the margin down. When they imply label 1, it means pushing it up and the measured cosine value between the vectors was -0.9 aprroximately, which is the opposite direction of pointing when following the demo's per label as per the design of the tasks. Because within-cell ("Cell" is the wording here for one fixed prompt setup: one task, one strategy, one demonstration seed, one naming and one environment) \AUROC cannot see a push that moves every margin together, which is why \autoref{fig:steer} reports the margins as well: at layer 24 they fall by about 9 logits, towards answering 0, while \AUROC stays flat, so the direction shifts every answer at once rather than separating the labels.
++Agreed. We tested one family of directions (a label-averaged mean difference at five layers, applied to the query) on one 7B model with eight numeric demonstrations, within a small budget. We claim only that this direction acts as a bias at this scale, because steering adds the same vector $v_l$ to every query, whatever its label, and we explain why it must: following the demonstrations means opposite things for the two labels. When the demonstrations imply label 0, following them means pushing the margin down; when they imply label 1, it means pushing it up, and the measured cosine between the two per-label directions was approximately $-0.9$, i.e.\ they point in nearly opposite directions. Within-cell \AUROC (a ``cell'' is our term for one fixed prompt setup: one task, one strategy, one demonstration seed, one naming and one environment) cannot see a push that moves every margin together, which is why \autoref{fig:steer} reports the margins as well: at layer 24 they fall by about 9 logits, towards answering 0, while \AUROC stays flat, so the direction shifts every answer at once rather than separating the labels.
+ 
+ \critique{Self-reported importance is a known failure; why test it?}
+ 
+@@ -79,11 +79,11 @@
+ \subsection*{\RQ4}
+ \critique{\sata failed because it was badly trained.}
+ 
+-It reached its own oracle's level on the stand-in learner's and beat every strategy there and the base model benefits from the same checkpoints; and ranking instead of drawing does no better. The failure is in what the instruction-tuned model does with good evidence as discussed earlier.
++It reached its own oracle's level on the stand-in learner and was the only method with no weak environment there; the base model benefits from the same checkpoint; and ranking instead of drawing does no better. The results point instead to what the instruction-tuned model does with the evidence it is given, as discussed earlier.
+ 
+-\critique{The stand-in learner's are poor proxies for the model, so the selectors were optimized for the wrong thing.}
++\critique{The stand-in learner is a poor proxy for the model, so the selector was optimised for the wrong thing.}
+ 
+-This is the main weakness of the selected chapter earlier, and we measured it. On 8 of the held out tasks shown to Qwen, the stand-in learner ranks the strategies across environments much as Qwen does under abstract names. We saw the correlation here to be about 0.7, but only weakly under the named features, about 0.5. The two results suggest that the proxy still targeted something real. SATA's demonstrations carry the rule becayse the stand-in learner learn's from them in every environment. We saw that the base model also uses them because with the same checkpoint, it has the best worst case \AUROC of any strategy (exploratory; \autoref{ch:sata}). What the proxies did miss, however, is how little the instruction tuned model uses the evidence once the names and its prior pull the other way. So the direct fix maybe is to train the selector on Quinn's own answers rather than on a stand-in. That is running Qwen with many random demonstration sets and score each row by how much it helps just as \citet{chang2023data} do to find helpful demonstrations. However, the inert bias caused by a model of this scale would affect the demonstrations chosen by the selector, hence here a larger scaled model is more appropriate to be used, whether in the Qwen family or another. Though this was planned it could not be run within our budget
++This is the main weakness of the selector chapter, and we measured it. On 8 held-out tasks shown to Qwen, the stand-in learner ranks the strategies across environments much as Qwen does under abstract names: we saw the correlation to be about 0.7, but only weakly under named features, about 0.5. Two results suggest that the proxy still targeted something real. \sata's demonstrations carry the rule, because the stand-in learner learns from them in every environment, and the base model also uses them: with the same checkpoint, its weakest environment is better than any other strategy's (exploratory; \autoref{app:base}). What the proxy did miss, however, is how little the instruction-tuned model uses the evidence once the names and its prior pull the other way. So the direct fix may be to train the selector on Qwen's own answers rather than on a stand-in: running Qwen with many random demonstration sets and scoring each row by how much it helps, just as \citet{chang2023data} do to find helpful demonstrations. However, the inherent bias of a model of this scale would also affect the demonstrations chosen by such a selector, so a larger model, whether in the Qwen family or another, would be more appropriate. Although this was planned, it could not be run within our budget.
+ 
+ 
+ \newpage
+@@ -93,16 +93,16 @@
+ Every negative result in this thesis holds for the conditions we could test, and those conditions were narrow.
+ 
+ \begin{itemize}[leftmargin=1.5em]
+-  \item \textbf{Scale.} One model family at 7B: Qwen2.5-7B-Instruct and, exploratorily, its base model. Due to time and budget limitation's Llama-3.1-8B-Instruct was dropped when it would not answer in format; Larger models, which \citet{wei2023larger} find follow contradicting evidence better, were out of reach.
++  \item \textbf{Scale.} One model family at 7B: Qwen2.5-7B-Instruct and, exploratorily, its base model. Due to time and budget limitations, Llama-3.1-8B-Instruct was dropped when it would not answer in format, and larger models, which \citet{wei2023larger} find follow contradicting evidence better, were out of reach.
+   \item \textbf{Demonstrations.} $k = 8$, chosen on the pilot because $k = 32$ did not pass the learnability check. More demonstrations might give the rule more weight.
+   \item \textbf{Tasks.} Synthetic numeric tasks with three load-bearing features, two domains and 24 evaluation tasks. Real tabular data, text features or other rule families may behave differently.
+ \item \textbf{Metric.} Within-cell \AUROC cannot see a shift that moves every query's margin by the same amount; balanced accuracy, its alternative, was distorted by calibration.
+-  \item \textbf{Proxies.} The selector was trained against a stand-in learner that track the model only moderately under named features.
++  \item \textbf{Proxies.} The selector was trained against a stand-in learner that tracks the model only moderately under named features.
+ \item \textbf{Budget.} The whole project used a few tens of US dollars of rented GPU time, and the later stages were sized to fit. Steering tested one kind of direction (a single averaged direction, added to the query). Two selectors that learn from Qwen's own answers rather than from a stand-in were planned but not run, because each needs many runs of Qwen for every training task: one that scores each candidate row by how much it helps Qwen \citep{chang2023data}, and one trained by reinforcement learning to add demonstrations one at a time \citep{zhang2022active}. They are the most direct test of whether the stand-in learner, rather than the model, held \sata back.
+ 
+-\item \textbf{Decisions after data.} Some design choices were made after seeing early data. Most never touched the evaluation tasks because the shortcut's direction was randomised per task after the pilot showed Qwen's ``bigger means 1'' habit backing it; the feature names were picked by their measured effect on Qwen's zero-shot answers on random profiles; and \sata's matched target and drawing rule were chosen on its own validation tasks, judged by the stand-in learner. However, the ten planned tests for \RQ1--\RQ3 had been written down in advance with calibrated balanced accuracy as their measure but later switched to AUROC because a significant portion of the prompts (about 36\%) showed the bias to predicting "1".
++\item \textbf{Decisions after data.} Some design choices were made after seeing early data. Most never touched the evaluation tasks: the shortcut's direction was randomised per task after the pilot showed Qwen's ``bigger means 1'' habit backing it; the feature names were picked by their measured effect on Qwen's zero-shot answers on random profiles; and \sata's matched target and drawing rule were chosen on its own validation tasks, judged by the stand-in learner. However, the ten planned tests for \RQ1--\RQ3 had been written down in advance with calibrated balanced accuracy as their measure, and were later switched to \AUROC because, after calibration, a large share of the prompts (about 36\%) gave the same answer to every query.
++\end{itemize}
+ 
+ \section{Future work}
+-The most immediate direct extension is scale, with the same testbed and contrast families on larger models, where the influence of the priors should be weaker. This would show whether selection starts to matter as the model starts to read the evidence. Including this, looking into data models \citealp{ilyas2022datamodels,chang2023data}, where we train the select on the model's own scores of demonstration subset, possibly read at the critical layer, would remove the proxy problem earlier. One of the parked ideas is to turn the prior rather than fight it. Negating the features whose larger values go with a specific label in demonstrations and query alike.
++The most immediate direct extension is scale, with the same testbed and contrast families on larger models, where the influence of the priors should be weaker. This would show whether selection starts to matter as the model starts to read the evidence. Beyond this, datamodels \citep{ilyas2022datamodels,chang2023data}, where we would train the selector on the model's own scores of demonstration subsets, possibly read at the critical layer, would remove the proxy problem described earlier. One of the parked ideas is to turn the prior rather than fight it, by negating the features whose larger values go with a specific label, in demonstrations and query alike.
+ 
+-\end{itemize}
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/experiments/mechanism.tex edited/experiments/mechanism.tex
+--- overleaf_backup/experiments/mechanism.tex	2026-11-04 12:03:39
++++ edited/experiments/mechanism.tex	2026-11-04 16:30:45
+@@ -5,43 +5,77 @@
+ 
+ \section{Motivation}
+ 
+-Three chapters of behavior converge onto one picture Qwen2.5-7B-instruct does use its demonstrations, that is, any 8 labeled rows raise its \AUROC by about 0.1 over the zero shot under abstract and aligned names. But which of the 8 rows it sees barely mattered. Whether a strategy is hand designed or learned, while the feature names move it by 0.2, aligned names lift every strategy together, as we saw in chapter 4. Flipped names, on the other hand, sync every strategy together. And no choice of demonstration seemed to be able to overturn the names. This makes the demonstration rule present in the model's internal state at all, and whether a single direction in that state makes the model follow this demonstration is a question to be asked. Including which layer the answer starts to depend on the names, and whether any of the selection strategies even move that layer as well.
++The two behavioural chapters converge on one picture: Qwen2.5-7B-Instruct does use its demonstrations, that is, any 8 labelled rows raise its \AUROC by about 0.1 over zero-shot under abstract and aligned names. But which of the 8 rows it sees barely mattered, whether the strategy was hand-designed or learned, while the feature names moved it by 0.2: aligned names lift every strategy together, as we saw in \autoref{ch:shift}, and flipped names, on the other hand, sink every strategy together. No choice of demonstrations seemed able to overturn the names. This raises the questions of whether the demonstrated rule is present in the model's internal state at all, whether a single direction in that state makes the model follow the demonstrations, at which layer the answer starts to depend on the names, and whether any of the selection strategies even move that layer.
+ 
+ \section{Method}
+ \paragraph{Logit lens.}
+ 
+-At every layer $l$ of 28, the last position residual state, $h_l$, that is at the prompt's last token, open bracket, the position from which the answer token is predicted, close bracket, is passed through the model's final normalization and the difference of the two labeled rows of the unembedding, is taken as $w = W_U[\texttt{1}] - W_U[\texttt{0}]$, giving a per-layer margin $m_l = w^\top \mathrm{norm}(h_l)$ \citep{nostalgebraist2020logit,elhage2021mathematical}. This is exactly the margin we saw earlier in \autoref{sec:prompts} at the last layer.\\
++At every layer $l$ of 28, the last-position residual state $h_l$ (at the prompt's last token, the position from which the answer token is predicted) is passed through the model's final normalisation, and the difference of the two label rows of the unembedding is taken as $w = W_U[\texttt{1}] - W_U[\texttt{0}]$, giving a per-layer margin $m_l = w^\top \mathrm{norm}(h_l)$ \citep{nostalgebraist2020logit,elhage2021mathematical}. At the last layer, this is exactly the margin of \autoref{sec:prompts}.
+ 
+-From layer 22, the lines split by naming (\autoref{fig:lens}).
+-With aligned names they rise to 0.63--0.67 with demonstrations and 0.59 zero-shot; with flipped names they end at 0.45--0.52 with demonstrations and 0.45 zero-shot. This shows us that the names actually played a larger role overall in comparison to the demo's selected.
+-
+ \paragraph{Critical layer.}
+ Following \citet{halawi2024overthinking}, the critical layer is the first layer at which $\AUROC_l(\text{aligned}) - \AUROC_l(\text{flipped})$ exceeds 0.1 with a task-bootstrap interval above zero.
+-We define it with \AUROC rather than the accuracy of ${1}[m_l > 0]$, because Qwen's bias toward label 1 would otherwise decide the accuracy (\autoref{sec:stats}); accuracy of the median-centred prediction is reported alongside.
++We define it with \AUROC rather than the accuracy of $\1[m_l > 0]$, because Qwen's bias toward label 1 would otherwise decide the accuracy (\autoref{sec:stats}).
+ 
+-\begin{figure}[t]
++\paragraph{Probes.}
++A linear probe \citep{alain2017understanding} is a logistic regression that takes $h_l$ as input and predicts a label, where $h_l$ is the last-position state at layer $l$. If $h_l$ contains whatever Qwen took from the demonstrations, a probe should read the rule label from it; if it contains the answer Qwen would give without any demonstrations, a probe should read that instead. So we train two kinds of probe, rule and prior: across 15 layers (every second layer), 2 targets, 3 namings and 4 folds of training and testing, we come to 360 probes in total. To prevent the probes from memorising the training queries, we set a strong regulariser ($C = 0.1$).
++
++\paragraph{Steering.}
++The idea of activation steering was to see whether there was a way to switch something in Qwen so that it follows the demonstrations instead of its priors, because the logit lens and probes only help us observe what is happening in the model. Using contrastive activation addition \citep{rimsky2024steering}, we build $v_l$ as the difference of averages at layer $l$, computed for each rule label and then averaged over the two. On conflict queries, where the rule and Qwen's zero-shot guess disagree, the queries are split into two groups: those where Qwen's answer with demonstrations matched the rule, and those where it matched its no-demonstration guess instead. We build $v_l$ from the random-demonstration runs and re-run the queries under aligned and flipped names with the direction added at a chosen strength, in the manner of activation addition \citep{turner2023activation}. It is fitted on the 12 even-indexed tasks, which are the loan tasks, and applied, as $h_l \leftarrow h_l + \alpha v_l$ during the query only, on the 12 odd-indexed tasks, which are the medical ones, at layers 8, 12, 16, 20 and 24, with $\alpha$ from 1 to 32 and a random direction of the same norm as a control.
++
++\section{Results}
++
++\begin{figure}[H]
+ \centering
+ \includegraphics[width=\textwidth]{\figpath/fig_lens_strategies.pdf}
+-\caption{Logit-lens \AUROC against the rule label at every layer (24 tasks, seed 0). Random demonstrations and zero-shot are highlighted; the four other strategies are in grey. The read-out is at chance for 20 layers and splits by naming after layer 22 (dotted line: the critical layer, 23).}
++\caption{Logit-lens \AUROC against the rule label at every layer (24 tasks, seed 0), one line per strategy. The read-out stays near chance for 20 layers and splits by naming from layer 22 (dotted line: layer 23).}
+ \label{fig:lens}
+ \end{figure}
+ 
+-\paragraph{Probes.}
+-A linear probe \citep{alain2017understanding} is a logistic regression that takes in $h_l$ as an input and predicts the label, where $h_l$ is the final vector at layer $l$. We know that $h_l$ will contain whatever qwen took from the demos or that $h_l$ contain the answer that qwen would give without any demos. So we training 2 probes, rule and prior, across 15 layers (every second layer), 2 targets, 3 namings and 4 folds of training and testing we come to 360 probes in total. To prevent the probe from memorising the training queries we set a strong regulariser $C = 0.1$
++\finding{Qwen settles its answer only in its last few layers, and there the names, not the demonstrations, decide it.}
+ 
+-\newpage
+-\paragraph{Steering.}
+-The idea of activaion steering was to see if there was a way to switch something in Qwen to follow the demos instead of the priors because the logit lens and probes only help us first observe what is happening in the model. Using contrastive activation \citet{minder2025controllable} we build $v_l$ which is the difference of the averages for each target label in the layer $l$ where each target label is split across two groups, by the confliting query pair, which are the queries where quwens answers with the demos matched the rule and where qwens answers matched its no demo guess instead. We conduct this from the random demos runs and re-run under abstract, alingned and flipped names with some strenght added in the manner of activation addition \citet{rimsky2024steering}. It is fitted on the 12 even-indexed tasks, which are the loan tasks, and applied, as $h_l \leftarrow h_l + \alpha v_l$ during the query only, on the 12 odd-indexed tasks, which are the medical ones, at layers 8, 12, 16, 20 and 24, with $\alpha$ from 1 to 32 and a random direction of the same norm as a control.
++For the first 20 of Qwen's 28 layers the logit lens, which reads the answer Qwen would give if it stopped at that layer, is near chance (\AUROC 0.45--0.56) under every naming and strategy (\autoref{fig:lens}).
++From layer 22 it splits by naming: with aligned names it rises to 0.63--0.67 (0.59 zero-shot), and with flipped names it falls to 0.45--0.52 (0.45 zero-shot).
++The gap between the two passes 0.1 at layer 23 with random demonstrations, 24 zero-shot and 25 with \sata (\autoref{fig:lens-gap}).
++Since the split appears without demonstrations too, the names cause it.
++Demonstrations only change its size: random ones widen the final gap from 0.141 to 0.192, and the strategies built against the prior narrow it (\strat{counter\_prior} 0.174, \sata 0.104) without moving it earlier.
+ 
+-\section{Results}
+-\finding{Qwen's answer forms in its last six of 28 layers; for the first 20 its label read-out is at chance under every naming and strategy.}
++\begin{figure}[H]
++\centering
++\includegraphics[width=0.82\textwidth]{\figpath/fig_lens_gap.pdf}
++\caption{Aligned minus flipped logit-lens \AUROC by layer, with a 95\% band over tasks for random demonstrations. The gap passes 0.1 at layer 23 with random demonstrations, 24 zero-shot and 25 with \sata; zero-shot shows the same jump, so the names drive it.}
++\label{fig:lens-gap}
++\end{figure}
+ 
+-% \begin{figure}[h]
+-% \centering
+-% \includegraphics[width=0.82\textwidth]{\figpath/fig_lens_gap.pdf}
+-% \caption{Aligned minus flipped \AUROC by layer, with a 95\% band over tasks for random demonstrations. The gap crosses the 0.1 threshold at layer 23 for every strategy, zero-shot included, so the names, not the demonstrations, drive it.}
+-% \label{fig:lens-gap}
+-% \end{figure}
++\finding{Qwen's own guess can be read from its hidden states from layer 2 onward; the demonstrated rule hardly at all.}
+ 
++Probes, simple classifiers trained to read one thing from the hidden states on some tasks and tested on others, read Qwen's zero-shot answer from layer 2 (\AUROC 0.80--0.87 with abstract names, 0.65--0.74 with named features), but the rule's label hardly at all (0.43--0.59; \autoref{fig:probes}).
++A probe shows that information is present, not that it is used \citep{belinkov2022probing}, and a probe across tasks with different rules is a hard test; still, the contrast is stark: Qwen carries its own guess from its first layers, and the demonstrated rule barely registers.
+ 
+-\textcolor{red}{\textbf{[Complete Chapter 6 final bits]}}
++\begin{figure}[H]
++\centering
++\includegraphics[width=\textwidth]{\figpath/fig_probes.pdf}
++\caption{Linear probes on the hidden states (random demonstrations, tested on held-out tasks). Qwen's zero-shot answer is readable from layer 2; the rule label stays near chance.}
++\label{fig:probes}
++\end{figure}
++
++\finding{Within the steering we could test (one averaged direction, five layers, a 7B model with eight demonstrations), pushing Qwen towards ``follow the demonstrations'' moves its answers without making them more correct.}
++
++The steering direction is the average difference between Qwen's hidden states when it followed the demonstrations and when it followed its own guess; we added it, at strength $\alpha$, while Qwen read each query on 12 held-out tasks (the direction is small, 1--2\% of the hidden state's size, so the planned maximum of $\alpha = 4$ was raised to 32).
++Up to $\alpha = 16$, \AUROC changes by at most 0.008; at $\alpha = 32$ a few results move by 0.02--0.04 either way, as they do for a random direction (\autoref{fig:steer}, top).
++Yet at layer 24 the margins fall by about 9 logits (\autoref{fig:steer}, bottom): the push moves every answer the same way, so their order, which is all \AUROC measures, stays put.
++It has to: following the demonstrations means lowering the margin when they imply 0 and raising it when they imply 1, and at layers 20 and 24 these two directions point almost opposite ways (cosine $-0.82$ to $-0.96$), so their average is a small leftover that shifts every answer together.
++
++\begin{figure}[H]
++\centering
++\includegraphics[width=\textwidth]{\figpath/fig_steering.pdf}
++\caption{Steering on the 12 held-out tasks: change in final \AUROC (top) and in the margin (bottom), with 95\% intervals over tasks. Blue shades are the ``follow the demonstrations'' direction at increasing strength $\alpha$; grey diamonds are a random direction of the same size. The margins fall by about 9 logits at layer 24 while \AUROC barely changes: the direction shifts every answer together.}
++\label{fig:steer}
++\end{figure}
++
++\section{What this chapter does not show}
++
++Neither the logit lens nor the probes is causal, and the lens can be biased in early layers \citep{belrose2023eliciting}, although the probes, which avoid that bias, agree with it.
++Steering is the causal test, and it covers one kind of direction: a single averaged direction at five layers, added to the query.
++It was fitted on the loan tasks and tested on the medical ones; refitting it on the medical tasks shows that this split does not explain the result.
++\citet{minder2025controllable} find a context-versus-prior direction in Llama-3.1-8B; ours shows only that a direction built this way is not usable for this task and model, not that none exists.
++A direction specific to each label, a learned one, steering of the demonstrations rather than the query, or a larger model could behave differently; the wider limitations are in \autoref{sec:limitations}.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/experiments/selectors.tex edited/experiments/selectors.tex
+--- overleaf_backup/experiments/selectors.tex	2026-11-04 12:03:39
++++ edited/experiments/selectors.tex	2026-11-04 12:11:30
+@@ -1,38 +1,38 @@
+ \chapter{Learning to select}
+ \label{ch:sata}
+ 
+-\emph{Research question: \RQ4 (does a learned selector beat the hand-designed strategies, and do signals measured from the model help it?).}
++\emph{Research question: \RQ4 (does a learned selector beat the hand-designed strategies?).}
+ 
+ \section{Motivation}
+ 
+-\autoref{ch:shift} left an opening. We saw clearly that the neutralization of the shortcut helped under its reversal. But the strategies that did so were hand-built rules, which only targeted one shift at a time for a given rule. because of this, this motivated us to explore the idea of a learn selector that we combine these ideas, choosing per query the rows that teach the rule rather than the shortcut, and could be trained on synthetic tasks where the best choices are known. In this chapter, we build \sata (\autoref{sec:sata}). 
++\autoref{ch:shift} left an opening. We saw that neutralising the shortcut fared better under its reversal than under covariate shift. But the strategies that did so were hand-built rules, each of which targeted only one shift at a time. This motivated us to explore the idea of a learned selector that combines these ideas, choosing per query the rows that teach the rule rather than the shortcut, and that can be trained on synthetic tasks where the best choices are known. In this chapter, we build \sata (\autoref{sec:sata}).
+ 
+ 
+ \section{The selector}
+ \label{sec:sata-arch}
+-SATA scores every row of the 256 demo row pool given the whole pool and query. We set each candidate to be a single token comprise of this feature vector plus a label embedding plus a "demonstration" type embedding; the query is a token with its feature vector and a "query" type embedding. SATA is a encoder only transformer ($d = 128$, 4 heads, 4 layers, about 0.8M parameters) attends over all tokens, and a linear head gives one score per candidate, normalised by a softmax. There are no positional encodings, so the encoder remains permutation-equivariant over candidates \citep{lee2019set}; the row encoding style is from TabPFN's style of approach \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
++\sata scores every row of the 256-row demonstration pool, given the whole pool and the query. We set each candidate to be a single token made up of its feature vector plus a label embedding plus a ``demonstration'' type embedding; the query is a token with its feature vector and a ``query'' type embedding. \sata is an encoder-only transformer ($d = 128$, 4 heads, 4 layers, about 0.8M parameters) that attends over all tokens, and a linear head gives one score per candidate, normalised by a softmax. There are no positional encodings, so the encoder remains permutation-equivariant over candidates \citep{lee2019set}; the row encoding follows TabPFN's style of approach \citep{hollmann2023tabpfn}, and the idea of adapting by attending over other inputs from the environment comes from \citet{gupta2024context}.
+ 
+-SATA is not trained on the language models scores, that is, its aim is to learn targets computed from the ground truth, so its trained never touches the model its evaluated on. This is the distinguishing difference in comparison to EPR, UDR or CEIL \citep{rubin2022learning,li2023unified,ye2023compositional},
++\sata is not trained on the language model's scores; its aim is to learn targets computed from the ground truth, so its training never touches the model it is evaluated on. This is the distinguishing difference in comparison to EPR, UDR or CEIL \citep{rubin2022learning,li2023unified,ye2023compositional}.
+ 
+ \paragraph{Getting the targets right.}
+ \label{sec:sata-targets}
+-SATA learns by example and for each pool and it needs a "right answer". This is essentially a score for every row saying how stronlgy that row should be picked. The answer key is the target here and because we built the tasks synthetically we know the ground truth value, making our target a known value as well, computed outside Qwen. However, due to computation limits, we needed a way to test these answer keys before training SATA on them. The idea, an oracle check. 
++\sata learns by example, and for each pool it needs a ``right answer''. This is essentially a score for every row saying how strongly that row should be picked. The answer key is the target here, and because we built the tasks synthetically, we know the ground truth, which makes our target known as well, computed outside Qwen. However, due to computation limits, we needed a way to test these answer keys before training \sata on them. The idea was an oracle check.
+ 
+-Each oracle picks 8 demos and we tested out 3 oracles. The check didn’t use the 24 evaluation tasks. It ran on SATA’s own 100 validation tasks, drawn from the same generator but kept separate, so the evaluation tasks stayed untouched until the final test on Qwen. Our first appraoach was almost a greedy approach, top reward rows in the querys region, reward rows that break the shortcut and penilise the ones that gollow the shorcut ansd sit in a different region. The issues that followed with this approach is that they favoured label-noise rows instead. In 2\% of rows the label is flipped by noise, but the shortcut was generated from the true label, so in those rows it disagrees with the recorded label. They look like shortcut-breakers, but their label is actually truly wrong, so the targets were teaching wrong examples. Upon discovery of this we attempted to exclude the label-noise rows only to find that with noise rows excluded, they overshot and they went on to pick so many shortcut-breaking rows that the shortcut agreed with the label in only 25\% of the chosen rows. That doesn’t remove the shortcut and instead it just teaches it backwards. The solution we settled to was to copy the selection strategy counter spurious where we take 2 clean rows where the shortcut disagrees with the label then pair each with a clean row of the same label where the shortcut agrees, choosing the one closest in shortcut size $|x_8|$ (size matched as well because it doesn't give the label away either)(\autoref{app:design}).
++Each oracle picks 8 demonstrations, and we tested 3 oracles. The check did not use the 24 evaluation tasks. It ran on \sata's own 100 validation tasks, drawn from the same generator but kept separate, so the evaluation tasks stayed untouched until the final test on Qwen. Our first approach was almost greedy: it rewarded rows in the query's region and rows that break the shortcut, and penalised the ones that follow the shortcut and sit in a different region. The issue with this approach was that it favoured label-noise rows instead. In 2\% of rows the label is flipped by noise, but the shortcut was generated from the true label, so in those rows it disagrees with the recorded label. They look like shortcut-breakers, but their label is actually wrong, so the targets were teaching wrong examples. Upon discovering this, we excluded the label-noise rows, only to find that the targets then overshot: they picked so many shortcut-breaking rows that the shortcut agreed with the label in only 25\% of the chosen rows. That does not remove the shortcut; it just teaches it backwards. The solution we settled on was to copy the \strat{counter\_spurious} strategy, where we take 2 clean rows in which the shortcut disagrees with the label and pair each with a clean row of the same label in which the shortcut agrees, choosing the one closest in shortcut size $|x_8|$ (matched in size as well, so that the size does not give the label away either; \autoref{app:design}).
+ 
+ \paragraph{Drawing instead of ranking.}
+-In the exact targets, each shortcut-breaking row's size-matched partner scores as high as the row itself, so taking the top $k$ rows recovers balanced pairs. \sata cannot reproduce that pairing: it learns that shortcut-breaking rows deserve high scores, but not \emph{which} agreeing row is each one's partner, so it spreads the partners' share thinly over many agreeing rows. Taking its top $k$ rows therefore picks mostly shortcut-breaking ones, and the shortcut agreed with the label in only 27\% of the chosen rows: the shortcut was reversed again, with \AUROC high under reversal (0.657) but at chance on ID queries (0.478). Because \sata is trained to output a distribution over rows (with a KL loss), it can instead \emph{draw} $k/2$ rows of each label in proportion to its scores; the spread-out partners then still make up about half of the draws (54\% agreement). On 50 validation tasks, drawing raised the worst environment on the stand-in learner from 0.478 to 0.558. Whether the drawing rule matters on Qwen itself is checked in \autoref{sec:sata-topk}. 
++In the exact targets, each shortcut-breaking row's size-matched partner scores as high as the row itself, so taking the top $k$ rows recovers balanced pairs. \sata cannot reproduce that pairing: it learns that shortcut-breaking rows deserve high scores, but not \emph{which} agreeing row is each one's partner, so it spreads the partners' share thinly over many agreeing rows. Taking its top $k$ rows therefore picks mostly shortcut-breaking ones, and the shortcut agreed with the label in only 27\% of the chosen rows: the shortcut was reversed again, with the stand-in learner's accuracy high under reversal (0.657) but at chance on ID queries (0.478). Because \sata is trained to output a distribution over rows (with a KL loss), it can instead \emph{draw} $k/2$ rows of each label in proportion to its scores; the spread-out partners then still make up about half of the draws (54\% agreement). On 50 validation tasks, drawing raised the worst environment on the stand-in learner from 0.478 to 0.558. Whether the drawing rule matters on Qwen itself is checked in \autoref{sec:sata} (\autoref{fig:rq4}, bottom).
+ 
+-\finding{A selector's training target can encode the very shortcut it is meant to avoid, and an oracle check on a stand-in learner catches it before any training sufficiently.}
++\finding{A selector's training target can encode the very shortcut it is meant to avoid, and an oracle check on a stand-in learner can catch this before any training.}
+ 
+ \section{SATA on the model}
+ \label{sec:sata}
+ 
+-The evaluation distribution is used to trained SATA, where we use 1000 tasks from it. We regenerate every epoch, with a fresh permutation of feature positions so that the shortcuts' positions carries no information and validated on 100 100 more (Adam \citep{kingma2015adam} at learning rate $10^{-4}$, early stopping \citep{prechelt1998early}).
++We use 1,000 tasks from the evaluation distribution to train \sata, regenerating them every epoch with a fresh permutation of feature positions so that the shortcut's position carries no information, and validate on 100 more (Adam \citep{kingma2015adam} at learning rate $10^{-4}$, early stopping \citep{prechelt1998early}).
+ 
+ On the stand-in learner its worst environment is 0.652, against 0.555 for the best hand-designed strategy, with no weak environment (\autoref{fig:sata-proxy}).
+ 
+-\finding{On the stand-in learner, \sata beats every hand-designed strategy in every environment.}
++\finding{On the stand-in learner, \sata is the only method with no weak environment: it beats every hand-designed strategy under spurious reversal and stays within 0.03 of the best under ID and covariate shift.}
+ 
+ The \RQ4 family of six contrasts (\autoref{fig:rq4}; exact values in \autoref{tab:contrasts}) was decided and written down before any \sata result on the model.
+ 
+@@ -67,13 +67,13 @@
+ \label{tab:sata-flattening}
+ \end{table}
+ 
+-Based on the results above in the figure 5.2 and table 5.1 we can clearly see that SATA tends to flatten the environments bringing there performances to about the same level, removing the weakness under reversal and paying for it in ID and covariate environments. This is however expected, since SATA was trained to imitate the \emph{counter spurious} strategy i.e. to make the shortcut uninformative. On in distribution and covariate queries, the shortcut is right 80 to 90\% of the time, and removing it loses that help. While under reversal, it's wrong and so removing it avoids that harm. 
++Based on the results above in \autoref{fig:rq4} and \autoref{tab:sata-flattening}, we can see that \sata tends to flatten the environments, bringing their performance to about the same level: it removes the weakness under reversal and pays for it in the ID and covariate environments. This is, however, expected, since \sata was trained to imitate the \strat{counter\_spurious} strategy, i.e.\ to make the shortcut uninformative. On ID and covariate queries, the shortcut is right 80 to 90\% of the time, and removing it loses that help, while under reversal it is wrong, so removing it avoids that harm.
+ 
+-The bottom group in figure 5.2 aims to see SATA against itself, to see which of the two ways of turning its scores into 8 demo's fits best. In the top K setting we chose the highest scoring rows; 4 per label whereas in the normal setting SATA would essentially pick rows based proportionally to the rows score. However, when we re-ran this on Qwen taking its top-k rows instead, as per figure 5.2's bottom group Top-k did no better than drawing, so the drawing rule isn’t why SATA tied with balanced-random selection of demo's on Qwen.
++The bottom group in \autoref{fig:rq4} compares \sata against itself, to see which of the two ways of turning its scores into 8 demonstrations works best. In the top-$k$ setting we chose the highest-scoring rows, 4 per label, whereas in the normal setting \sata draws rows in proportion to their scores. When we re-ran Qwen with \sata's top-$k$ rows instead, top-$k$ did no better than drawing, so the drawing rule is not why \sata did no better than balanced random selection on Qwen.
+ 
+ 
+-This lead to the conclusion that the issue was not with SATA but with Qwen. It doesn’t fit the demonstrations. At the 7B scale, ICL works mostly by recognising the task and applying what the model already believes, not by learning a new mapping from 8 examples, this was clealy shown by \citet{pan2023what, wei2023larger}. Due to this limitation of compute restricting us to 7B models, we aimed to see if a lesser tuned model having less pull on priors would have different results. Hence, on an exploratory study, on Qwen2.5-7B (base) without holm correction we tested this out and found that it was giving the best worst-case AUROC of any strategy. The base model also loses less to flipped names, i.e. it reads its demonstrations more. This is also why we saw significantly better results as shown in figure 5.1 with the stand in learner. This means that on a positive note that with enough compute there is potential for SATA to perform differently, for the better or worse with larger models that can override its priors.
++These results cannot fully separate a weakness of \sata from a property of the model, but they point towards the model: \sata's demonstrations carry the rule, since the stand-in learner learns it from them, yet Qwen does not use them. This is consistent with \citet{pan2023what} and \citet{wei2023larger}, who find that at the 7B scale in-context learning works mostly by recognising the task and applying what the model already believes, rather than by learning a new mapping from 8 examples. As our compute budget restricted us to 7B models, we aimed to see whether a less tuned model, with less pull from its priors, would give different results. Hence, in an exploratory study on Qwen2.5-7B (base), we ran the same \sata checkpoint and found that its weakest environment was better than any other strategy's, with its gains coming under spurious reversal (\autoref{app:base}). The base model also loses less to flipped names, i.e.\ it reads its demonstrations more. On a positive note, this means that with enough compute, \sata may perform differently, for better or worse, on larger models that can override their priors.
+ 
+-\finding{SATA helps exactly as far as the learner reads the evidence}
++\finding{\sata helped the learners that read their demonstrations, the stand-in learner and, in an exploratory comparison, the base model, but not the instruction-tuned model.}
+ 
+-We leave the readers here with the possibility to explore the areas of training SATA given the information of the underlying base models behavior, evaluated based off of that base models priors. There may be room for improvement of SATA's demonstration selection if it was trained with this information in hand.
+\ No newline at end of file
++We leave readers with the possibility of training \sata with information about the underlying base model's behaviour, evaluated against that base model's priors. There may be room to improve \sata's demonstration selection if it were trained with this information in hand.
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/experiments/shift.tex edited/experiments/shift.tex
+--- overleaf_backup/experiments/shift.tex	2026-11-04 12:03:39
++++ edited/experiments/shift.tex	2026-11-04 12:13:52
+@@ -8,17 +8,17 @@
+ 
+ \section{What the pilot revealed: a numeric prior}
+ \label{sec:shift-p2}
+-In the first pilot run the shortcut's direction remained the same across all tasks: a larger value of $x_8$ always meant the label was 1. For the pilot ID queries under abstract names, we calculated the raw sum of the features $f_0$ through $f_9$ and compared it with the margin $m = logProb("1") - logProb("0")$ of Qwen's prediction for the same query using Spearman's correlation, which was 0.70. This meant that Qwen's internal approach carried a habit, a prior, similar to the summing approach. Scoring those same ID queries by that sum gives \AUROC 0.628, and 0.511 once $x_8$ is left out; Qwen's own zero-shot \AUROC was 0.633. Its ``zero-shot skill'' was the shortcut, read through a habit that bigger numbers mean 1.
++In the first pilot run the shortcut's direction remained the same across all tasks: a larger value of $x_8$ always meant the label was 1. For the pilot ID queries under abstract names, we calculated the raw sum of the features $f_0$ through $f_9$ and compared it with the margin $m = \log p(\texttt{1}) - \log p(\texttt{0})$ of Qwen's prediction for the same query using Spearman's correlation, which was 0.70. This meant that Qwen's internal approach carried a habit, a prior, similar to the summing approach. Scoring those same ID queries by that sum gives \AUROC 0.628, and 0.511 once $x_8$ is left out; Qwen's own zero-shot \AUROC was 0.633. Its ``zero-shot skill'' was the shortcut, read through a habit that bigger numbers mean 1.
+ 
+ \finding{Qwen2.5-7B-Instruct carries a numeric prior, ``bigger values mean 1'', that applies to every feature, including the shortcut.}
+ 
+ \newpage
+-It was interesting to see that this model followed its priors, essentially its gut, across zero-shot tasks, where the \AUROC was 0.642 where the habit backs the shortcut ($\sigma_t = +1$) and 0.357 where it opposes it ($\sigma_t = -1$), despite the shortcut's direction being made random per task and balanced. \citet{wei2023larger} show that the ability to do ICL well and override priors appears with scale; this is a limitation we try to address with demonstrations and, later, with a selector that chooses the demonstrations based on the known nature of the base model.
++It was interesting to see that this model followed its priors, essentially its gut, across zero-shot tasks, with an \AUROC of 0.642 where the habit backs the shortcut ($\sigma_t = +1$) and 0.357 where it opposes it ($\sigma_t = -1$), despite the shortcut's direction being made random per task and balanced. \citet{wei2023larger} show that the ability to do ICL well and override priors appears with scale; this is a limitation we try to address with demonstrations and, later, with a selector trained to choose demonstrations that teach the rule.
+ 
+ \begin{figure}[H]
+     \centering
+     \includegraphics[width=\textwidth]{\figpath/fig_rq1_rq3_contrasts.png}
+-    \caption{The ten confirmatory contrasts for \RQ1--\RQ3. Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the three that survive Holm correction (adjusted $p$ at the right), hollow grey the rest. The three panels use different units, so they do not share a scale. Flipping the names (concept shift) is the largest effect.}
++    \caption{Five of the ten confirmatory contrasts: the three for \RQ1 and the two for \RQ3 (the five \RQ2 contrasts are in \autoref{tab:contrasts}). Each row is an estimate with its 95\% interval (hierarchical bootstrap over 24 tasks); filled blue marks the two that survive Holm correction (adjusted $p$ at the right, corrected over all ten), hollow grey the rest. The three panels use different units, so they do not share a scale. Flipping the names (concept shift) is the largest effect.}
+     \label{fig:p4-contrasts}
+ \end{figure}
+ 
+@@ -27,7 +27,7 @@
+ The experiments use the 24 evaluation tasks of \autoref{sec:tasks}: 12 linear and 12 tree tasks, generated synthetically across the loan and medical domains. Each has a 256-row in-distribution pool from which demonstrations are drawn, and 20 label-balanced queries in each of three environments (ID, covariate shift and spurious reversal; \autoref{sec:environments}).
+ The \emph{main grid} is the full set of runs over every combination of task, naming (abstract, aligned, flipped) and condition (zero-shot and the seven hand-designed strategies of \autoref{tab:strategies}), with three demonstration seeds per strategy (one for \strat{similarity}, whose nearest-neighbour sets do not depend on the seed).
+ In each run the strategy picks eight demonstrations from the pool, and that same set is paired with each of the task's 60 queries, giving one margin per query and one \AUROC per environment from its 20 queries.
+-Because a demonstration set depends only on the task, strategy and seed, the same rows are shown under every naming and environment, so differences between them are never differences in the demonstrations.
++Except for \strat{similarity}, which picks a set for each query, and \strat{counter\_prior}, whose set depends on the naming, a demonstration set depends only on the task, strategy and seed, so the same rows are shown under every naming and environment, and differences between them are never differences in the demonstrations.
+ This gives 86,400 scored prompts on Qwen2.5-7B-Instruct, and a reduced grid on Qwen2.5-7B (base) with abstract and flipped names only.
+ 
+ \section{\RQ1: How much does each shift hurt?}
+@@ -46,20 +46,20 @@
+ 
+ Covariate shift costs nothing we can measure (+0.02, 15 of 24 tasks). Its interval runs from $-0.04$ to 0.09, so what the data rule out is a large cost, not a moderate one, and the shift itself is not small: it moves two of the three rule features by one to two standard deviations. However, moving where the inputs fall disturbed Qwen far less than changing what the inputs are called.
+ 
+-For a 7B model, then, the threat to in-context learning is less a shift in the data than a conflict between the task and what the model already believes. If that is so, better demonstrations can help only as far as the model is willing to read them, which is what \RQ2 tests next. The two \RQ3 rows of \autoref{fig:p4-contrasts} are taken up in \autoref{sec:shift-rq3}.
++For this 7B model, then, the threat to in-context learning is less a shift in the data than a conflict between the task and what the model already believes. If that is so, better demonstrations can help only as far as the model is willing to read them, which is what \RQ2 tests next. The two \RQ3 rows of \autoref{fig:p4-contrasts} are taken up in \autoref{sec:shift-rq3}.
+ 
+ \section{\RQ2: does each strategy help under its target shift? (strategy - label diversity)}
+ \label{sec:shift-rq2}
+ 
+-\finding{The strategy's value depends on the kind of shift, and it helps marginally in situations where the semantic relationship in the features is reversed or lost.}
++\finding{The strategies' value depends on the kind of shift, and they help at most marginally (not significantly) in situations where the semantic relationship in the features is reversed or lost.}
+ 
+ Comparing random demonstrations and each strategy under the two shift types, covariate shift and shortcut reversal, against the baseline of ID test rows within a task, we saw that the strategies work best when the feature names are aligned with a clear semantic meaning, and worst when they are flipped.
+ 
+-Across the ID environment we can see that the counter-prior, rule-diversity and similarity strategies performed above chance under all naming schemes, but under the shifts above the similarity strategy performs best overall under covariate shift and worst under spurious reversal, meaning that this strategy largely emphasised the predictive power of the shortcut. Conversely, the counter-spurious strategy performs better in an environment where the spurious feature is absent.
++Across the ID environment we can see that the counter-prior, rule-diversity and similarity strategies performed slightly above chance under all naming schemes. Under the shifts, the similarity strategy does well under covariate shift (the best of all under flipped names) and worst, or close to worst, under spurious reversal, meaning that this strategy largely emphasised the predictive power of the shortcut. Conversely, the counter-spurious strategy performs best under spurious reversal, where the shortcut points the wrong way.
+ 
+-Overall, what we take away is that, across strategy designs, attempting to override a model's priors is the most balanced approach when the features carry semantic meaning. It is possible that combining this strategy with the counter-spurious strategy could help to deal with models' reliance on shortcut features.
++Overall, what we take away is that, across strategy designs, attempting to override a model's priors gave the highest mean \AUROC when the features carry semantic meaning, although its lead over \strat{label\_diversity} is small and not significant. It is possible that combining this strategy with the counter-spurious strategy could help to deal with models' reliance on shortcut features.
+ 
+-It is worth mentioning that the rule-diversity strategy was observed to perform nearly as well as the attempt to reverse the priors, making it a possible cheaper, valid substitute, despite its marginal performance drops under flipped names compared with the counter-prior strategy.
++It is worth mentioning that the rule-diversity strategy was observed to perform nearly as well as the attempt to reverse the priors under every naming, making it a possible substitute, although it reads the ground-truth regimes of the rule, which a deployed selector would not know.
+ 
+ \begin{figure}[H]
+     \centering
+@@ -70,7 +70,7 @@
+ 
+ \begin{table}[H]
+ \centering\small
+-\caption{}
++\caption{The five planned \RQ2 contrasts: each strategy against \strat{label\_diversity} under the shift it targets.}
+ \label{tab:rq2-rows}
+ \begin{tabularx}{\textwidth}{@{}l l X@{}}
+ \toprule
+@@ -87,11 +87,11 @@
+ 
+ \section{\RQ3: which features does the model rely on?}
+ \label{sec:shift-rq3}
+-To find out whether Qwen relies on the true features, and whether it uses them in the direction the demonstrations show or the direction the names suggest, we ran tests on the 20 ID queries of each of the 24 tasks under abstract, aligned and flipped feature names. The \emph{label diversity} strategy was used to construct the demonstrations here because it provides the balanced targets needed for prediction. To see which of the 10 features Qwen uses ($\pi_{behav}$), we use a removal-based measure of importance \citep{breiman2001random,covert2021explaining}: each feature is replaced by hot-deck imputation \citep{andridge2010review} with a value from the same pool of rows the demonstrations are drawn from, which keeps the altered query in distribution \citep{zhu2026faithfulness}, and we observe the change in Qwen's resulting answer through the margin, computing the \emph{drop} as the correct-label margin (original) $-$ the correct-label margin (swapped). For the bias correction, the code also subtracts a ``content-free'' baseline, obtained by passing in a query whose feature names are \emph{N/A} \citep{zhao2021calibrate}.
++To find out whether Qwen relies on the true features, and whether it uses them in the direction the demonstrations show or the direction the names suggest, we ran tests on the 20 ID queries of each of the 24 tasks under abstract, aligned and flipped feature names. The \emph{label diversity} strategy was used to construct the demonstrations here because it provides the balanced targets needed for prediction. To see which of the 10 features Qwen uses ($\pi_{behav}$), we use a removal-based measure of importance \citep{breiman2001random,covert2021explaining}: each feature is replaced by hot-deck imputation \citep{andridge2010review} with a value from the same pool of rows the demonstrations are drawn from, which keeps the altered query in distribution \citep{zhu2026faithfulness}, and we observe the change in Qwen's resulting answer through the margin, computing the \emph{drop} as the correct-label margin (original) $-$ the correct-label margin (swapped). For the bias correction, the code also subtracts a ``content-free'' baseline, obtained by passing in a query whose feature values are \emph{N/A} \citep{zhao2021calibrate}.
+ 
+ From the construction of the tasks we know $\pi_{true}$, the ground-truth features the generator constructed, also known as the rule features; synthetic tasks give this kind of ground truth for judging feature importance \citep{liu2021synthetic}.
+ 
+-\finding{With abstract names, Qwen follows the demonstrations slightly more often than chance but barely learns the rule's direction from the examples. With flipped names that conflict with each other, despite the demonstrations showing the correct direction, Qwen's agreement falls to 42\%, meaning it goes with the names more often than with the evidence in front of it. The names do not just add noise; they actively pull Qwen's use of each feature the wrong way.}
++\finding{With abstract names, Qwen follows the demonstrations slightly more often than chance but barely learns the rule's direction from the examples. With flipped names, which conflict with the rule, and despite the demonstrations showing the correct direction, Qwen's agreement falls to 42\%, meaning it goes with the names more often than with the evidence in front of it. The names do not just add noise; they actively pull Qwen's use of each feature the wrong way.}
+ 
+ The \emph{demo-following index} was used to test whether the model indeed followed the demonstrations it was given. As a sensitivity test, this was done by nudging each load-bearing feature by $\pm 0.5$ and measuring how often the margin moved in the rule's direction; we saw that the model does follow the demonstrations, as shown in \autoref{fig:p4-contrasts}. We compare with abstract rather than aligned names because under aligned names following the demonstrations and following the names move the answer the same way, so the two cannot be told apart; however, it is worth noting that Qwen's prior bias, ``bigger means 1'', is still active even under abstract names.
+ 
+@@ -124,17 +124,17 @@
+ \paragraph{Demonstrations without the shortcut.}
+ If demonstrations are meant to teach the causal rule, perhaps they should not show the shortcut at all.
+ As an exploratory experiment we removed the shortcut (and, in a later stage, the noise feature) from every demonstration while keeping queries complete.
+-Removing the shortcut cut ID we saw a decrease in \AUROC by 0.048 and in covariate \AUROC by 0.040, and raised spurious-reversal \AUROC by 0.049.
++Removing the shortcut cut ID \AUROC by 0.048 and covariate \AUROC by 0.040, and raised spurious-reversal \AUROC by 0.049.
+ The ID--reversal gap shrank in all 18 (strategy, naming) cells, significantly in 14.
+ Removing the shortcut worked as well as neutralising it with \strat{counter\_spurious}, and removing the noise feature added nothing.
+ The gap that remains follows $\sigma_t$ ($+0.04$ to $+0.11$ against $-0.06$ to $-0.15$): the prior still reads the shortcut in the query.
+ 
+ \finding{Much of what looks like shortcut learning from demonstrations is the model's numeric prior reading the shortcut in the query; hiding the shortcut from the demonstrations removes the demonstration part and leaves the prior part.}
+ 
+-Hence it is possibly that the model is mapping the query task to some similar task it has seen before and preferring to copy the method for that task
++Hence, it is possible that the model maps the query task to a similar task it has seen before and prefers to copy the method for that task.
+ 
+ \paragraph{The base model.}
+-Qwen2.5-7B (base) loses less to flipped names than the instruction-tuned model (random demonstrations on ID queries: 0.625 to 0.560, against 0.603 to 0.484), which matters in \autoref{ch:sata}, where it is the one model a learned selector helps.
++Qwen2.5-7B (base) loses less to flipped names than the instruction-tuned model (random demonstrations on ID queries: 0.625 to 0.560, against 0.603 to 0.484), which matters in \autoref{ch:sata}, where it is the one model a learned selector helps, in an exploratory comparison (\autoref{app:base}).
+ 
+ \newpage
+ \section{What this chapter does not show, and the next question}
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/introduction/introduction.tex edited/introduction/introduction.tex
+--- overleaf_backup/introduction/introduction.tex	2026-11-04 12:03:39
++++ edited/introduction/introduction.tex	2026-11-04 12:10:55
+@@ -1,53 +1,53 @@
+ \chapter{Introduction}
+ \label{ch:intro}
+ 
+-Large Language Model's (LLM's) have shown a remarkable ability to learn classification tasks without being specifically trained for that task hence, without changing its internal weights. By placing a few labeled examples (\emph{demonstrations}) along with the prompt, the model can be seen to answer the query prompt sufficiently \citep{brown2020language, dong2024survey}. This phenomena known formally as \emph{in context learning} has been widely used by both users and professionals during training, testing and inference largely due to its ease of use and setup. However, due it's fragile nature it brings about challenges and varying results upon how such challenges are faced, from which demonstrations are shows, their format, order and with what label balance \citep{zhao2021calibrate, lu2022fantastically, min2022rethinking}. Hence, a body of work therefore arose to investigate \emph{selections of} demonstrations, by similarity to the query \citep{liu2022what}, to diversity and coverage \citep{levy2023diverse,gupta2023coverage}, or with retrievers trained on the model's own feedback \citep{rubin2022learning,li2023unified,ye2023compositional}.
++Large language models (LLMs) have shown a remarkable ability to learn classification tasks without being specifically trained for them, and hence without changing their internal weights. By placing a few labelled examples (\emph{demonstrations}) in the prompt, the model can be seen to answer the query prompt sufficiently well \citep{brown2020language, dong2024survey}. This phenomenon, known formally as \emph{in-context learning}, has been widely used by both users and professionals during training, testing and inference, largely due to its ease of use and setup. However, due to its fragile nature, it brings about challenges and varying results depending on which demonstrations are shown, their format and order, and their label balance \citep{zhao2021calibrate, lu2022fantastically, min2022rethinking}. Hence, a body of work arose to investigate the \emph{selection} of demonstrations: by similarity to the query \citep{liu2022what}, by diversity and coverage \citep{levy2023diverse,gupta2023coverage}, or with retrievers trained on the model's own feedback \citep{rubin2022learning,li2023unified,ye2023compositional}.
+ 
+ 
+ To the extent of the work that follows here, there are two things in practice that have been overlooked by most of the current work out there. 
+ The first is \textbf{distribution shift}: the queries a deployed model sees are rarely drawn from the same distribution as the demonstrations.
+-The second is \textbf{prior conflict}: a model brings its own beliefs about what a feature means, and what the demonstrations teach can disagree with them. Works by \citet{wei2023larger} found out that following in-context evidence that contradicts semantic priors emerges with scale, and models of 7 to 8B parameters follow contradicting demonstrations only partially (not being able to override there priors and learn from the demos teachings) \citep{krishnakumar2025semantic,kossen2024incontext}.
++The second is \textbf{prior conflict}: a model brings its own beliefs about what a feature means, and what the demonstrations teach can disagree with them. Work by \citet{wei2023larger} found that following in-context evidence that contradicts semantic priors emerges with scale, and models of 7 to 8B parameters follow contradicting demonstrations only partially (not being able to override their priors and learn from what the demonstrations teach) \citep{krishnakumar2025semantic,kossen2024incontext}.
+ 
+ 
+ \newpage
+ \section{The question}
+ 
+-This thesis aims to asks a single question:
++This thesis aims to ask a single question:
+ 
+ \begin{quote}
+ \textit{Can the choice of demonstrations help a small language model follow in-context evidence over its own priors, under controlled distribution shift?}
+ \end{quote}
+ 
+-The question is then broken into four sub research questions where each is answered on Qwen2.5-7B-Instruct \citep{qwen2024qwen25} with $k = 8$ demonstrations.
++The question is then broken into four research sub-questions, each answered on Qwen2.5-7B-Instruct \citep{qwen2024qwen25} with $k = 8$ demonstrations.
+ 
+ \begin{description}[leftmargin=2.4em, style=nextline]
+   \item[\RQ1] Does in-context learning degrade under covariate shift, spurious-feature reversal and concept shift?
+   \item[\RQ2] Do different selection strategies help under different kinds of shift?
+-  \item[\RQ3] Does the models of this size rely on the features that actually determine the label, and why does its prior in them win when it conflicts with the demonstrations?
++  \item[\RQ3] Does a model of this size rely on the features that actually determine the label, and why does its prior about them win when it conflicts with the demonstrations?
+   \item[\RQ4] Does a learned selector (\sata) beat the hand-designed strategies?
+ \end{description}
+ 
+ 
+-It is significantly difficult to attempt to answer these questions on real data as the real data and there bench marks that follow mix several kinds of shifts and give no ground truth for which features matter (\autoref{sec:bg-shift}). Therefor the works here that follow have built a \textbf{synthetic tabular testbed} (\autoref{ch:method}) where every task has three features that determine its label, a spurious ``shortcut'' feature that agrees with the label 80--90\% of the time, and distractors. Data shifts in focus here that are, covariate shift, reversal of the shortcut and concept can each be switched on alone. Concept shift is realised by \emph{naming}: the same task is shown with neutral names ($f_0, \ldots, f_9$), with everyday names whose meaning agrees with the rule (\emph{aligned}), or with the antonyms of those names (\emph{flipped}), so that the model's semantic prior points the wrong way.
++It is difficult to answer these questions on real data, as real data and the benchmarks built on them mix several kinds of shift and give no ground truth for which features matter (\autoref{sec:bg-shift}). Therefore, the work that follows builds a \textbf{synthetic tabular testbed} (\autoref{ch:method}) where every task has three features that determine its label, a spurious ``shortcut'' feature that agrees with the label 80--90\% of the time, and distractors. The shifts in focus here, covariate shift, reversal of the shortcut and concept shift, can each be switched on alone. Concept shift is realised by \emph{naming}: the same task is shown with neutral names ($f_0, \ldots, f_9$), with everyday names whose meaning agrees with the rule (\emph{aligned}), or with the antonyms of those names (\emph{flipped}), so that the model's semantic prior points the wrong way.
+ 
+ \newpage
+ \section{Approach and the story of this thesis}
+ 
+-The experiments here form a chain of sorts, and each chapter of Part~II aims to start from the limitation of the one before proceeding it.
++The experiments here form a chain of sorts, and each chapter of Part~II aims to start from the limitation of the one preceding it.
+ 
+ \begin{enumerate}[leftmargin=2em]
+   \item \textbf{Shift, names and the prior} (\autoref{ch:shift}; \RQ1--\RQ3).
+         We measure how each shift hurts and whether seven hand-designed strategies help.
+         The names dominate: no strategy overcomes flipped names, and the model's ``bigger numbers mean 1'' habit explains much of what remains.
+-        \emph{Limitation:} hand-designed heuristics see only the data, not what the model makes of it (information about the model internal bias via the priors).
++        \emph{Limitation:} hand-designed heuristics see only the data, not what the model makes of it (information about the model's internal bias via its priors).
+   \item \textbf{Learning to select} (\autoref{ch:sata}; \RQ4).
+         We train a set transformer, \sata (Shift Aware Task Adapter), to choose demonstrations that teach the rule rather than the known shortcut.
+-        On a stand-in learner it is the only method with no weak environment, but it ties on Qwen-Instruct. \sata does help the base model as expected.
++        On a stand-in learner it is the only method with no weak environment, but on Qwen-Instruct it does no better than balanced random demonstrations. In an exploratory comparison, \sata does help the base model.
+         \emph{Limitation:} behaviour alone cannot tell us why none of the demonstration sets we tried moves the instruction-tuned model.
+ 
+   \item \textbf{Inside the model} (\autoref{ch:mechanism}; \RQ3).
+-        We use an approach, The logit lens, where we saw that linear probes and steering show that the answer forms in the last few layers, that the names decide it there, and that the demonstrated rule barely reaches the residual stream.
+-        \emph{Significant Limitation:} our scale: one 7B model, eight numeric demonstrations, synthetic tasks.
++        Using the logit lens, we saw that the answer forms in the last few layers and that the names decide it there; linear probes show that the demonstrated rule barely reaches the residual stream, and steering towards the demonstrations shifts every answer without making it more correct.
++        \emph{Significant limitation:} our scale: one 7B model, eight numeric demonstrations, synthetic tasks.
+ \end{enumerate}
+ 
+ \section{Contributions}
+@@ -56,9 +56,9 @@
+   \item \textbf{A controlled testbed for in-context learning under shift and prior conflict}, with each shift isolated, ground-truth feature roles, a naming factor matched on measured prior strength, and a statistical protocol (within-cell \AUROC, a hierarchical bootstrap over tasks, Holm-corrected contrast families frozen before the data) (\autoref{ch:method}).
+   \item \textbf{A measured account of how the 7B model here trades demonstrations against priors}: names outweigh every data shift, and the model's numeric prior explains most of the cost of reversing the shortcut (\autoref{ch:shift}).
+   
+-  \item \sata, our demonstration selector trained on ground-truth targets rather than on the model's scores, with an oracle check that caught a target teaching the shortcut backwards at first, and a pre-registered evaluation on the 24 evaluation tasks showed \sata was not significantly better than the stratergies on our small scale the instruction-tuned model, which is reported as such in (\autoref{ch:sata}).
+-        
+-  \item \textbf{A mechanistic diagnosis} of why selection fails at this scale, and a negative result for single-direction steering (\autoref{ch:mechanism}).
++  \item \sata, our demonstration selector, trained on ground-truth targets rather than on the model's scores, with an oracle check that at first caught a target teaching the shortcut backwards, and a pre-registered evaluation on the 24 evaluation tasks, which showed that \sata was not significantly better than the strategies on the instruction-tuned model at our small scale (\autoref{ch:sata}).
++
++  \item \textbf{Evidence from inside the model} on where the names take over and how little of the demonstrated rule is visible there, and a negative result for single-direction steering (\autoref{ch:mechanism}).
+ \end{enumerate}
+ 
+ \section{Summary of findings}
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/main.tex edited/main.tex
+--- overleaf_backup/main.tex	2026-11-04 12:03:39
++++ edited/main.tex	2026-11-04 12:10:10
+@@ -185,5 +185,6 @@
+ \appendix
+ \input{appendix/notation.tex}
+ \input{appendix/design.tex}
++\input{appendix/exploratory.tex}
+ 
+ \end{document}
+diff -ruN --exclude=*.pdf --exclude=*.png overleaf_backup/methodology/methodology.tex edited/methodology/methodology.tex
+--- overleaf_backup/methodology/methodology.tex	2026-11-04 12:03:39
++++ edited/methodology/methodology.tex	2026-11-04 12:13:52
+@@ -40,8 +40,8 @@
+ The evaluation suite has 24 tasks: 12 linear and 12 tree, crossed with two domains (loan approval and medical risk) and balanced on $\sigma_t$.
+ A separate 12-task pilot suite was used to choose the number of demonstrations, so that choice never touched the evaluation tasks.
+ Each task has a 256-row demonstration pool and, per environment, a label-balanced set of 20 queries.
+-All features are standardized with the pool's statistics.
+-The selector of \autoref{ch:sata} is trained and validated on further tasks from the same generator and to make sure it never sees and evaluation tasks we draw with different random seeds.
++All features are standardised with the pool's statistics.
++The selector of \autoref{ch:sata} is trained and validated on further tasks from the same generator, drawn with different random seeds so that it never sees an evaluation task.
+ 
+ \section{Environments}
+ \label{sec:environments}
+@@ -105,7 +105,7 @@
+ \label{sec:strategies}
+ 
+ \autoref{tab:strategies} lists the strategies.
+-Every strategy except \strat{random} and \strat{similarity} takes $k/2$ demonstrations of each label, and balanced strategies are compared with \strat{label\_diversity}, a label-balanced random draw, so that contrasts compare selection mechanisms at fixed label counts.
++Every strategy except \strat{random} takes $k/2$ demonstrations of each label, and balanced strategies are compared with \strat{label\_diversity}, a label-balanced random draw, so that contrasts compare selection mechanisms at fixed label counts.
+ 
+ \begin{table}[t]
+ \centering\small
+@@ -123,7 +123,7 @@
+ \strat{counter\_spurious} (GT) & Matched pairs on $|x_8|$ in which the shortcut agrees and disagrees equally often, so it carries no information. \\
+ \strat{similarity} & The $k/2$ nearest rows of each label to the query in feature space \citep{liu2022what}. \\
+ \strat{counter\_prior} & Clean rows whose label contradicts the model's measured prior, when the pool shows prior--data conflict; related to misconfidence-based selection \citep{xu2024misconfidence}. \\
+-\sata & Learned selectors (\autoref{ch:sata}). \\
++\sata & Learned selector (\autoref{ch:sata}). \\
+ \bottomrule
+ \end{tabularx}
+ \end{table}
+@@ -134,14 +134,14 @@
+ \paragraph{The metric.}
+ The primary statistic is \AUROC \citep{hanley1982meaning,fawcett2006introduction} of the margin, computed within each cell of (task, strategy, seed, naming, environment) over its 20 label-balanced queries.
+ It was chosen over calibrated balanced accuracy, after the first tasks had run and before any contrast was computed: contextual calibration left every query of a cell on one side of the threshold in 36\% of plain-random cells, which pins balanced accuracy at 0.5 and forces shift gaps to zero.
+-Within-cell \AUROC has a blind spot of its own, which \autoref{sec:shift-covariate} measures: a shift that moves every score together cannot be seen.
++Within-cell \AUROC has a blind spot of its own (\autoref{sec:limitations}): a shift that moves every score together cannot be seen.
+ 
+ \paragraph{Inference.}
+-Demonstration sets depend only on (task, strategy, seed), so the same sets are reused across namings and environments, and contrasts are paired.
++For most strategies the demonstration set depends only on (task, strategy, seed), so the same sets are reused across namings and environments, and contrasts are paired; \strat{similarity} and \sata choose a set for each query, and \strat{counter\_prior}'s set depends on the naming, because it uses the prior measured under that naming.
+ Uncertainty comes from a \textbf{hierarchical bootstrap} \citep{efron1993introduction,davison1997bootstrap}: each of 2,000 draws resamples the 24 tasks and then, within each task, the positive and negative queries separately.
+ Contrasts are one-sided, and each family is \textbf{Holm-corrected} \citep{holm1979simple}.
+ Every confirmatory family was \textbf{written into the code before the data it tests were seen} \citep{nosek2018preregistration}: ten contrasts for \RQ1--\RQ3, six for \sata.
+-Everything outside those families is labeled exploratory.
++Everything outside those families is labelled exploratory.
+ 
+ \paragraph{Figures.}
+ Following \citet{healy2019data}, estimates are positions on a common scale with 95\% intervals, categories are ordered by value, and colour carries one meaning per figure, in colour-blind-safe palettes; every figure is drawn from the result files by one script.

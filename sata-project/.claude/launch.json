@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "probe-explorer",
+      "runtimeExecutable": "/Users/chenuka/Documents/USYD/LLM-ICL-OOD-Honours/sata-project/.venv/bin/python",
+      "runtimeArgs": ["-m", "http.server", "8791", "--directory", "/Users/chenuka/Documents/USYD/LLM-ICL-OOD-Honours/sata-project/demos"],
+      "port": 8791, "autoPort": false
+    }
+  ]
+}
