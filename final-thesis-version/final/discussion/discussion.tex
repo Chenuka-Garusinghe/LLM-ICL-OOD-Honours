@@ -1,0 +1,104 @@
+\chapter{Discussion}
+\label{ch:discussion}
+
+The main takeaway of this thesis is that, in our setting, the prior carried by the feature names influences Qwen2.5-7B-Instruct's predictions more than the choice of demonstrations does. This chapter sets out what the results tell us (\autoref{sec:disc-answers}), why they matter (\autoref{sec:disc-context}), the criticisms we anticipate (\autoref{sec:criticism}) and what remains uncertain (\autoref{sec:limitations}).
+
+\section{What the results tell us}
+\label{sec:disc-answers}
+
+\paragraph{\RQ1: does in-context learning degrade under shift?}
+The effects depend on the type of shift. Semantic-prior conflict (flipped names) produces the largest observed drop, 0.20 \AUROC. Reversing the shortcut costs about half as much, and unevenly: where the model's numeric prior agrees with the shortcut the cost is large, and where it opposes it there is almost none, because the prior reads the shortcut in the query with or without demonstrations. Hiding the shortcut from the demonstrations shrinks the remaining cost in every strategy and naming. The tested covariate shift produces no statistically significant degradation.
+
+\paragraph{\RQ2: do different strategies help under different shifts?}
+Only weakly. The strategies differ far less than the namings do (\autoref{fig:strategies-by-naming}): their typical difference from balanced random demonstrations is 0.025 \AUROC, against 0.20 for flipping the names, and none lifts Qwen much above chance under flipped names, including the one designed for prior conflict (+0.023 over \strat{label\_diversity}, not significant). Of the five planned \RQ2 contrasts, only one survives Holm correction (\autoref{fig:rq2-interaction}): \strat{counter\_spurious} fares better against \strat{label\_diversity} under shortcut reversal than under covariate shift, mainly because it costs \AUROC under covariate shift; its gain under reversal itself is not significant.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.55\textwidth]{\figpath/fig_rq2_interaction.pdf}
+\caption{The one \RQ2 contrast that survives Holm correction (abstract names). Each grey line is one task; blue is the mean with a 95\% interval (hierarchical bootstrap, 24 tasks). Neutralising the shortcut with \strat{counter\_spurious} costs \AUROC under covariate shift and roughly breaks even under its reversal; the rise between the two, $+0.11$ (Holm $p = 0.024$, 17 of 24 tasks), is the interaction.}
+\label{fig:rq2-interaction}
+\end{figure}
+
+\paragraph{\RQ3: does the model rely on the right features, and where does the prior win?}
+Under abstract names it tends to rely on the shortcut, whereas under aligned names it relies on the rule features, and under flipped names on the rule features but in the direction the names suggest. Its self-reports do not match the features it uses. The internal evidence is consistent with the prior winning late: the prior is readable from the model's state from layer 2, the demonstrated rule barely is, and the split between aligned and flipped names appears only in the last six layers (\autoref{ch:mechanism}). These measurements locate the names' effect; they do not explain how the model computes its answer.
+
+\paragraph{\RQ4: does a learned selector help?}
+We found no evidence that it does on the instruction-tuned model: none of the six pre-registered contrasts favours \sata, and taking its top-$k$ rows instead of drawing does no better. Whether it helps, and what it costs, depends on the learner.
+
+\paragraph{\sata's robustness and its cost.}
+\sata was built to make the shortcut uninformative, so that no environment is weak. \autoref{fig:sata-tradeoff} plots each strategy's weakest environment (its robustness) against its mean over the three environments (its predictive performance). On the stand-in learner, \sata is best on both counts: its weakest environment is 0.652, against 0.555 for the best hand-designed strategy, and its mean is the highest as well (0.658). On the instruction-tuned model the two pull apart. Its weakest environment (0.552) is level with \strat{counter\_spurious}, the strategy it was trained to imitate, and above \strat{label\_diversity} (0.520; $+0.032$, not significant), but its mean is lower (0.554, against 0.588), because it gives up \AUROC in distribution ($-0.040$) and, more clearly, under covariate shift ($-0.096$, an interval entirely below zero). Under aligned names it is lower on both counts. On the base model (exploratory) it is again best on both.
+
+A plausible reading is that \sata swaps shortcut evidence for rule evidence. A learner that reads the rule from its demonstrations gains as much as it loses; one that reads them little loses the shortcut's help on ID and covariate queries, where the shortcut is right 80--90\% of the time, and gains little in return. Whether \sata's flatter profile is worth having therefore depends on the learner and on the deployment: it is safer when the shortcut may reverse, and costlier when queries stay close to the demonstrations.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\figpath/fig_sata_tradeoff.pdf}
+\caption{Robustness against predictive performance. Each dot is one selection method: its mean over the three environments (horizontal) against its weakest environment (vertical); up and to the right is better on both counts, and on the dashed line all three environments are equal. Left: the stand-in learner's accuracy (100 validation tasks). Middle and right: \AUROC under abstract names on Qwen2.5-7B-Instruct and, exploratorily, on Qwen2.5-7B (base), 24 tasks. \sata has the highest weakest environment and the highest mean on the stand-in learner and on the base model; on the instruction-tuned model it keeps a high weakest environment but has a lower mean than most hand-designed strategies.}
+\label{fig:sata-tradeoff}
+\end{figure}
+
+\section{Why the results matter}
+\label{sec:disc-context}
+\citet{wei2023larger} found that overriding semantic priors with in-context evidence emerges with scale. Our results are consistent with that picture and sharpen it for Qwen2.5-7B-Instruct and its base model. The instruction-tuned model is held more tightly by its priors (the base model loses less to flipped names, and a selector helps it). Although two models cannot show that instruction tuning is the cause, in what we tested the cost of conflict depended more on the names than on which evidence (demonstrations) was chosen. The graded picture of \citet{krishnakumar2025semantic} and \citet{kossen2024incontext}, in which mid-sized models follow flipped labels part of the time, fits the fact that demonstration labels still matter here (gold minus shuffled labels: +0.06 to +0.11 \AUROC, as seen in \autoref{ch:shift}) without being able to overturn the names. For practice, this suggests that at this scale, whether the feature names agree with the task may matter more than which demonstrations are shown.
+
+\citet{halawi2024overthinking} find that under false demonstrations, the later layers tend to switch to the demonstrated labels. We find a late critical layer as well, but the switch it marks is driven mainly by the names, as the zero-shot runs show: in our setting the later layers appear to be where the semantic priors are applied, not where the demonstrations take over. \citet{minder2025controllable} report a single context-versus-prior direction in Llama-3.1-8B but, for our numeric task, a mean-difference direction of that kind acted as a bias rather than a switch.
+
+\citet{nastl2024causal} found that restricting predictors to causal features did not improve generalisation on real tabular shifts. We found the same for demonstrations without the shortcut on ID queries, although we also found a clear gain under reversal. Finally, learned selectors trained on model feedback \citep{rubin2022learning, ye2023compositional} are usually evaluated in distribution and on tasks the model already knows; our results, on the other hand, suggest that a selector's value depends on how much the model reads the evidence at all.
+
+\section{Anticipated criticism}
+\label{sec:criticism}
+
+\subsection*{\RQ1}
+
+\critique{Covariate shift showing no effect means your covariate shift is too weak.}{The shift is not small by design: in every task it moves two of the three rule features by one to two standard deviations, one towards each label so that the label rate is unchanged, and one distractor as well (\autoref{sec:environments}). The planned contrast finds no significant cost ($+0.024$, interval from $-0.044$ to 0.093; \autoref{tab:contrasts}), while the same tasks, demonstrations and number of queries do detect the cost of flipped names (0.20). The data therefore make a covariate cost as large as that of flipped names unlikely, but do not rule out a moderate one. Our covariate shift was designed to change the input distribution while preserving the underlying label rule and approximate label balance. The small observed effect may reflect the particular shift design rather than general robustness to covariate shift: a larger shift, or one that changes the shape of the inputs rather than moving them, may still hurt. We do not claim that in-context learning is robust to covariate shift in general.}
+
+\subsection*{\RQ2}
+
+\critique{The strategies are weak straw men.}
+
+Two observations suggest they are not. First, each follows a published idea (\autoref{tab:strategies}), and two of them, \strat{rule\_diversity} and \strat{counter\_spurious}, read the ground truth, which no deployed selector could. They are best-case versions of their ideas, so if they do not beat balanced random demonstrations, a realistic version is unlikely to do much better, at least at $k = 8$ on this model. Second, the strategies are not inert: they change Qwen's behaviour the way their ideas predict. \strat{counter\_spurious}, which makes the shortcut uninformative, all but removes the drop from ID to spurious reversal under every naming (gaps of $-0.03$ to $0.01$, against $0.05$ to $0.07$ for \strat{label\_diversity}; \autoref{fig:strategies-by-naming}), and pays for it with lower ID \AUROC. Across six strategies, three namings and three environments, the typical difference from \strat{label\_diversity} is 0.025 \AUROC; 40 of the 54 differences have intervals that include zero, 10 lie below it and 4 above. Because each balanced strategy shows the same label counts as \strat{label\_diversity}, these comparisons separate which rows are chosen from how many of each label are shown, which biases predictions on its own \citep{zhao2021calibrate}. Choosing rows by a selection idea therefore added little over picking them at random with the labels balanced, and what it gained in one environment it tended to give back in another. The criticism does apply to selectors we did not test, such as retrievers trained on the model's own feedback.
+
+\critique{24 tasks are too few to detect anything.}
+
+They are too few to detect small effects, and we do not claim otherwise. The intervals for the strategy contrasts are about 0.1 \AUROC wide, so effects below about 0.05 would usually be missed; halving that width would take roughly four times as many tasks (assuming that the interval width shrinks with $\sqrt{n_T}$, where $n_T$ is the number of tasks). The design does detect effects of about 0.1: the cost of flipped names (0.20) and the \strat{counter\_spurious} interaction (0.11) both survive Holm correction (\autoref{tab:contrasts}). For the four strategies tested against \strat{label\_diversity} under their target shifts, the largest gain inside any interval is 0.09 \AUROC, under half the cost of flipped names, and the six \sata contrasts give the same ceiling (\autoref{ch:sata}). A non-significant result here is therefore not evidence that a strategy cannot help: one that helps by a few hundredths of \AUROC may exist at $k = 8$ on this model, but one that helps as much as the names hurt would probably have been detected.
+
+\subsection*{\RQ3}
+
+\critique{The logit lens and the probes do not show how the model decides.}
+
+Agreed, and we do not claim that they do. The logit lens can be biased in early layers \citep{belrose2023eliciting}, although its last layer matches the model's output exactly and the probes, which avoid that bias, tell the same story. Both are correlational: they show where the names' effect appears and what can be read linearly from the hidden states, not the computation that produces the answer. We use them to locate the effect and claim no more.
+
+\critique{Steering failing proves nothing about steering in general.}
+
+Agreed. We tested one kind of direction (a label-averaged mean difference at five layers, added to the query) on one 7B model with eight numeric demonstrations, within a small budget. We claim only that this direction acts as a bias at this scale: it moves every margin together, which within-cell \AUROC cannot see, rather than separating the labels, because following the demonstrations means opposite things for the two labels (\autoref{fig:steer}). A direction for each label, a learned direction or a larger model could behave differently.
+
+\critique{Self-reported importance is a known failure; why test it?}
+
+Because it is the cheapest explanation a practitioner would ask for, and because the comparison with behavioural reliance under each naming shows that the self-report follows the names, not the model's behaviour.
+
+\newpage
+\subsection*{\RQ4}
+\critique{\sata failed because it was badly trained.}
+
+It reached its own oracle's level on the stand-in learner and was the only method with no weak environment there (\autoref{fig:sata-proxy}); the base model benefits from the same checkpoint; and ranking instead of drawing does no better. The results point instead to what the instruction-tuned model does with the evidence it is given (\autoref{sec:disc-answers}).
+
+\critique{The stand-in learner is a poor proxy for the model, so the selector was optimised for the wrong thing.}
+
+This is the main weakness of the selector chapter, and we measured it. On 8 held-out tasks shown to Qwen, the stand-in learner ranks the strategies across environments much as Qwen does under abstract names (a correlation of about 0.7), but only weakly under named features (about 0.5). Two results suggest that the proxy still targeted something real: the stand-in learner learns the rule from \sata's demonstrations in every environment, and the base model also uses them (\autoref{app:base}). What the proxy missed is how little the instruction-tuned model uses the evidence once the names and its prior pull the other way. Training the selector on Qwen's own answers would remove the proxy, but it needs many runs of Qwen for every training task and was beyond our budget (\autoref{sec:limitations}).
+
+\section{What remains uncertain}
+\label{sec:limitations}
+
+Every negative result in this thesis holds for the conditions we could test, and those conditions were narrow. A null result here bounds the size of an effect; it does not show that a method cannot help.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Scale.} One model family at 7B: Qwen2.5-7B-Instruct and, exploratorily, its base model. Due to time and budget limitations, Llama-3.1-8B-Instruct was dropped when it would not answer in format, and larger models, which \citet{wei2023larger} find follow contradicting evidence better, were out of reach.
+  \item \textbf{Demonstrations.} $k = 8$, chosen on the pilot because $k = 32$ did not pass the learnability check. More demonstrations might give the rule more weight.
+  \item \textbf{Tasks.} Synthetic numeric tasks with three load-bearing features, two domains and 24 evaluation tasks. Real tabular data, text features or other rule families may behave differently.
+  \item \textbf{Metric.} Within-cell \AUROC cannot see a shift that moves every query's margin by the same amount; balanced accuracy, its alternative, was distorted by calibration.
+  \item \textbf{Proxies and budget.} The selector was trained against a stand-in learner that tracks the model only moderately under named features. The whole project used a few tens of US dollars of rented GPU time, and the later stages were sized to fit. Two selectors that learn from Qwen's own answers rather than from a stand-in were planned but not run, because each needs many runs of Qwen for every training task: one that scores each candidate row by how much it helps Qwen \citep{chang2023data}, and one trained by reinforcement learning to add demonstrations one at a time \citep{zhang2022active}. They are the most direct test of whether the stand-in learner, rather than the model, held \sata back.
+  \item \textbf{Decisions after data.} Some design choices were made after seeing early data. Most never touched the evaluation tasks: the shortcut's direction was randomised per task after the pilot showed Qwen's ``bigger means 1'' habit backing it; the feature names were picked by their measured effect on Qwen's zero-shot answers on random profiles; and \sata's matched target and drawing rule were chosen on its own validation tasks, judged by the stand-in learner. However, the ten planned tests for \RQ1--\RQ3 had been written down in advance with calibrated balanced accuracy as their measure, and were later switched to \AUROC because, after calibration, a large share of the prompts (about 36\%) gave the same answer to every query.
+\end{itemize}
+
+\section{Future work}
+The most immediate extension is scale, with the same testbed and contrast families on larger models, where the influence of the priors should be weaker. This would show whether selection starts to matter as the model starts to read the evidence. Beyond this, datamodels \citep{ilyas2022datamodels,chang2023data}, where we would train the selector on the model's own scores of demonstration subsets, possibly read at the critical layer, would remove the proxy problem described earlier. One of the parked ideas is to turn the prior rather than fight it, by negating the features whose larger values go with a specific label, in demonstrations and query alike.

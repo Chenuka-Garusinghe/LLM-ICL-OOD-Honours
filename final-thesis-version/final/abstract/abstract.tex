@@ -1,0 +1,20 @@
+\chapter*{Abstract}
+
+Large language models can learn a task from a handful of labelled examples placed in their prompt, a behaviour called in-context learning.
+Which examples are shown matters, and a growing literature selects them by similarity, diversity or learned scores.
+Little is known about whether selection helps when the test data shift away from the examples, or when what the examples teach contradicts what the model already believes.
+
+This thesis asks whether choosing the demonstrations can help a Smaller model (7B parameters) follow them over its own priors under controlled distribution shift.
+We build a synthetic tabular testbed in which covariate shift, spurious-feature reversal and semantic-prior conflict can each be switched on alone.
+Semantic-prior conflict gives the features names whose everyday meaning agrees or disagrees with the rule; unlike concept shift, the rule itself never changes.
+On Qwen2.5-7B-Instruct with eight demonstrations, we compare seven hand-designed selection strategies against a zero-shot baseline.
+We then train a set-transformer selector (\sata) on ground-truth targets, and look inside the model with the logit lens, linear probes and activation steering.
+Every confirmatory test was fixed before its data were seen.
+
+\textbf{Feature names influences the model's predictions more than the choice of demonstrations does.}
+Flipping the names costs 0.20 \AUROC (22 of 24 tasks), more than any shift of the data, whereas the hand-designed strategies typically differ from balanced random demonstrations by only 0.025, and none overcame flipped names.
+\textbf{A trained selector buys robustness at a cost in predictive performance on the instruction-tuned model}: \sata has no weak environment on a stand-in learner, but on Qwen it evens out the environments by giving up \AUROC in distribution and under covariate shift, and none of its six pre-registered contrasts is significant.
+Exploratorily, it helps the base model, whose priors pull less, without that cost.
+\textbf{Inside the model, the logit lens and probes suggest that the answer forms only in the last few layers, where the names' effect appears}: the model's own guess is decodable from layer 2 but the demonstrated rule hardly at all, and steering towards the demonstrations moves its outputs without making them more correct.
+These tools locate the effect but do not fully explain the decision.
+At our scale (7B, eight numeric demonstrations, synthetic tasks), these results bound what selection achieved, not what it can achieve.

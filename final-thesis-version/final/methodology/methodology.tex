@@ -1,0 +1,156 @@
+\chapter{Method: a controlled testbed}
+\label{ch:method}
+
+Every experiment in Part~II runs on the same testbed: synthetic tasks with known structure, three environments that each change one thing, a naming factor that sets the model's prior against the rule, a fixed prompt and scoring procedure, and a shared statistical protocol.
+This chapter describes each in turn. Every symbol is listed in \autoref{app:notation}, and the full definitions, with proofs of the properties stated here, are in \autoref{app:design}.
+
+\section{Why synthetic tasks}
+\label{sec:why-synthetic}
+
+The project began on real tabular benchmarks.
+TableShift \citep{gardner2023tableshift} names covariate, label and concept shift, but every one of its shifts mixes them, so a drop in accuracy cannot be attributed to one kind.
+Real data also give no ground truth for which features determine the label, which \RQ3 needs, and public datasets may have been memorised \citep{bordt2024elephants}.
+Synthetic tasks solve all three problems, in the tradition of \citet{garg2022what} and of the synthetic priors behind tabular foundation models \citep{muller2022transformers,hollmann2023tabpfn}.
+
+\section{Tasks}
+\label{sec:tasks}
+
+Each task has ten features.
+Three are \emph{load-bearing}: the label depends on them and on nothing else.
+Five are \emph{distractors}.
+One, $f_8$ in the generator's numbering, is a \emph{spurious shortcut}, and one, $f_9$, is pure noise.
+The ten features are shown in a random order recorded per task, so no feature's role can be read from its position.
+
+\paragraph{Rules.}
+Half of the tasks are \textbf{linear}: $P(y = 1 \mid x) = \sigma(c^\top x_C)$ over the load-bearing features $C$, with coefficients $c_j = u_j r_j$, $u_j \sim \mathrm{U}(1,2)$ and a random sign $r_j$, so every load-bearing feature has a definite direction.
+The other half are \textbf{trees}: a signed majority vote over the three features' signs, which makes them monotone in each feature as well.
+
+Labels are then flipped with probability $\eta = 0.02$. A row whose label was not flipped is \emph{clean}, and the rule's label is the \emph{clean label} $y_{\mathrm{clean}}$. This \emph{label noise} is separate from $f_9$, the noise feature, which is an input that has no bearing on the label.
+
+\paragraph{The shortcut.}
+The spurious feature is generated from the clean label,
+\[
+  x_8 = \sigma_t\big((2y_{\mathrm{clean}} - 1)\,\Phi^{-1}(s) + \varepsilon\big), \qquad \varepsilon \sim \mathcal{N}(0,1),
+\]
+so its sign agrees with the label with probability $s \sim \mathrm{U}(0.80, 0.90)$, the range of colour--label agreement in Colored MNIST's training environments \citep{arjovsky2019invariant}.
+On its own it predicts the label better than any single rule feature.
+The spurious direction $\sigma_t \in \{+1, -1\}$ is drawn per task and balanced, for a reason that only appeared once the model was run: Qwen's zero-shot answers rise with every feature value, so with $\sigma_t$ fixed at $+1$ that habit backed the shortcut in every task (\autoref{sec:shift-p2}).
+
+\paragraph{Suites.}
+The evaluation suite has 24 tasks: 12 linear and 12 tree, crossed with two domains (loan approval and medical risk) and balanced on $\sigma_t$.
+A separate 12-task pilot suite was used to choose the number of demonstrations, so that choice never touched the evaluation tasks.
+Each task has a 256-row demonstration pool and, per environment, a label-balanced set of 20 queries.
+All features are standardised with the pool's statistics.
+The selector of \autoref{ch:sata} is trained and validated on further tasks from the same generator, drawn with different random seeds so that it never sees an evaluation task.
+
+\section{Environments}
+\label{sec:environments}
+
+Queries come from three environments; the demonstration pool is always in distribution.
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+  \item[In distribution (ID)] Queries are drawn exactly like the pool.
+  \item[Covariate shift] Two load-bearing features are moved by 1--2 standard deviations in opposite label directions, with equal pushes on the label, and one distractor is moved as well.
+        $P(y \mid x)$ is unchanged, and so is the label rate, by construction.
+        An earlier design filtered random shifts on the label rate; it turned out to accept almost only shifts of distractors, which cannot affect any label (21 of 24 tasks).
+  \item[Spurious reversal] The shortcut's sign is reversed: it now agrees with the label in only $1-s$ of rows.
+\end{description}
+
+\paragraph{Semantic-prior conflict, not concept shift.}
+Conventional concept shift changes $P(y \mid x)$ between the data a learner is shown and the data it is tested on.
+We do not test it: if the queries followed a different rule from the demonstrations, the demonstrations would simply be wrong, and no choice of them could help.
+Instead, the rule stays the same in every environment, and the naming (next section) sets the model's semantic prior against it.
+Flipped names leave the data, the rule, the demonstrations and the queries unchanged and alter only what three features are called, so that the mapping the model brings from pre-training (a higher credit score means approval) points the opposite way to the task's.
+We call this \emph{semantic-prior conflict}.
+It resembles concept shift only from the model's perspective: what changes is the model's prior about $P(y \mid x)$, not $P(y \mid x)$ itself.
+
+\section{Naming: setting the prior against the rule}
+\label{sec:naming}
+
+Each task is shown under three namings.
+\textbf{Abstract} names are $f_0, \ldots, f_9$.
+\textbf{Aligned} names give each load-bearing feature a domain name whose everyday meaning agrees with its direction in the rule: in the loan domain, a feature that raises approval might be called ``credit score''.
+\textbf{Flipped} names give the same feature the antonym, ``missed payments''.
+Aligned and flipped prompts differ only in the three load-bearing names; non-causal features get plausible names with weak priors (``form version'', ``office floor number''), so names do not reveal which features matter.
+
+Antonym pairs were screened on the model itself.
+On 2,000 zero-shot profiles, a numeric prior dominated: every abstract feature had a positive slope, and names that should lower $P(y = 1)$ mostly just raised it less.
+Only 1 of 16 candidate pairs met the planned symmetry rule.
+The final names are the five pairs per domain with the largest \emph{measured} contrast.
+On the pilot tasks, zero-shot \AUROC is 0.594 with aligned names and 0.430 with flipped names ($\Delta = 0.164$, 95\% CI [0.053, 0.287], 10 of 12 tasks), so the names do move the prior; the effect is large for loan (0.28) and weak for medical (0.05).
+
+\section{Prompts, scoring and the model}
+\label{sec:prompts}
+
+Rows are serialised as \texttt{name: value} pairs separated by semicolons, followed by \texttt{->} and the label.
+The system message states that each example lists ten standardised measurements and a label, that the label follows an unknown rule over some of them, and that the model should answer with one character, 0 or 1.
+An abstract-name prompt reads, in part:
+
+\begin{quote}\small\ttfamily
+f0: 0.99; f1: 1.42; f2: 0.72; f3: -0.23; f4: -0.52; f5: 1.09; f6: 0.35; f7: -0.74; f8: -0.99; f9: -1.63 -> 0\\
+\ldots\\
+f0: 1.25; f1: 0.19; f2: 0.10; f3: -0.04; f4: -0.83; f5: 0.20; f6: 0.01; f7: 0.36; f8: -0.31; f9: 0.65 ->
+\end{quote}
+
+The model is \textbf{Qwen2.5-7B-Instruct} \citep{qwen2024qwen25} in bf16, run through PyTorch and Hugging Face \texttt{transformers} \citep{paszke2019pytorch,wolf2020transformers}.
+Its score for a query is the margin $m = \log p(\texttt{1}) - \log p(\texttt{0})$ of the two label tokens, computed in fp32 from the final hidden state; reading it from the bf16 output layer rounded margins onto a coarse grid.
+The demonstration prefix is computed once and cached, and each query is scored against the cached keys and values \citep{pope2023efficiently,gim2024prompt}; this was checked to change mean per-task \AUROC by at most 0.005.
+Qwen2.5-7B (base) answers in format and is used for exploratory comparisons. Inference ran first on an Apple M3 Max and then on a rented NVIDIA H200 with eight copies of the model sharing the GPU (the main grid, about 255,000 forward passes, took 42 minutes); the whole project used a few tens of US dollars of GPU time, which bounds what could be tested (\autoref{sec:limitations}).
+
+Llama-3.1-8B-Instruct \citep{grattafiori2024llama3} was dropped after the pilot, because with this prompt it explains its reasoning instead of answering (only about 2\% of its probability fell on the label tokens).
+
+\paragraph{The number of demonstrations.}
+On the pilot suite, $k = 8$ gold demonstrations beat the same rows with shuffled labels by $\Delta\AUROC = 0.098$ (95\% CI [0.021, 0.188], 9 of 12 tasks), so the model does use the labels; $k = 32$ did not pass.
+All experiments use $k = 8$.
+
+\paragraph{Measured priors.}
+The model's prior on a row is its zero-shot margin on that row, under the unit's naming, centred on the pool median.
+A ridge surrogate of this prior from feature names \citep{hoerl1970ridge} failed its planned fit criterion (held-out $R^2$ 0.20--0.51 against a bar of 0.5), so selection uses the measured margins directly.
+
+\section{Selection strategies}
+\label{sec:strategies}
+
+\autoref{tab:strategies} lists the strategies.
+Every strategy except \strat{random} takes $k/2$ demonstrations of each label, and balanced strategies are compared with \strat{label\_diversity}, a label-balanced random draw, so that contrasts compare selection mechanisms at fixed label counts.
+
+\begin{table}[t]
+\centering\small
+\caption{Selection strategies. Ground-truth strategies (marked GT) see feature roles that a deployed selector would not; this is disclosed wherever they are compared with \sata.}
+\label{tab:strategies}
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Strategy} & \textbf{What it selects} \\
+\midrule
+\strat{zero\_shot} & No demonstrations. \\
+\strat{random} & Uniform draw from the pool. \\
+\strat{label\_diversity} & Uniform draw, $k/2$ rows of each label: the comparator. \\
+\strat{feature\_range} & Covers the quantile bins of the three features with the highest mutual information with the label. \\
+\strat{rule\_diversity} (GT) & Covers the ground-truth regimes of the rule, one row each. \\
+\strat{counter\_spurious} (GT) & Matched pairs on $|x_8|$ in which the shortcut agrees and disagrees equally often, so it carries no information. \\
+\strat{similarity} & The $k/2$ nearest rows of each label to the query in feature space \citep{liu2022what}. \\
+\strat{counter\_prior} & Clean rows whose label contradicts the model's measured prior, when the pool shows prior--data conflict; related to misconfidence-based selection \citep{xu2024misconfidence}. \\
+\sata & Learned selector (\autoref{ch:sata}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Evaluation and statistics}
+\label{sec:stats}
+
+\paragraph{The metric.}
+The primary statistic is \AUROC \citep{hanley1982meaning,fawcett2006introduction} of the margin, computed within each cell of (task, strategy, seed, naming, environment) over its 20 label-balanced queries.
+It was chosen over calibrated balanced accuracy, after the first tasks had run and before any contrast was computed: contextual calibration left every query of a cell on one side of the threshold in 36\% of plain-random cells, which pins balanced accuracy at 0.5 and forces shift gaps to zero.
+Within-cell \AUROC has a blind spot of its own (\autoref{sec:limitations}): a shift that moves every score together cannot be seen.
+
+\paragraph{Inference.}
+For most strategies the demonstration set depends only on (task, strategy, seed), so the same sets are reused across namings and environments, and contrasts are paired; \strat{similarity} and \sata choose a set for each query, and \strat{counter\_prior}'s set depends on the naming, because it uses the prior measured under that naming.
+Uncertainty comes from a \textbf{hierarchical bootstrap} \citep{efron1993introduction,davison1997bootstrap}: each of 2,000 draws resamples the 24 tasks and then, within each task, the positive and negative queries separately.
+Contrasts are one-sided, and each family is \textbf{Holm-corrected} \citep{holm1979simple}.
+Every confirmatory family was \textbf{written into the code before the data it tests were seen} \citep{nosek2018preregistration}: ten contrasts for \RQ1--\RQ3, six for \sata.
+Everything outside those families is labelled exploratory.
+
+\paragraph{Figures.}
+Following \citet{healy2019data}, estimates are positions on a common scale with 95\% intervals, categories are ordered by value, and colour carries one meaning per figure, in colour-blind-safe palettes; every figure is drawn from the result files by one script.
+
+\paragraph{Gates.}
+Each expensive stage was preceded by a check that the instrument worked (cache exactness, answer format, learnability, naming strength, and an oracle check of every selector's targets), because an earlier, ungated version of this project produced results that turned out to be artefacts of code defects.

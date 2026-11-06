@@ -1,0 +1,57 @@
+\chapter{Exploratory results: \sata on the base model}
+\label{app:base}
+
+This appendix reports the exploratory comparison summarised in \autoref{sec:sata}.
+It was not part of a pre-registered family, so it is a lead for future work rather than a confirmed result.
+
+\paragraph{Setup.}
+We ran the same \sata checkpoint on Qwen2.5-7B (base), on the 24 evaluation tasks, as part of the reduced base-model grid of \autoref{ch:shift}: abstract and flipped names only, and three of the hand-designed strategies (\strat{random}, \strat{counter\_spurious} and \strat{counter\_prior}) besides zero-shot.
+\strat{label\_diversity} was not run on the base model, so \sata is compared here with \strat{random} and \strat{counter\_spurious}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{\figpath/fig_base_sata.pdf}
+\caption{Every strategy run on Qwen2.5-7B (base), by naming (panels) and environment (dot colour), as mean \AUROC over 24 tasks. The grey line joins one strategy's three environments, and rows are sorted by each strategy's weakest environment under abstract names. \sata's three environments sit close together and its weakest one is the highest of any strategy; the hand-designed strategies trade one environment against another.}
+\label{fig:base-sata}
+\end{figure}
+
+\paragraph{What the figure shows.}
+Under both namings, \sata's three environments sit close together, and its weakest environment is higher than any other strategy's (\autoref{fig:base-sata}).
+The hand-designed strategies trade one environment against another: \strat{random} and \strat{counter\_prior} do well on ID and covariate queries and fall under spurious reversal, the same pattern as on the instruction-tuned model (\autoref{tab:sata-flattening}), while \strat{counter\_spurious} is flatter but lower.
+This is the flattening \sata showed on the instruction-tuned model, but on the base model it comes without a clear loss on ID and covariate queries.
+
+\paragraph{The paired comparisons.}
+\autoref{tab:base-contrasts} compares \sata with the two strategies on the same queries.
+Against \strat{random}, its gains come under spurious reversal, with no clear cost on ID or covariate queries.
+Against \strat{counter\_spurious}, it is ahead in all six cells, with intervals above zero in two.
+Only one comparison, the gain over \strat{random} under spurious reversal with flipped names, survives a Holm correction over the twelve.
+
+\begin{table}[H]
+\centering\small
+\caption{\sata against the two hand-designed strategies run on the base model (24 tasks; hierarchical bootstrap as in \autoref{sec:stats}; Holm over these twelve comparisons). Exploratory. Tasks: the number of tasks in which \sata is ahead. Bold: survives correction.}
+\label{tab:base-contrasts}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+\textbf{Names} & \textbf{Comparison, environment} & \textbf{Estimate [95\% CI]} & \textbf{Holm $p$} & \textbf{Tasks} \\
+\midrule
+abstract & \sata{} $-$ random, ID & $-0.027$ [$-0.095$, 0.040] & 1.00 & 13/24 \\
+ & \sata{} $-$ random, covariate & $-0.014$ [$-0.080$, 0.051] & 1.00 & 12/24 \\
+ & \sata{} $-$ random, reversal & $+0.085$ [0.015, 0.155] & 0.11 & 15/24 \\
+ & \sata{} $-$ counter\_spurious, ID & $+0.048$ [$-0.017$, 0.110] & 0.45 & 17/24 \\
+ & \sata{} $-$ counter\_spurious, covariate & $+0.050$ [$-0.011$, 0.108] & 0.45 & 14/24 \\
+ & \sata{} $-$ counter\_spurious, reversal & $+0.029$ [$-0.028$, 0.087] & 0.94 & 14/24 \\
+\midrule
+flipped & \sata{} $-$ random, ID & $+0.008$ [$-0.060$, 0.077] & 1.00 & 16/24 \\
+ & \sata{} $-$ random, covariate & $0.000$ [$-0.072$, 0.076] & 1.00 & 12/24 \\
+ & \textbf{\sata{} $-$ random, reversal} & $\mathbf{+0.094}$ [0.031, 0.159] & \textbf{0.024} & 19/24 \\
+ & \sata{} $-$ counter\_spurious, ID & $+0.077$ [0.012, 0.136] & 0.12 & 19/24 \\
+ & \sata{} $-$ counter\_spurious, covariate & $+0.079$ [0.003, 0.152] & 0.18 & 18/24 \\
+ & \sata{} $-$ counter\_spurious, reversal & $+0.020$ [$-0.038$, 0.077] & 1.00 & 15/24 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Limits.}
+These comparisons were not pre-registered; the base grid covers two namings and three of the seven hand-designed strategies; and the comparison is between two models only, so it cannot show that instruction tuning is what makes the difference.
+The base model also loses less to flipped names than the instruction-tuned model (\autoref{ch:shift}), which fits the reading that \sata helps a model only as far as it reads its demonstrations, but does not establish it.
+ 

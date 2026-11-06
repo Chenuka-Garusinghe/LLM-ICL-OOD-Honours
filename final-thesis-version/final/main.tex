@@ -1,0 +1,195 @@
+\documentclass{usydthesis}
+\newcommand{\memyself}{Chenuka Garusinghe\xspace}
+% Configuration
+
+\def\degree{Bachelor of Advanced Computing (Honours)}
+\def\department{School of Computer Science}
+
+\title{{\bf\Huge When Demonstrations Lose to Priors}\\[0.6em]
+       {\Large Demonstration Selection for In-Context Learning under Distribution Shift in Small Language Models}}
+\author{\memyself}
+\def\sid{530080640}         
+\def\supervisor{Dr Sichao Li}  
+
+%%%%%%%%%%%%
+% Packages
+\usepackage{alltt}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage[colorlinks=false,plainpages=false,pdfborder={0 0 0},backref=false]{hyperref}
+\usepackage[all]{hypcap}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{pdflscape}
+\usepackage{pifont}
+\usepackage{rotating}
+\usepackage{setspace}
+% References: APA 7th edition (biblatex-apa, biber). natbib=true keeps \citep/\citet.
+% References: IEEE (biblatex-ieee, biber). natbib=true keeps \citep/\citet.
+\usepackage[australian]{babel}
+\usepackage[style=american]{csquotes}% IEEE uses double quotes around titles
+\usepackage[style=ieee,backend=biber,natbib=true]{biblatex}
+\biburlbigskip=0mu\relax% no stretched-out URLs
+\setcounter{biburllcpenalty}{7000}\setcounter{biburlucpenalty}{8000}\setcounter{biburlnumpenalty}{9000}% let long URLs break
+\DefineBibliographyExtras{australian}{\protected\def\finalandcomma{\addcomma}}% IEEE serial comma: A, B, and C
+\renewcommand*{\subtitlepunct}{\addcolon\space}% Title: Subtitle
+\usepackage{xurl}% long URLs may break at any character
+\addbibresource{references.bib}
+\newcommand{\newcite}[1]{\citet{#1}}
+\usepackage{tabularx}
+\usepackage{wrapfig}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{soul}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds,decorations.pathreplacing}
+
+% Macros and environments used in the design appendix
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\1}{\mathbf{1}}
+\newcommand{\E}{\mathbb{E}}
+\DeclareMathOperator{\sign}{sign}
+\DeclareMathOperator{\sigmoid}{\sigma}
+\DeclareMathOperator{\logsumexp}{logsumexp}
+\DeclareMathOperator{\Maj}{Maj}
+\DeclareMathOperator{\corr}{corr}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\RMSNorm}{RMSNorm}
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{proposition}[theorem]{Proposition}
+\let\lemma\relax\let\endlemma\relax
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\lstset{basicstyle=\ttfamily\small, breaklines=true, breakatwhitespace=true, frame=single,
+        backgroundcolor=\color{gray!5}, columns=fullflexible}
+\setlength{\emergencystretch}{3em}
+
+\def\subsectionautorefname{Section}
+\def\chapterautorefname{Chapter}
+\def\partautorefname{Part}
+
+\newcommand{\tick}{\ding{51}}
+\newcommand{\cross}{\ding{53}}
+
+\newcounter{todocounter}
+\newcommand{\todo}[1]{\marginpar{$|$}\textcolor{red}{\stepcounter{todocounter}\footnote[\thetodocounter]{\textcolor{red}{\textbf{TODO }}\textit{#1}}}}
+
+%%%%%%%%%%%%
+% Thesis macros (see introduction/introduction.tex for how findings are used)
+% A finding: one bolded sentence, numbered by chapter, stated for the conditions tested.
+\newcounter{finding}[chapter]
+\renewcommand{\thefinding}{\thechapter.\arabic{finding}}
+\newcommand{\finding}[1]{\par\smallskip\noindent\refstepcounter{finding}%
+  \textbf{Finding \thefinding.\ #1}\par\smallskip}
+% Anticipated criticism: a question an examiner may ask, and the answer.
+\newcommand{\critique}[2]{\par\smallskip\noindent\textit{``#1''}\par\noindent #2\par\smallskip}
+\newcommand{\AUROC}{\textsc{auroc}\xspace}
+\newcommand{\RQ}[1]{\textbf{RQ#1}\xspace}
+\newcommand{\sata}{\textsc{sata}\xspace}
+\newcommand{\satami}{\textsc{sata-mi}\xspace}
+\newcommand{\strat}[1]{\texttt{#1}}
+\newcommand{\figpath}{figures}
+% Parts are headings in the table of contents only (no separate title page)
+\newcommand{\thesispart}[1]{\cleardoublepage\phantomsection\addcontentsline{toc}{part}{#1}}
+
+%%%%%%%%%%%%
+% Setup
+
+%   Page size:
+\oddsidemargin=0cm	% really 1in
+\evensidemargin=0cm
+\textwidth=6.2677165in
+
+% initial page numbers:  i, ii, iii, ...
+\renewcommand{\thepage}{\roman{page}}
+
+\input{morenames.tex}
+
+%%%%%%%%%%%%
+% Start
+
+\begin{document}
+
+%%%%%%%%%%%%
+% Title page
+\maketitle
+
+\setstretch{1.5}
+
+% intro pages
+\cleardoublepage
+\phantomsection
+\input{plagiarism/plagiarism.tex}
+\cleardoublepage
+\phantomsection
+\input{abstract/abstract.tex}
+\cleardoublepage
+\phantomsection
+\input{thanks/thanks.tex}
+
+% tables
+\cleardoublepage
+\setcounter{tocdepth}{1}
+\tableofcontents
+
+{\makeatletter
+\renewcommand*\numberline[1]{\hb@xt@\@tempdima{#1 \hfil}\hspace*{1em}}
+\makeatother
+\listoffigures
+\listoftables
+\cleardoublepage
+}
+
+%%%%%%%%%%%%
+% Chapters
+\setcounter{page}{1}
+\setcounter{chapter}{0}
+
+% main page numbers:  1, 2, 3, ...
+\renewcommand{\thepage}{\arabic{page}}
+\setupParagraphs
+
+\thesispart{Part I\quad Foundations}
+\input{introduction/introduction.tex}
+\input{background/background.tex}
+\input{methodology/methodology.tex}
+
+\thesispart{Part II\quad Experiments}
+\input{experiments/shift.tex}
+\input{experiments/selectors.tex}
+\input{experiments/mechanism.tex}
+
+\thesispart{Part III\quad Synthesis}
+\input{discussion/discussion.tex}
+\input{conclusion/conclusion.tex}
+
+%%%%%%%%%%%%
+% End
+
+% Bibliography
+{
+\setstretch{1.0}\small
+\cleardoublepage
+\phantomsection
+\printbibliography[heading=bibliography,title={References}]
+}
+
+%%%% Appendices
+\appendix
+\input{appendix/notation.tex}
+\input{appendix/design.tex}
+\input{appendix/exploratory.tex}
+
+\end{document}

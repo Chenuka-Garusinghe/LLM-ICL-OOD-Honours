@@ -375,6 +375,55 @@ def fig_sata_proxy():
     save(fig, "fig_sata_proxy")
 
 
+def fig_sata_tradeoff():
+    """Robustness against predictive performance: per strategy, the mean over the three environments (x) and
+    the weakest environment (y), for the stand-in learner and both Qwen models (abstract names). On the
+    diagonal all three environments are equal; up and to the right is better on both counts."""
+    envs = list(ENV_COL)
+    gate = pd.read_parquet(RES / "p5" / "gate_s3a.parquet")
+    tr = pd.read_parquet(RES / "p5" / "proxy_trained.parquet")
+    proxy = pd.concat([gate, tr]).rename(columns={"method": "strategy", "accuracy": "v"})
+    _, cells = p4_cells()
+    sata = cell_metrics(pd.read_parquet(H / "p5" / "grid_sata.parquet"))
+    inst = pd.concat([cells, sata[sata.label_mode == "gold"]]).rename(columns={"auroc": "v"})
+    base = cell_metrics(pd.concat([pd.read_parquet(H / "p4" / "grid_base.parquet"),
+                                   pd.read_parquet(H / "p5" / "grid_sata_base.parquet")], ignore_index=True))
+    base = base[base.label_mode == "gold"].rename(columns={"auroc": "v"})
+    hand = ["random", "label_diversity", "feature_range", "rule_diversity", "counter_spurious", "similarity",
+            "counter_prior"]
+    panels = [("Stand-in learner (accuracy)", proxy, None),
+              ("Qwen2.5-7B-Instruct (AUROC)", inst, "abstract"),
+              ("Qwen2.5-7B base (AUROC, exploratory)", base, "abstract")]
+    # label placement (dx, dy in points; ha) where the default, to the right, would collide
+    nudge = {(1, "sata"): (-5, 0, "right"), (1, "counter_spurious"): (4, 4, "left"),
+             (1, "feature_range"): (0, -7, "center"), (1, "counter_prior"): (4, -3, "left"),
+             (1, "rule_diversity"): (4, 2, "left"), (0, "similarity"): (4, -3, "left")}
+    fig, axes = plt.subplots(1, 3, figsize=(WIDTH, 2.5), gridspec_kw={"wspace": 0.38})
+    for i, (ax, (title, d, naming)) in enumerate(zip(axes, panels)):
+        if naming:
+            d = d[d.naming == naming]
+        d = d[d.env.isin(envs) & d.strategy.isin(hand + ["sata"])]
+        p = (d.groupby(["strategy", "env", "task_id"]).v.mean().groupby(["strategy", "env"]).mean()
+               .unstack("env")[envs])
+        p = pd.DataFrame({"mean": p.mean(axis=1), "worst": p.min(axis=1)})
+        x0, x1 = p["mean"].min() - 0.02, p["mean"].max() + 0.035
+        y0, y1 = p["worst"].min() - 0.02, max(p["worst"].max(), x1) + 0.01
+        ax.plot([0, 1], [0, 1], color=GREY, linewidth=0.7, linestyle=(0, (3, 2)), zorder=1)
+        for s, r in p.iterrows():
+            is_sata = s == "sata"
+            dx, dy, ha = nudge.get((i, s), (4, 0, "left"))
+            ax.plot(r["mean"], r["worst"], "o", ms=5.5 if is_sata else 4, mec="white", mew=0.5, zorder=3,
+                    color=HIGHLIGHT if is_sata else GREY)
+            ax.annotate("SATA" if is_sata else STRAT_LAB[s], (r["mean"], r["worst"]), xytext=(dx, dy),
+                        textcoords="offset points", fontsize=8 if is_sata else 6.3, va="center", ha=ha,
+                        color=HIGHLIGHT if is_sata else INK2, fontweight="bold" if is_sata else "normal")
+        ax.set_xlim(x0, x1); ax.set_ylim(y0, y1)
+        ax.set_title(title, loc="left", fontsize=8)
+    axes[1].set_xlabel("mean over the three environments (predictive performance)")
+    axes[0].set_ylabel("weakest environment\n(robustness)")
+    save(fig, "fig_sata_tradeoff")
+
+
 def fig_base_sata():
     """Exploratory: every strategy run on Qwen2.5-7B (base), by naming (panels) and environment (dot colour),
     as mean AUROC over 24 tasks. Rows sorted by each strategy's weakest environment under abstract names."""

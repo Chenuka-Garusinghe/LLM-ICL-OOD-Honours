@@ -1,0 +1,67 @@
+\chapter{Notation}
+\label{app:notation}
+
+Symbols are grouped by where they first appear.
+Every symbol is also defined in the text at its first use; this appendix is the single place to look one up.
+Two letters carry more than one meaning, always told apart by a subscript or superscript:
+$\sigma(\cdot)$ is the logistic function and $\sigma_t$ a task's spurious direction;
+$s$ is the shortcut's strength, $s_j$ a load-bearing feature's direction in the rule, and $s^{\mathrm{lex}}$ a feature name's dictionary direction.
+
+{\small
+\renewcommand{\arraystretch}{1.05}
+\begin{longtable}{@{}p{3.4cm}p{11.6cm}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\endhead
+\multicolumn{2}{@{}l}{\textit{Tasks and data}} \\
+$f_0, \ldots, f_9$ & The ten features of a task, in the generator's numbering; also their abstract display names \\
+$x \in \mathbb{R}^{10}$, $x_j$ & A row's feature vector and its $j$-th feature, standardised with the pool's statistics \\
+$C$, $|C| = 3$ & The load-bearing (causal) features: the label depends on these and nothing else \\
+$x_C$ & The load-bearing part of $x$ \\
+$c_j = u_j r_j$ & Linear coefficient of load-bearing feature $j$, with $u_j \sim \mathrm{U}(1,2)$ and a random sign $r_j \in \{+1,-1\}$ \\
+$s_j \in \{+1,-1\}$ & Direction of load-bearing feature $j$ in the rule ($s_j = \operatorname{sign} c_j$ for linear tasks) \\
+$\sigma(z) = 1/(1+e^{-z})$ & The logistic function \\
+$\mathrm{Maj}$ & Majority vote over three signs (tree rules) \\
+$y_{\mathrm{clean}}$, $y$ & A row's rule label before and after label noise \\
+$\eta = 0.02$ & Label-noise rate: the probability that $y \neq y_{\mathrm{clean}}$ \\
+$s \sim \mathrm{U}(0.80, 0.90)$ & Spurious strength: the probability that the shortcut's sign agrees with the label \\
+$d = \Phi^{-1}(s)$ & The shortcut's class-conditional mean, with $\Phi$ the standard normal distribution function \\
+$\sigma_t \in \{+1,-1\}$ & Task $t$'s spurious direction: whether a large shortcut value indicates label 1 or label 0 \\
+$\varepsilon$ & Standard normal noise in the shortcut \\
+$\pi_t$ & Task $t$'s permutation of feature positions (the displayed order) \\
+$T$, $n$ & Number of tasks; queries per task and environment ($T = 24$, $n = 20$ in evaluation) \\
+$\delta$ & Size of a shift or a nudge, in standard deviations \\
+\multicolumn{2}{@{}l}{\textit{Naming, prompts and the model}} \\
+$N$ & A naming: abstract, aligned or flipped \\
+$s^{\mathrm{lex}} \in \{+1, 0, -1\}$ & A display name's dictionary direction ($+1$ for the first member of an antonym pair, $-1$ for the second, 0 for neutral and abstract names) \\
+$k$ & Demonstrations per prompt ($k = 8$) \\
+$\ell_0$, $\ell_1$ & The model's logits for the label tokens \texttt{0} and \texttt{1} \\
+$m = \ell_1 - \ell_0$ & The label margin, equal to $\log p(\texttt{1}) - \log p(\texttt{0})$ \\
+$m_0(x; N)$ & The model's zero-shot margin on row $x$ under naming $N$: its prior \\
+$\tilde m_0(x_i; N)$ & The measured prior of pool row $i$, centred on the pool median \\
+$C_t$ & Task $t$'s prior--data conflict under naming $N$: the share of pool rows whose label disagrees with the prediction of the centred prior, $\1[\tilde m_0 > 0]$ \\
+\multicolumn{2}{@{}l}{\textit{Evaluation and statistics}} \\
+\AUROC & Area under the ROC curve of the margin against the label, within one cell (task, strategy, seed, naming, environment) \\
+$B = 2000$ & Bootstrap draws \\
+$\pi_{\mathrm{true}}$, $\pi_{\mathrm{behav}}$, $\pi_{\mathrm{self}}$ & Feature importance: ground truth, behavioural (margin drop when the feature is replaced), and the model's self-report \\
+$\rho(\cdot,\cdot)$ & Spearman rank correlation \\
+$g_j$ & Directional sensitivity: $m(x + \delta e_j) - m(x - \delta e_j)$ with $\delta = 0.5$ \\
+DFI & Demo-following index: the share of (query, load-bearing feature) pairs with $\operatorname{sign} g_j = s_j$ \\
+\multicolumn{2}{@{}l}{\textit{The selector}} \\
+$p_\theta$ & The selector's softmax distribution over pool rows, with parameters $\theta$ \\
+$q$ & Its training target: a distribution over pool rows \\
+$\mathrm{KL}(q \,\Vert\, p_\theta)$ & The training loss \\
+\multicolumn{2}{@{}l}{\textit{Inside the model}} \\
+$L = 28$, $l$ & Number of decoder layers; a layer index ($l = 0$ is the embeddings) \\
+$h_l$ & The last-position residual state after layer $l$ \\
+$W_U$ & The unembedding (output) matrix \\
+$w = W_U[\texttt{1}] - W_U[\texttt{0}]$ & The label direction: the difference of the two label rows \\
+$\mathrm{RMSNorm}$ & The model's final normalisation layer \\
+$m_l$ & The logit-lens margin at layer $l$: $w^\top \mathrm{RMSNorm}(h_l)$ for $l < L$, and $m_L = m$ \\
+$\AUROC_l$ & \AUROC of $m_l$ against the rule label \\
+$v_l$ & The steering vector at layer $l$ \\
+$\alpha$ & Steering strength: $h_l \leftarrow h_l + \alpha v_l$ \\
+\bottomrule
+\end{longtable}
+}
